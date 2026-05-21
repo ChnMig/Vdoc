@@ -1,0 +1,34 @@
+# Build
+bulid/
+bin/
+dist/
+*.exe
+vdoc
+
+# dotenv and config
+.env
+config.yaml
+
+# venv
+/vendor/
+
+# Log
+*.log
+
+# OSX dir files
+.DS_Store
+
+# Sublime Text settings
+*.sublime-workspace
+*.sublime-project
+
+*.out
+
+# AI
+.claude/
+.sisyphus/
+.suco-auggie/
+
+AGENTS.md
+*.txt
+PRD.md

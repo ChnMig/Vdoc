@@ -1,0 +1,45 @@
+# HTTP Service 配置文件示例
+# 使用前请复制此文件为 config.yaml 并修改其中的配置项
+#
+# 环境变量支持：
+# 所有配置项都可以通过环境变量覆盖，格式为：VDOC_<SECTION>_<KEY>
+# 例如：
+#   export VDOC_SERVER_PORT=9090        # 覆盖 server.port
+#   export VDOC_JWT_KEY="$(openssl rand -base64 32)"  # 覆盖 jwt.key
+#   export VDOC_LOG_MAX_SIZE=100        # 覆盖 log.max_size
+#
+# 配置文件查找顺序：
+# 1. 当前目录 (./config.yaml)
+# 2. 工作目录 (./config.yaml)
+# 3. 系统目录 (/etc/vdoc/config.yaml)
+
+server:
+  port: 8080
+  pid_file: "vdoc.pid"     # pid 文件路径（支持相对路径，相对程序所在目录）；服务退出时会自动删除
+
+  # 服务进程只提供 HTTP。HTTPS/TLS 建议由 Caddy、Nginx、Ingress 等反向代理统一处理。
+
+  # 请求限制配置
+  max_body_size: "10MB"           # 请求体大小限制，支持 KB/MB/GB
+  max_header_bytes: 1048576       # 请求头大小限制（字节），默认 1MB
+
+  # 超时配置
+  shutdown_timeout: "10s"         # 优雅关闭超时时间
+  read_timeout: "30s"             # 读取超时
+  write_timeout: "30s"            # 写入超时
+  idle_timeout: "120s"            # 空闲连接超时
+
+  # 全局限流配置（可选）
+  enable_rate_limit: false        # 是否启用全局限流
+  global_rate_limit: 100          # 全局限流速率（每秒请求数）
+  global_rate_burst: 200          # 全局限流突发容量
+
+jwt:
+  key: ""  # 必须设置为至少32字符的强密钥，可用 openssl rand -base64 32 生成
+  expiration: "12h"  # JWT token 过期时间，格式: 12h, 24h, 30m 等
+
+log:
+  max_size: 50      # 单个日志文件最大大小（MB）
+  max_age: 30       # 保留旧日志文件的最大天数
+  level: "info"     # 业务日志级别: debug, info, warn, error
+  gin_level: ""     # Gin access/error 日志级别；为空时跟随 level

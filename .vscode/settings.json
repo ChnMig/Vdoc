@@ -1,0 +1,5 @@
+{
+    "gopls": {
+        "formatting.local": "vdoc"  // Value from go.mod > model
+    }
+}
