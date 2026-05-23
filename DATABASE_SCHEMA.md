@@ -29,23 +29,61 @@
 
 这些列参考常见 GORM base model 的 `ID`、`CreatedAt`、`UpdatedAt`、`DeletedAt` 习惯，但落到 PostgreSQL 时使用 `uuid` 和 `timestamptz`。唯一约束如果需要忽略软删除记录，应使用 partial unique index，例如 `WHERE deleted_at IS NULL`。
 
-## 3. 状态值和权限值
+## 3. 状态值、类型码和权限值
 
-| 对象 | 字段 | 取值 |
-|---|---|---|
-| `users` | `status` | `active`、`disabled`、`invited` |
-| `projects` | `status` | `active`、`archived` |
-| `project_members` | `role` | `reader`、`writer`、`admin` |
-| `project_members` | `status` | `active`、`invited`、`disabled` |
-| `api_services` | `status` | `active`、`archived` |
-| `api_contract_branches` | `kind` | `environment`、`feature` |
-| `api_contract_branches` | `status` | `active`、`archived` |
-| `api_contract_drafts` | `status` | `draft`、`submitted`、`changes_requested`、`rejected`、`published` |
-| `api_contract_versions` | `status` | `published` |
-| `api_version_diffs` | `diff_status` | `pending`、`running`、`succeeded`、`failed` |
-| `api_diff_items` | `severity` | `info`、`warning`、`breaking` |
-| `mcp_tokens` | `status` | `active`、`revoked`、`expired` |
-| `audit_logs` | `actor_type` | `user`、`mcp_token`、`system` |
+所有有限集合字段在数据库中都使用从 1 开始的整数码，不使用 text enum。建议类型为 `smallint`，数组使用 `smallint[]`。下表中的英文名称只用于代码常量、API DTO 和文档展示。
+
+| 对象 | 字段 | 类型 | Code map |
+|---|---|---|---|
+| `users` | `status` | `smallint` | 1 active、2 disabled |
+| `projects` | `status` | `smallint` | 1 active、2 archived |
+| `project_members` | `role` | `smallint` | 1 reader、2 writer、3 admin |
+| `project_members` | `status` | `smallint` | 1 active、2 disabled |
+| `api_services` | `status` | `smallint` | 1 active、2 archived |
+| `api_contract_branches` | `kind` | `smallint` | 1 environment、2 feature |
+| `api_contract_branches` | `status` | `smallint` | 1 active、2 archived |
+| `api_contract_drafts` | `status` | `smallint` | 1 draft、2 submitted、3 changes_requested、4 rejected、5 published |
+| `api_contract_versions` | `status` | `smallint` | 1 published |
+| `api_contract_drafts`、`api_contract_versions` | `schema_format` | `smallint` | 1 openapi-3.0、2 openapi-3.1 |
+| `api_contract_drafts`、`api_contract_versions` | `source_type` | `smallint` | 1 web_upload、2 mcp_upload、3 promote |
+| `api_contract_drafts`、`audit_logs` | actor type 字段 | `smallint` | 1 user、2 mcp_token、3 system |
+| `api_version_diffs` | `diff_status` | `smallint` | 1 pending、2 running、3 succeeded、4 failed |
+| `api_diff_items` | `severity` | `smallint` | 1 info、2 warning、3 breaking |
+| `api_endpoints` | `method` | `smallint` | 见 Endpoint method code map |
+| `api_diff_items` | `change_type` | `smallint` | 见 Diff change type code map |
+| `mcp_tokens` | `status` | `smallint` | 1 active、2 revoked、3 expired |
+| `mcp_tokens` | `scopes` | `smallint[]` | 1 api:read、2 api:draft |
+
+Endpoint method code map 固定如下。
+
+| Code | Method |
+|---|---|
+| 1 | GET |
+| 2 | POST |
+| 3 | PUT |
+| 4 | PATCH |
+| 5 | DELETE |
+| 6 | OPTIONS |
+| 7 | HEAD |
+| 8 | TRACE |
+
+Diff change type code map 固定如下。
+
+| Code | 名称 | 说明 | 默认严重度码 |
+|---|---|---|---|
+| 1 | endpoint_added | 新增 Endpoint | 1 |
+| 2 | endpoint_removed | 删除 Endpoint | 3 |
+| 3 | endpoint_modified | Endpoint 结构变化 | 2 |
+| 4 | request_parameter_added | 新增请求参数 | 1 或 3 |
+| 5 | request_parameter_removed | 删除请求参数 | 2 |
+| 6 | request_parameter_changed | 请求参数类型、位置或必填状态变化 | 2 或 3 |
+| 7 | request_body_changed | 请求体变化 | 2 或 3 |
+| 8 | response_field_added | 响应字段新增 | 1 |
+| 9 | response_field_removed | 响应字段删除 | 3 |
+| 10 | response_field_changed | 响应字段类型、格式或必填状态变化 | 2 或 3 |
+| 11 | security_changed | 鉴权要求变化 | 2 或 3 |
+| 12 | deprecated_changed | Deprecated 状态变化 | 1 或 2 |
+| 13 | enum_value_removed | enum 可选值删除 | 3 |
 
 项目角色权限固定为下表。SuperAdmin 是系统级兜底角色，不写入 `project_members.role`。
 
@@ -56,7 +94,7 @@
 | `admin` | `api:read`、`api:draft`、`api:publish`、`project:manage`、`member:manage` |
 | SuperAdmin | 所有项目的所有权限 |
 
-MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限取交集。SuperAdmin 可访问所有 Project。v0.1 MCP Token 可授予 `api:read` 和 `api:draft`，不能绕过人工审核直接发布版本。
+MCP Token 有效权限 = token scope codes 与用户在目标 Project 的角色权限取交集。SuperAdmin 可访问所有 Project。v0.1 MCP Token 可授予 `api:read` 和 `api:draft`，不能绕过人工审核直接发布版本。
 
 ## 4. Branch 和 Environment 模型
 
@@ -115,9 +153,8 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `email` | `text` | 是 | 登录邮箱，按小写唯一。 |
 | `password_hash` | `text` | 是 | 密码哈希。 |
 | `display_name` | `text` | 是 | 展示名称。 |
-| `avatar_url` | `text` | 否 | 头像地址。 |
 | `is_super_admin` | `boolean` | 是 | 默认 `false`。 |
-| `status` | `text` | 是 | `active`、`disabled`、`invited`。 |
+| `status` | `smallint` | 是 | 用户状态码，1 active、2 disabled。 |
 | `last_login_at` | `timestamptz` | 否 | 最近登录时间。 |
 | `created_at` | `timestamptz` | 是 | 创建时间。 |
 | `updated_at` | `timestamptz` | 是 | 更新时间。 |
@@ -126,7 +163,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 约束和索引 | 定义 |
 |---|---|
 | 主键 | `PRIMARY KEY (id)` |
-| 状态检查 | `CHECK (status IN ('active', 'disabled', 'invited'))` |
+| 状态检查 | `CHECK (status IN (1, 2))` |
 | 邮箱唯一 | `UNIQUE (lower(email)) WHERE deleted_at IS NULL` |
 | 查询索引 | `INDEX (status)`、`INDEX (is_super_admin)` |
 
@@ -163,7 +200,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `name` | `text` | 是 | 项目名称。 |
 | `slug` | `text` | 是 | Team 内唯一短标识。 |
 | `description` | `text` | 否 | 项目说明。 |
-| `status` | `text` | 是 | `active`、`archived`。 |
+| `status` | `smallint` | 是 | 项目状态码，1 active、2 archived。 |
 | `created_by` | `uuid` | 是 | 创建人。 |
 | `created_at` | `timestamptz` | 是 | 创建时间。 |
 | `updated_at` | `timestamptz` | 是 | 更新时间。 |
@@ -174,23 +211,23 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 主键 | `PRIMARY KEY (id)` |
 | Team 外键 | `FOREIGN KEY (team_id) REFERENCES teams(id)` |
 | 创建人外键 | `FOREIGN KEY (created_by) REFERENCES users(id)` |
-| 状态检查 | `CHECK (status IN ('active', 'archived'))` |
+| 状态检查 | `CHECK (status IN (1, 2))` |
 | Team 内唯一 | `UNIQUE (team_id, lower(slug)) WHERE deleted_at IS NULL` |
 | 查询索引 | `INDEX (team_id, status)`、`INDEX (created_by)` |
 
 ### 6.4 `project_members`
 
-保存用户在 Project 内的角色。权限按 `user_id + project_id` 实时查询，JWT 不长期保存项目角色。
+保存用户在 Project 内的角色。MVP 不做邀请流程，成员由后台或 Project Admin 从现有系统用户手动添加。权限按 `user_id + project_id` 实时查询，JWT 不长期保存项目角色。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | `uuid` | 是 | 主键。 |
 | `project_id` | `uuid` | 是 | 所属 Project。 |
 | `user_id` | `uuid` | 是 | 成员用户。 |
-| `role` | `text` | 是 | `reader`、`writer`、`admin`。 |
-| `status` | `text` | 是 | `active`、`invited`、`disabled`。 |
-| `invited_by` | `uuid` | 否 | 邀请人。 |
-| `joined_at` | `timestamptz` | 否 | 接受邀请时间。 |
+| `role` | `smallint` | 是 | 项目角色码，1 reader、2 writer、3 admin。 |
+| `status` | `smallint` | 是 | 成员状态码，1 active、2 disabled。 |
+| `added_by` | `uuid` | 是 | 添加成员的后台用户或 Project Admin。 |
+| `added_at` | `timestamptz` | 是 | 添加成员时间。 |
 | `created_at` | `timestamptz` | 是 | 创建时间。 |
 | `updated_at` | `timestamptz` | 是 | 更新时间。 |
 | `deleted_at` | `timestamptz` | 否 | 软删除时间。 |
@@ -200,9 +237,9 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 主键 | `PRIMARY KEY (id)` |
 | Project 外键 | `FOREIGN KEY (project_id) REFERENCES projects(id)` |
 | User 外键 | `FOREIGN KEY (user_id) REFERENCES users(id)` |
-| 邀请人外键 | `FOREIGN KEY (invited_by) REFERENCES users(id)` |
-| 角色检查 | `CHECK (role IN ('reader', 'writer', 'admin'))` |
-| 状态检查 | `CHECK (status IN ('active', 'invited', 'disabled'))` |
+| 添加人外键 | `FOREIGN KEY (added_by) REFERENCES users(id)` |
+| 角色检查 | `CHECK (role IN (1, 2, 3))` |
+| 状态检查 | `CHECK (status IN (1, 2))` |
 | 成员唯一 | `UNIQUE (project_id, user_id) WHERE deleted_at IS NULL` |
 | 查询索引 | `INDEX (user_id, status)`、`INDEX (project_id, role)` |
 
@@ -218,7 +255,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `display_name` | `text` | 否 | 展示名称。 |
 | `description` | `text` | 否 | 服务说明。 |
 | `base_path` | `text` | 否 | 服务默认 API 前缀。 |
-| `status` | `text` | 是 | `active`、`archived`。 |
+| `status` | `smallint` | 是 | 服务状态码，1 active、2 archived。 |
 | `created_by` | `uuid` | 是 | 创建人。 |
 | `created_at` | `timestamptz` | 是 | 创建时间。 |
 | `updated_at` | `timestamptz` | 是 | 更新时间。 |
@@ -229,7 +266,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 主键 | `PRIMARY KEY (id)` |
 | Project 外键 | `FOREIGN KEY (project_id) REFERENCES projects(id)` |
 | 创建人外键 | `FOREIGN KEY (created_by) REFERENCES users(id)` |
-| 状态检查 | `CHECK (status IN ('active', 'archived'))` |
+| 状态检查 | `CHECK (status IN (1, 2))` |
 | Project 内服务名唯一 | `UNIQUE (project_id, lower(name)) WHERE deleted_at IS NULL` |
 | 查询索引 | `INDEX (project_id, status)` |
 
@@ -242,11 +279,11 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `id` | `uuid` | 是 | 主键。 |
 | `service_id` | `uuid` | 是 | 所属 Service。 |
 | `name` | `text` | 是 | 分支名。默认 `dev`、`test`、`prod`，可选 `feature/*`。 |
-| `kind` | `text` | 是 | `environment`、`feature`。 |
+| `kind` | `smallint` | 是 | 分支类型码，1 environment、2 feature。 |
 | `description` | `text` | 否 | 分支说明。 |
 | `is_default` | `boolean` | 是 | 是否默认分支，每个 Service 最多一个。 |
 | `is_protected` | `boolean` | 是 | 是否受保护。`prod` 默认 true。 |
-| `status` | `text` | 是 | `active`、`archived`。 |
+| `status` | `smallint` | 是 | 分支状态码，1 active、2 archived。 |
 | `created_by` | `uuid` | 是 | 创建人。 |
 | `created_at` | `timestamptz` | 是 | 创建时间。 |
 | `updated_at` | `timestamptz` | 是 | 更新时间。 |
@@ -257,12 +294,12 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 主键 | `PRIMARY KEY (id)` |
 | Service 外键 | `FOREIGN KEY (service_id) REFERENCES api_services(id)` |
 | 创建人外键 | `FOREIGN KEY (created_by) REFERENCES users(id)` |
-| 类型检查 | `CHECK (kind IN ('environment', 'feature'))` |
-| 状态检查 | `CHECK (status IN ('active', 'archived'))` |
+| 类型检查 | `CHECK (kind IN (1, 2))` |
+| 状态检查 | `CHECK (status IN (1, 2))` |
 | 分支名唯一 | `UNIQUE (service_id, name)` |
 | 默认分支唯一 | `UNIQUE (service_id) WHERE is_default = true AND deleted_at IS NULL` |
-| Feature 命名 | `CHECK (kind <> 'feature' OR name LIKE 'feature/%')` |
-| 默认环境命名 | `CHECK (kind <> 'environment' OR name IN ('dev', 'test', 'prod'))` |
+| Feature 命名 | `CHECK (kind <> 2 OR name LIKE 'feature/%')` |
+| 默认环境命名 | `CHECK (kind <> 1 OR name IN ('dev', 'test', 'prod'))` |
 | 查询索引 | `INDEX (service_id, status)`、`INDEX (service_id, is_protected)` |
 
 ### 6.7 `api_contract_drafts`
@@ -275,8 +312,8 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `service_id` | `uuid` | 是 | 所属 Service。 |
 | `branch_id` | `uuid` | 是 | 目标分支。普通草稿和 promote 草稿都写目标分支。 |
 | `version_name` | `text` | 是 | 待发布版本名，例如 `1.2.0`。 |
-| `status` | `text` | 是 | `draft`、`submitted`、`changes_requested`、`rejected`、`published`。 |
-| `schema_format` | `text` | 是 | `openapi-3.0`、`openapi-3.1`。 |
+| `status` | `smallint` | 是 | 草稿状态码，1 draft、2 submitted、3 changes_requested、4 rejected、5 published。 |
+| `schema_format` | `smallint` | 是 | Schema 格式码，1 openapi-3.0、2 openapi-3.1。 |
 | `raw_schema_object_key` | `text` | 是 | RustFS Raw OpenAPI object key。 |
 | `normalized_schema_object_key` | `text` | 是 | RustFS Normalized OpenAPI object key。 |
 | `raw_schema_hash` | `text` | 是 | Raw OpenAPI SHA-256。 |
@@ -284,14 +321,15 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `schema_size_bytes` | `bigint` | 是 | Raw OpenAPI 字节数。 |
 | `schema_metadata` | `jsonb` | 是 | content type、etag、bucket、parser version 等元数据。 |
 | `changelog` | `text` | 否 | 提交说明。 |
-| `source_type` | `text` | 是 | `web_upload`、`mcp_upload`、`promote`。 |
+| `source_git_commit_id` | `text` | 否 | 用户应用或代码仓库的 Git commit ID。不是 Vdoc 自身 Git commit，也不是 Vdoc 契约分支。发布时复制到版本。 |
+| `source_type` | `smallint` | 是 | 草稿来源码，1 web_upload、2 mcp_upload、3 promote。 |
 | `source_branch_id` | `uuid` | 否 | promote 时的源分支。 |
 | `source_version_id` | `uuid` | 否 | promote 时的源分支最新已发布版本。 |
 | `base_version_id` | `uuid` | 否 | 目标分支基线版本，用于 diff preview。 |
 | `diff_preview_json` | `jsonb` | 否 | 小型 diff 预览摘要。 |
 | `diff_preview_object_key` | `text` | 否 | 大型 diff 预览 RustFS object key。 |
 | `review_comment` | `text` | 否 | 审核意见。 |
-| `created_by_actor_type` | `text` | 是 | `user`、`mcp_token`、`system`。 |
+| `created_by_actor_type` | `smallint` | 是 | 创建者类型码，1 user、2 mcp_token、3 system。 |
 | `created_by_user_id` | `uuid` | 是 | 草稿归属用户。MCP 草稿写 Token 所属用户。 |
 | `created_by_token_id` | `uuid` | 否 | MCP 创建时的 Token。 |
 | `submitted_at` | `timestamptz` | 否 | 提交审核时间。 |
@@ -314,12 +352,12 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 创建 Token 外键 | `FOREIGN KEY (created_by_token_id) REFERENCES mcp_tokens(id)` |
 | 审核人外键 | `FOREIGN KEY (reviewed_by) REFERENCES users(id)` |
 | 已发布版本外键 | `FOREIGN KEY (published_version_id) REFERENCES api_contract_versions(id)` |
-| 状态检查 | `CHECK (status IN ('draft', 'submitted', 'changes_requested', 'rejected', 'published'))` |
-| 格式检查 | `CHECK (schema_format IN ('openapi-3.0', 'openapi-3.1'))` |
-| 来源检查 | `CHECK (source_type IN ('web_upload', 'mcp_upload', 'promote'))` |
-| Actor 检查 | `CHECK (created_by_actor_type IN ('user', 'mcp_token', 'system'))` |
-| Active 草稿唯一 | `UNIQUE (service_id, branch_id, version_name) WHERE status IN ('draft', 'submitted', 'changes_requested') AND deleted_at IS NULL` |
-| Promote 字段检查 | `CHECK (source_type <> 'promote' OR (source_branch_id IS NOT NULL AND source_version_id IS NOT NULL))` |
+| 状态检查 | `CHECK (status IN (1, 2, 3, 4, 5))` |
+| 格式检查 | `CHECK (schema_format IN (1, 2))` |
+| 来源检查 | `CHECK (source_type IN (1, 2, 3))` |
+| Actor 检查 | `CHECK (created_by_actor_type IN (1, 2, 3))` |
+| Active 草稿唯一 | `UNIQUE (service_id, branch_id, version_name) WHERE status IN (1, 2, 3) AND deleted_at IS NULL` |
+| Promote 字段检查 | `CHECK (source_type <> 3 OR (source_branch_id IS NOT NULL AND source_version_id IS NOT NULL))` |
 | 查询索引 | `INDEX (service_id, branch_id, status)`、`INDEX (created_by_user_id, status)`、`INDEX (base_version_id)` |
 
 ### 6.8 `api_contract_versions`
@@ -333,13 +371,13 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `branch_id` | `uuid` | 是 | 所属分支。 |
 | `version_name` | `text` | 是 | 分支内版本名。 |
 | `version_no` | `integer` | 是 | 分支内递增序号，便于排序。 |
-| `status` | `text` | 是 | 固定 `published`。 |
+| `status` | `smallint` | 是 | 固定 1 published。 |
 | `source_draft_id` | `uuid` | 是 | 来源草稿。 |
-| `source_type` | `text` | 是 | `web_upload`、`mcp_upload`、`promote`。 |
+| `source_type` | `smallint` | 是 | 来源码，1 web_upload、2 mcp_upload、3 promote。 |
 | `source_branch_id` | `uuid` | 否 | promote 来源分支。 |
 | `source_version_id` | `uuid` | 否 | promote 来源版本。 |
 | `base_version_id` | `uuid` | 否 | 发布时目标分支基线版本。 |
-| `schema_format` | `text` | 是 | `openapi-3.0`、`openapi-3.1`。 |
+| `schema_format` | `smallint` | 是 | Schema 格式码，1 openapi-3.0、2 openapi-3.1。 |
 | `raw_schema_object_key` | `text` | 是 | RustFS Raw OpenAPI object key。 |
 | `normalized_schema_object_key` | `text` | 是 | RustFS Normalized OpenAPI object key。 |
 | `raw_schema_hash` | `text` | 是 | Raw OpenAPI SHA-256。 |
@@ -347,6 +385,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `schema_size_bytes` | `bigint` | 是 | Raw OpenAPI 字节数。 |
 | `schema_metadata` | `jsonb` | 是 | content type、etag、bucket、parser version 等元数据。 |
 | `changelog` | `text` | 否 | 版本说明。 |
+| `source_git_commit_id` | `text` | 否 | 从来源草稿复制的用户应用或代码仓库 Git commit ID。不是 Vdoc 自身 Git commit，也不是 Vdoc 契约分支。 |
 | `endpoint_count` | `integer` | 是 | Endpoint 数量。 |
 | `published_by` | `uuid` | 是 | 审核发布人。 |
 | `published_at` | `timestamptz` | 是 | 发布时间。 |
@@ -360,9 +399,9 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | Branch 外键 | `FOREIGN KEY (branch_id) REFERENCES api_contract_branches(id)` |
 | 来源草稿唯一 | `UNIQUE (source_draft_id)` |
 | 发布人外键 | `FOREIGN KEY (published_by) REFERENCES users(id)` |
-| 状态检查 | `CHECK (status = 'published')` |
-| 格式检查 | `CHECK (schema_format IN ('openapi-3.0', 'openapi-3.1'))` |
-| 来源检查 | `CHECK (source_type IN ('web_upload', 'mcp_upload', 'promote'))` |
+| 状态检查 | `CHECK (status = 1)` |
+| 格式检查 | `CHECK (schema_format IN (1, 2))` |
+| 来源检查 | `CHECK (source_type IN (1, 2, 3))` |
 | 分支内版本名唯一 | `UNIQUE (service_id, branch_id, version_name)` |
 | 分支内序号唯一 | `UNIQUE (service_id, branch_id, version_no)` |
 | Hash 查询索引 | `INDEX (service_id, branch_id, normalized_schema_hash)` |
@@ -378,7 +417,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `contract_version_id` | `uuid` | 是 | 所属契约版本。 |
 | `service_id` | `uuid` | 是 | 冗余 Service ID，便于查询。 |
 | `branch_id` | `uuid` | 是 | 冗余 Branch ID，便于按环境查询。 |
-| `method` | `text` | 是 | HTTP method。 |
+| `method` | `smallint` | 是 | HTTP method 码，1 GET、2 POST、3 PUT、4 PATCH、5 DELETE、6 OPTIONS、7 HEAD、8 TRACE。 |
 | `path` | `text` | 是 | OpenAPI path。 |
 | `operation_id` | `text` | 否 | OpenAPI operationId。 |
 | `summary` | `text` | 否 | 摘要。 |
@@ -399,7 +438,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 版本外键 | `FOREIGN KEY (contract_version_id) REFERENCES api_contract_versions(id)` |
 | Service 外键 | `FOREIGN KEY (service_id) REFERENCES api_services(id)` |
 | Branch 外键 | `FOREIGN KEY (branch_id) REFERENCES api_contract_branches(id)` |
-| Method 检查 | `CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'TRACE'))` |
+| Method 检查 | `CHECK (method IN (1, 2, 3, 4, 5, 6, 7, 8))` |
 | Endpoint 唯一 | `UNIQUE (contract_version_id, method, path)` |
 | 列表索引 | `INDEX (contract_version_id, sort_order)` |
 | 路径查询索引 | `INDEX (service_id, branch_id, method, path)` |
@@ -444,7 +483,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `to_branch_id` | `uuid` | 是 | 目标版本所在分支。 |
 | `from_version_id` | `uuid` | 是 | 对比起点版本。 |
 | `to_version_id` | `uuid` | 是 | 对比终点版本。 |
-| `diff_status` | `text` | 是 | `pending`、`running`、`succeeded`、`failed`。 |
+| `diff_status` | `smallint` | 是 | Diff 状态码，1 pending、2 running、3 succeeded、4 failed。 |
 | `diff_object_key` | `text` | 否 | 大型完整 Diff 快照 RustFS object key。 |
 | `diff_hash` | `text` | 否 | 完整 Diff SHA-256。 |
 | `diff_summary_json` | `jsonb` | 是 | 机器可读摘要。 |
@@ -465,7 +504,7 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | Service 外键 | `FOREIGN KEY (service_id) REFERENCES api_services(id)` |
 | 分支外键 | `FOREIGN KEY (from_branch_id) REFERENCES api_contract_branches(id)`、`FOREIGN KEY (to_branch_id) REFERENCES api_contract_branches(id)` |
 | 版本外键 | `FOREIGN KEY (from_version_id) REFERENCES api_contract_versions(id)`、`FOREIGN KEY (to_version_id) REFERENCES api_contract_versions(id)` |
-| 状态检查 | `CHECK (diff_status IN ('pending', 'running', 'succeeded', 'failed'))` |
+| 状态检查 | `CHECK (diff_status IN (1, 2, 3, 4))` |
 | 版本不同 | `CHECK (from_version_id <> to_version_id)` |
 | Diff 唯一 | `UNIQUE (from_version_id, to_version_id)` |
 | 查询索引 | `INDEX (service_id, to_branch_id, created_at DESC)`、`INDEX (diff_status)` |
@@ -479,9 +518,9 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | `id` | `uuid` | 是 | 主键。 |
 | `diff_id` | `uuid` | 是 | 所属 Diff。 |
 | `endpoint_id` | `uuid` | 否 | 目标版本中对应 Endpoint。删除 Endpoint 时可为空。 |
-| `change_type` | `text` | 是 | 变更类型。 |
-| `severity` | `text` | 是 | `info`、`warning`、`breaking`。 |
-| `method` | `text` | 否 | HTTP method。 |
+| `change_type` | `smallint` | 是 | 变更类型码，见 Diff change type code map。 |
+| `severity` | `smallint` | 是 | 严重度码，1 info、2 warning、3 breaking。 |
+| `method` | `smallint` | 否 | HTTP method 码，见 Endpoint method code map。 |
 | `path` | `text` | 否 | Endpoint path。 |
 | `operation_id` | `text` | 否 | operationId。 |
 | `location` | `text` | 否 | 变更位置，例如 `response.200.data.name`。 |
@@ -499,30 +538,30 @@ MCP Token 有效权限 = token scopes 与用户在目标 Project 的角色权限
 | 主键 | `PRIMARY KEY (id)` |
 | Diff 外键 | `FOREIGN KEY (diff_id) REFERENCES api_version_diffs(id)` |
 | Endpoint 外键 | `FOREIGN KEY (endpoint_id) REFERENCES api_endpoints(id)` |
-| Severity 检查 | `CHECK (severity IN ('info', 'warning', 'breaking'))` |
-| Breaking 一致性 | `CHECK (severity <> 'breaking' OR is_breaking = true)` |
+| Severity 检查 | `CHECK (severity IN (1, 2, 3))` |
+| Breaking 一致性 | `CHECK (severity <> 3 OR is_breaking = true)` |
 | 列表索引 | `INDEX (diff_id, sort_order)` |
 | 严重度索引 | `INDEX (diff_id, severity)` |
 | Endpoint 索引 | `INDEX (diff_id, method, path)` |
 | 类型索引 | `INDEX (change_type)` |
 
-v0.1 变更类型建议使用下表。
+v0.1 变更类型使用第 3 节的整数码，下表补充说明。
 
-| `change_type` | 说明 | 默认严重度 |
-|---|---|---|
-| `endpoint_added` | 新增 Endpoint | `info` |
-| `endpoint_removed` | 删除 Endpoint | `breaking` |
-| `endpoint_modified` | Endpoint 结构变化 | `warning` |
-| `request_parameter_added` | 新增请求参数 | `info` 或 `breaking` |
-| `request_parameter_removed` | 删除请求参数 | `warning` |
-| `request_parameter_changed` | 请求参数类型、位置或必填状态变化 | `warning` 或 `breaking` |
-| `request_body_changed` | 请求体变化 | `warning` 或 `breaking` |
-| `response_field_added` | 响应字段新增 | `info` |
-| `response_field_removed` | 响应字段删除 | `breaking` |
-| `response_field_changed` | 响应字段类型、格式或必填状态变化 | `warning` 或 `breaking` |
-| `security_changed` | 鉴权要求变化 | `warning` 或 `breaking` |
-| `deprecated_changed` | Deprecated 状态变化 | `info` 或 `warning` |
-| `enum_value_removed` | enum 可选值删除 | `breaking` |
+| Code | 名称 | 说明 | 默认严重度码 |
+|---|---|---|---|
+| 1 | endpoint_added | 新增 Endpoint | 1 |
+| 2 | endpoint_removed | 删除 Endpoint | 3 |
+| 3 | endpoint_modified | Endpoint 结构变化 | 2 |
+| 4 | request_parameter_added | 新增请求参数 | 1 或 3 |
+| 5 | request_parameter_removed | 删除请求参数 | 2 |
+| 6 | request_parameter_changed | 请求参数类型、位置或必填状态变化 | 2 或 3 |
+| 7 | request_body_changed | 请求体变化 | 2 或 3 |
+| 8 | response_field_added | 响应字段新增 | 1 |
+| 9 | response_field_removed | 响应字段删除 | 3 |
+| 10 | response_field_changed | 响应字段类型、格式或必填状态变化 | 2 或 3 |
+| 11 | security_changed | 鉴权要求变化 | 2 或 3 |
+| 12 | deprecated_changed | Deprecated 状态变化 | 1 或 2 |
+| 13 | enum_value_removed | enum 可选值删除 | 3 |
 
 ### 6.13 `mcp_tokens`
 
@@ -536,8 +575,8 @@ v0.1 变更类型建议使用下表。
 | `token_hash` | `text` | 是 | Token 哈希，用于调用鉴权匹配。 |
 | `token_ciphertext` | `bytea` | 是 | 加密后的完整 Token，用于后台向所属用户展示和复制。 |
 | `cipher_kid` | `text` | 是 | 加密密钥版本。 |
-| `scopes` | `text[]` | 是 | v0.1 允许 `api:read`、`api:draft`。 |
-| `status` | `text` | 是 | `active`、`revoked`、`expired`。 |
+| `scopes` | `smallint[]` | 是 | MCP scope 码数组，1 api:read、2 api:draft。 |
+| `status` | `smallint` | 是 | Token 状态码，1 active、2 revoked、3 expired。 |
 | `expires_at` | `timestamptz` | 否 | 过期时间。 |
 | `last_used_at` | `timestamptz` | 否 | 最近使用时间。 |
 | `revoked_at` | `timestamptz` | 否 | 废弃时间。 |
@@ -552,9 +591,9 @@ v0.1 变更类型建议使用下表。
 | User 外键 | `FOREIGN KEY (user_id) REFERENCES users(id)` |
 | 废弃人外键 | `FOREIGN KEY (revoked_by) REFERENCES users(id)` |
 | Token 哈希唯一 | `UNIQUE (token_hash)` |
-| 状态检查 | `CHECK (status IN ('active', 'revoked', 'expired'))` |
-| 废弃字段检查 | `CHECK (status <> 'revoked' OR revoked_at IS NOT NULL)` |
-| Scope 检查 | 应保证 `scopes` 只包含 `api:read`、`api:draft`。可用应用校验或 PostgreSQL 函数约束。 |
+| 状态检查 | `CHECK (status IN (1, 2, 3))` |
+| 废弃字段检查 | `CHECK (status <> 2 OR revoked_at IS NOT NULL)` |
+| Scope 检查 | 应保证 `scopes` 只包含 1、2。可用应用校验或 PostgreSQL 函数约束。 |
 | 查询索引 | `INDEX (user_id, status)`、`INDEX (expires_at)`、`INDEX (last_used_at DESC)` |
 
 鉴权规则固定如下。
@@ -562,8 +601,8 @@ v0.1 变更类型建议使用下表。
 | 步骤 | 规则 |
 |---|---|
 | Token 匹配 | 使用请求 Token 计算 hash，按 `token_hash` 查询 active Token。 |
-| Token 状态 | `status = active`，且 `expires_at` 为空或晚于当前时间。 |
-| 用户状态 | `users.status = active`。 |
+| Token 状态 | `status = 1`，且 `expires_at` 为空或晚于当前时间。 |
+| 用户状态 | `users.status = 1`。 |
 | 项目权限 | 查询目标 Project 的 `project_members`，SuperAdmin 跳过项目成员限制。 |
 | 有效权限 | token scopes 与项目角色权限取交集。 |
 | 写入限制 | MCP 可创建、更新、提交草稿，但不能直接发布 `api_contract_versions`。 |
@@ -576,7 +615,7 @@ v0.1 变更类型建议使用下表。
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | `uuid` | 是 | 主键。 |
-| `actor_type` | `text` | 是 | `user`、`mcp_token`、`system`。 |
+| `actor_type` | `smallint` | 是 | Actor 类型码，1 user、2 mcp_token、3 system。 |
 | `actor_user_id` | `uuid` | 否 | 操作用户。MCP 调用写 Token 所属用户。 |
 | `actor_token_id` | `uuid` | 否 | MCP Token。 |
 | `action` | `text` | 是 | 操作名，例如 `draft.create`、`draft.submit`、`version.publish`、`mcp_token.reveal`。 |
@@ -594,7 +633,7 @@ v0.1 变更类型建议使用下表。
 | 约束和索引 | 定义 |
 |---|---|
 | 主键 | `PRIMARY KEY (id)` |
-| Actor 检查 | `CHECK (actor_type IN ('user', 'mcp_token', 'system'))` |
+| Actor 检查 | `CHECK (actor_type IN (1, 2, 3))` |
 | User 外键 | `FOREIGN KEY (actor_user_id) REFERENCES users(id)` |
 | Token 外键 | `FOREIGN KEY (actor_token_id) REFERENCES mcp_tokens(id)` |
 | Project 外键 | `FOREIGN KEY (project_id) REFERENCES projects(id)` |
@@ -630,7 +669,7 @@ PostgreSQL 不保存完整 Raw OpenAPI、完整 Normalized OpenAPI 或大型 Dif
 | 保存 Raw | 写入 RustFS，得到 `raw_schema_object_key` 和 `raw_schema_hash`。 |
 | Normalize | 生成稳定排序后的 Normalized OpenAPI。 |
 | 保存 Normalized | 写入 RustFS，得到 `normalized_schema_object_key` 和 `normalized_schema_hash`。 |
-| 创建草稿 | 写入 `api_contract_drafts`，状态为 `draft` 或 `submitted`。 |
+| 创建草稿 | 写入 `api_contract_drafts`，状态码为 1 draft 或 2 submitted。普通上传必须写 `branch_id`，如果请求带 `source_git_commit_id` 则一并保存。 |
 | 生成预览 | 对比目标分支 `base_version_id`，写 `diff_preview_json`，大预览写 RustFS。 |
 | 写审计 | 写 `audit_logs`，记录 Web 用户或 MCP Token。 |
 
@@ -638,12 +677,12 @@ PostgreSQL 不保存完整 Raw OpenAPI、完整 Normalized OpenAPI 或大型 Dif
 
 | 步骤 | 写入内容 |
 |---|---|
-| 提交审核 | `api_contract_drafts.status = submitted`，写 `submitted_at`。 |
-| 要求修改 | `status = changes_requested`，写 `review_comment`、`reviewed_by`、`reviewed_at`。 |
-| 拒绝 | `status = rejected`，写审核信息。 |
-| 通过发布 | 创建 `api_contract_versions`，状态固定 `published`。 |
+| 提交审核 | `api_contract_drafts.status = 2`，写 `submitted_at`。 |
+| 要求修改 | `status = 3`，写 `review_comment`、`reviewed_by`、`reviewed_at`。 |
+| 拒绝 | `status = 4`，写审核信息。 |
+| 通过发布 | 创建 `api_contract_versions`，状态固定 1，并从草稿复制 `source_git_commit_id`。 |
 | 解析 Endpoint | 写 `api_endpoints` 和 `api_endpoint_details`。 |
-| 更新草稿 | `api_contract_drafts.status = published`，写 `published_version_id`。 |
+| 更新草稿 | `api_contract_drafts.status = 5`，写 `published_version_id`。 |
 | 生成 Diff | 对比同分支上一个 published 版本，写 `api_version_diffs` 和 `api_diff_items`。 |
 | 写审计 | 记录 `version.publish`。 |
 
@@ -664,6 +703,7 @@ PostgreSQL 不保存完整 Raw OpenAPI、完整 Normalized OpenAPI 或大型 Dif
 | MySQL | v0.1 不使用 MySQL。 |
 | Project 绑定 MCP Token | v0.1 MCP Token 不含 `project_id`，按用户绑定和权限交集判断。 |
 | 复杂 Git 合并模型 | v0.1 不建 merge commit、rebase、conflict resolution 等表。 |
+| 邀请工作流 | v0.1 不做邀请、待接受或加入确认流程，项目成员从现有系统用户手动添加。 |
 | 多级审批流 | v0.1 只支持草稿提交、修改请求、拒绝和发布。 |
 | 多协议导入 | v0.1 只面向 OpenAPI 3.x。 |
 
@@ -673,8 +713,11 @@ PostgreSQL 不保存完整 Raw OpenAPI、完整 Normalized OpenAPI 或大型 Dif
 |---|---|
 | 是否覆盖所有 MVP 表 | 已覆盖 `users`、`teams`、`projects`、`project_members`、`api_services`、`api_contract_branches`、`api_contract_drafts`、`api_contract_versions`、`api_endpoints`、`api_endpoint_details`、`api_version_diffs`、`api_diff_items`、`mcp_tokens`、`audit_logs`。 |
 | 是否明确 PostgreSQL 和 RustFS 边界 | 已明确 PostgreSQL 存结构化数据，RustFS 存 Raw、Normalized 和大型 Diff 快照。 |
+| 是否使用整数码保存有限集合字段 | 已明确状态、角色、类型、method、severity、scope 等 DB 字段使用从 1 开始的 `smallint` 或 `smallint[]`。 |
 | 是否支持分支和环境 | 已明确 `dev`、`test`、`prod`、`feature/*`、受保护 `prod` 和 `(service_id, name)` 唯一。 |
 | 是否支持 branch-aware 版本唯一 | 已明确 `UNIQUE (service_id, branch_id, version_name)`。 |
 | 是否支持 promote | 已明确目标草稿字段 `branch_id`、`source_branch_id`、`source_version_id`、`base_version_id` 和 diff preview。 |
+| 是否记录用户代码 Git commit | 已明确 `api_contract_drafts.source_git_commit_id`，发布时复制到 `api_contract_versions.source_git_commit_id`。 |
+| 是否移除邀请 MVP | 已明确没有 `invited` 状态、`invited_by` 或 `joined_at`，成员由后台或管理员从现有用户手动添加。 |
 | 是否避免 Project 绑定 MCP Token | 已明确 `mcp_tokens` 不含 `project_id`。 |
 | 是否明确 MCP 权限模型 | 已明确 token scopes 与用户 Project 角色权限取交集。 |
