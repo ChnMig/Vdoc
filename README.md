@@ -13,8 +13,8 @@ Vdoc is an API contract collaboration platform for fast-moving teams. It treats 
 The long-term goal is not to build another Swagger UI clone. Vdoc focuses on the workflow that often breaks in AI-assisted development:
 
 ```text
-Backend or AI publishes OpenAPI
-        -> Vdoc creates an immutable version
+Backend uploads or AI submits an OpenAPI draft through MCP
+        -> A human reviewer approves it and Vdoc creates an immutable version
         -> Vdoc parses endpoint contracts
         -> Vdoc computes semantic diff against the previous version
         -> Vdoc marks breaking changes
@@ -58,17 +58,17 @@ Not implemented yet:
 | Endpoint Index | A structured database index of paths, methods, parameters, request bodies, responses, tags, and operation IDs. |
 | Semantic Diff | Contract-aware comparison between two versions, not raw text diff. |
 | Breaking Change | A change that can break frontend consumers, such as field removal, type change, new required parameter, or endpoint removal. |
-| MCP Token | A scoped token used by AI tools to query or publish API contracts through MCP. |
+| MCP Token | A user-bound AI tool token that users can view, copy, generate, and revoke in the backend; effective permissions come from token scopes plus the user's role on the target project. |
 
 ## MVP Workflow
 
-1. Admin creates a team.
-2. Admin creates a project.
-3. Admin invites members and assigns project-level roles.
-4. Admin or backend developer creates a service.
-5. Backend developer or AI uploads an OpenAPI 3.x document.
+1. SuperAdmin creates system members, teams, and projects.
+2. SuperAdmin assigns the initial Project Admin.
+3. Project Admin invites members and assigns project-level roles.
+4. Project Admin or Writer creates a service.
+5. Backend developer uploads, or AI submits an OpenAPI 3.x draft through MCP.
 6. Vdoc validates and stores the raw schema.
-7. Vdoc creates an immutable contract version.
+7. Project Admin approves the draft and Vdoc creates an immutable contract version.
 8. Vdoc parses an endpoint index for fast query and display.
 9. Vdoc compares the new version with the previous one.
 10. Vdoc stores a change summary and breaking-change list.
@@ -78,13 +78,14 @@ Not implemented yet:
 
 Planned for the first usable version:
 
-- Project-level roles: `Reader`, `Writer`, `Admin`
-- OpenAPI 3.x upload through Web API and later MCP
+- System-level `SuperAdmin`; project-level roles: `Reader`, `Writer`, `Admin`, where Writer submits drafts and Admin reviews/publishes them
+- OpenAPI 3.x upload through Web API, plus MCP draft submission and updates
 - Immutable contract versions per service
+- Human-reviewed publication for OpenAPI drafts
 - Endpoint list and endpoint detail query
 - Version comparison with semantic diff
 - Breaking-change summary
-- Read-only MCP tools first, write tools later
+- MCP read and draft tools first, direct publish tools later
 
 Explicitly out of scope for the first MVP:
 
@@ -92,11 +93,11 @@ Explicitly out of scope for the first MVP:
 - GraphQL, gRPC, Postman, YApi, or Apifox import
 - Full SDK generation platform
 - Automatic modification of frontend repositories
-- Complex approval workflows
+- Complex multi-step approval workflows
 
 ## Planned MCP Tools
 
-Read tools first:
+Read tools:
 
 ```text
 list_projects
@@ -108,12 +109,19 @@ compare_api_versions
 get_change_summary
 ```
 
-Write tools later:
+Draft tools for v0.1:
+
+```text
+create_api_version_draft
+update_api_version_draft
+submit_api_version_draft
+get_api_version_draft
+```
+
+Direct publish tools later:
 
 ```text
 publish_api_schema
-create_api_version_draft
-update_api_version_draft
 publish_api_version
 ```
 
@@ -130,6 +138,7 @@ Web App
 API Server
   - Project management
   - OpenAPI upload
+  - Draft review and publication
   - Contract version creation
   - Permission checks
   - Diff query
@@ -138,7 +147,7 @@ API Server
 MCP Server
   - AI contract lookup
   - AI version diff lookup
-  - AI OpenAPI publish/update
+  - AI OpenAPI draft submit/update
   - AI frontend change summaries
 
 Diff Engine
@@ -150,7 +159,7 @@ Diff Engine
 
 Storage
   - PostgreSQL for metadata, endpoint indexes, and diff summaries
-  - Object storage for raw and normalized OpenAPI snapshots
+  - RustFS for raw and normalized OpenAPI snapshots and large diff snapshots
   - Redis or queue for parse, diff, and later codegen jobs
 ```
 
@@ -246,7 +255,6 @@ Config file lookup order:
 
 ## Documentation
 
-- [Product requirements](PRD.md)
 - [Roadmap and improvements](IMPROVEMENTS.md)
 - [中文 README](README.zh-CN.md)
 - [中文路线图](IMPROVEMENTS.zh-CN.md)

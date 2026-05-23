@@ -32,3 +32,6 @@ config.yaml
 AGENTS.md
 *.txt
 PRD.md
+IMPLEMENTATION_PLAN.md
+IMPROVEMENTS.md
+IMPROVEMENTS.zh-CN.md

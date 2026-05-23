@@ -24,8 +24,8 @@
 MVP 需要验证一条核心链路：
 
 ```text
-后端或 AI 上传 OpenAPI
-        -> Vdoc 创建版本
+后端上传或 AI 通过 MCP 提交 OpenAPI 草稿
+        -> 人工审核后 Vdoc 创建版本
         -> Vdoc 解析接口契约
         -> Vdoc 计算语义 Diff
         -> 前端或 AI 查询变化
@@ -34,18 +34,24 @@ MVP 需要验证一条核心链路：
 
 ## 1. Team、Project 和角色模型
 
-先实现项目级协作，不要一开始做组织级复杂 RBAC。
+先实现系统级超级管理员和项目级协作，不要一开始做复杂组织级 RBAC。
 
 初始模型：
 
 ```text
+System
+  -> User
+       - SuperAdmin: 系统级用户、项目、成员和发布兜底管理
+
 Team
   -> Project
        -> ProjectMember
             - Reader: api:read
-            - Writer: api:read + api:write
-            - Admin: api:read + api:write + project:manage + member:manage
+            - Writer: api:read + api:draft
+            - Admin: api:read + api:draft + api:publish + project:manage + member:manage
 ```
+
+用户可以加入多个 Project，并在不同 Project 中拥有不同角色。Writer 只能创建、更新和提交草稿；发布必须由 Project Admin 或 SuperAdmin 执行。JWT 只保存必要用户身份，项目权限按 `user_id + project_id` 查询。
 
 ## 2. Service 和契约版本
 
@@ -54,7 +60,7 @@ Team
 规则：
 
 - 已发布的契约版本不可变。
-- 上传变化后的 schema 会创建新版本。
+- 上传变化后的 schema 会先创建草稿，审核通过后创建新版本。
 - Raw OpenAPI 必须保留，便于审计、下载和未来重新处理。
 - Normalized OpenAPI 用于稳定 hash 和比较。
 
@@ -69,12 +75,14 @@ Team
   -> 规范化 schema
   -> 计算 raw 和 normalized hash
   -> 检测无变化上传
+  -> 创建 contract draft
+  -> 人工审核通过
   -> 创建 contract version
   -> 解析 endpoint index
   -> 调度 semantic diff
 ```
 
-MVP 可以先使用本地文件系统保存 raw schema，后续再切换到 S3/MinIO 兼容对象存储。
+MVP 直接使用 RustFS 保存 raw schema、normalized schema 和较大的 diff 快照。后端通过 S3-compatible API 接入 RustFS，PostgreSQL 只保存 object key、hash 和元数据。
 
 ## 4. Endpoint Index
 
@@ -142,7 +150,7 @@ GET /api/users/{id}
 
 MCP 是 Vdoc 面向 AI 的核心集成入口。
 
-先做只读工具：
+先做查询和草稿工具：
 
 ```text
 list_projects
@@ -152,23 +160,31 @@ get_latest_schema
 get_endpoint_detail
 compare_api_versions
 get_change_summary
+create_api_version_draft
+update_api_version_draft
+submit_api_version_draft
+get_api_version_draft
 ```
 
-后续再做写入工具：
+后续再做直接发布工具：
 
 ```text
 publish_api_schema
-create_api_version_draft
-update_api_version_draft
 publish_api_version
 ```
 
 安全要求：
 
-- Token 必须绑定项目范围。
-- 只读 token 不能发布 schema。
-- 写操作必须可审计。
-- MCP tools 绝不能返回原始密钥。
+- v0.1 MCP Token 默认绑定用户，不绑定单个 Project，方便用户在 MCP 客户端中全局配置。
+- MCP tool 有效权限 = token scopes 与用户在目标 Project 的 ProjectMember 角色权限交集；SuperAdmin 可兜底访问所有 Project。
+- `api:read` token 不能创建或更新草稿。
+- `api:draft` token 只有在用户具备目标项目 Writer/Admin/SuperAdmin 权限时才能提交草稿，但不能发布 schema。
+- 发布必须由 Project Admin 或 SuperAdmin 通过具备 `api:publish` 的人工审核动作触发。
+- 用户可以在后台查看和复制自己 active 状态的完整 MCP Token，也可以生成新 token 并废弃旧 token。
+- 后端使用 `token_hash` 做调用鉴权，使用加密保存的 `token_ciphertext` 支持后台展示。
+- 草稿写入、token 查看/复制、token 废弃、token 使用和发布操作必须可审计。
+- MCP tools 绝不能返回原始密钥；只有后台 token 管理接口可以向 token 所属用户返回完整 token。
+- 项目绑定机器人/CI Token 放到 v0.2 评估。
 
 ## 8. 存储方向
 
@@ -181,9 +197,10 @@ PostgreSQL
   - endpoint index
   - diff result and change summary
 
-Object Storage
+RustFS Object Storage
   - raw OpenAPI snapshots
   - normalized OpenAPI snapshots
+  - full diff snapshots
   - optional compressed schema AST
 
 Redis / Queue
@@ -198,7 +215,8 @@ MCP 提供工具能力。未来可以通过 Skill 告诉 AI Agent 如何正确�
 
 可能的 Skill 工作流：
 
-- 后端发布更新后的 API 契约。
+- 后端或 AI 提交更新后的 API 契约草稿。
+- 审核人查看草稿 diff preview 后发布。
 - 前端比较两个 API 版本。
 - 前端请求某个 endpoint 的 TypeScript 类型和请求函数。
 - AI 识别 breaking changes 可能影响的前端文件。
@@ -209,15 +227,16 @@ MCP 提供工具能力。未来可以通过 Skill 告诉 AI Agent 如何正确�
 - GraphQL、gRPC、Postman、YApi、Apifox 导入
 - 完整 SDK/codegen 平台
 - 自动修改前端仓库
-- 重审批流程
+- 复杂多级审批流程
 - 公共 SaaS 多租户硬化
 
 ## 成功标准
 
 如果满足以下条件，MVP 就有价值：
 
-1. 后端开发能在 1 分钟内发布一个 OpenAPI 版本。
+1. 后端开发能在 1 分钟内提交 OpenAPI 草稿，Project Admin 能在审核后发布版本。
 2. Vdoc 能展示相较上一版本发生了什么变化。
 3. Vdoc 能识别常见 breaking changes。
 4. 前端能通过 Web UI 或 MCP 查询接口详情和版本差异。
-5. AI Agent 能基于 MCP 返回结果生成或更新前端对接代码。
+5. AI Agent 能通过 MCP 提交 OpenAPI 草稿，并明确等待人工审核发布。
+6. AI Agent 能基于 MCP 返回结果生成或更新前端对接代码。

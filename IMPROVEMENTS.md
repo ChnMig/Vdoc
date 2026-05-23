@@ -24,8 +24,8 @@ This foundation is ready for product-domain work, but it is not yet the API cont
 The MVP should validate one core workflow:
 
 ```text
-Backend or AI uploads OpenAPI
-        -> Vdoc creates a version
+Backend uploads or AI submits an OpenAPI draft through MCP
+        -> A human reviewer approves it and Vdoc creates a version
         -> Vdoc parses endpoint contracts
         -> Vdoc computes semantic diff
         -> Frontend or AI queries changes
@@ -34,18 +34,24 @@ Backend or AI uploads OpenAPI
 
 ## 1. Team, Project, and Role Model
 
-Implement project-level collaboration first. Avoid organization-wide RBAC until the product needs it.
+Implement a system-level super administrator plus project-level collaboration first. Avoid organization-wide RBAC until the product needs it.
 
 Initial model:
 
 ```text
+System
+  -> User
+       - SuperAdmin: system-level fallback management for users, projects, members, and publication
+
 Team
   -> Project
        -> ProjectMember
             - Reader: api:read
-            - Writer: api:read + api:write
-            - Admin: api:read + api:write + project:manage + member:manage
+            - Writer: api:read + api:draft
+            - Admin: api:read + api:draft + api:publish + project:manage + member:manage
 ```
+
+A user can join multiple projects with different project roles. Writer can create, update, and submit drafts only; publication must be performed by Project Admin or SuperAdmin. JWT stores only necessary user identity, while project permissions are resolved by `user_id + project_id`.
 
 ## 2. Service and Contract Versioning
 
@@ -54,7 +60,7 @@ Each project can contain multiple services. Each service owns its OpenAPI versio
 Rules:
 
 - A published contract version is immutable.
-- Uploading a changed schema creates a new version.
+- Uploading a changed schema first creates a draft; approval creates the new version.
 - Raw OpenAPI is preserved for audit, download, and future reprocessing.
 - Normalized OpenAPI is stored for stable hashing and comparison.
 
@@ -69,12 +75,14 @@ Receive OpenAPI YAML/JSON
   -> Normalize schema
   -> Compute raw and normalized hashes
   -> Detect no-change uploads
+  -> Create contract draft
+  -> Human approval
   -> Create contract version
   -> Parse endpoint index
   -> Schedule semantic diff
 ```
 
-MVP can start with local filesystem storage for raw schemas, then move to S3/MinIO-compatible object storage.
+MVP should use RustFS for raw schemas, normalized schemas, and larger diff snapshots. The backend connects to RustFS through an S3-compatible API, while PostgreSQL stores only object keys, hashes, and metadata.
 
 ## 4. Endpoint Index
 
@@ -142,7 +150,7 @@ GET /api/users/{id}
 
 MCP is the core AI integration surface.
 
-Read tools first:
+Read and draft tools first:
 
 ```text
 list_projects
@@ -152,23 +160,31 @@ get_latest_schema
 get_endpoint_detail
 compare_api_versions
 get_change_summary
+create_api_version_draft
+update_api_version_draft
+submit_api_version_draft
+get_api_version_draft
 ```
 
-Write tools later:
+Direct publish tools later:
 
 ```text
 publish_api_schema
-create_api_version_draft
-update_api_version_draft
 publish_api_version
 ```
 
 Security requirements:
 
-- Tokens must be scoped by project.
-- Read tokens cannot publish schemas.
-- Write actions must be auditable.
-- Raw secrets must never be returned by MCP tools.
+- v0.1 MCP tokens are user-bound, not project-bound, so users can configure one token in their MCP client.
+- Effective MCP tool permissions are `token.scopes` intersected with the token owner's ProjectMember role on the target project; SuperAdmin can fall back to all projects.
+- `api:read` tokens cannot create or update drafts.
+- `api:draft` tokens can submit drafts only when the user has Writer/Admin/SuperAdmin permission on the target project, and cannot publish schemas.
+- Publication must be triggered by a Project Admin or SuperAdmin human action with `api:publish`.
+- Users can view and copy their own active MCP tokens in the backend, generate new tokens, and revoke old tokens.
+- The backend uses `token_hash` for call authentication and encrypted `token_ciphertext` for backend display.
+- Draft writes, token reveal/copy, token revocation, token use, and publish actions must be auditable.
+- Raw secrets must never be returned by MCP tools; only backend token-management APIs may return the full token to its owner.
+- Project-bound robot/CI tokens are deferred to v0.2 evaluation.
 
 ## 8. Storage Direction
 
@@ -181,9 +197,10 @@ PostgreSQL
   - endpoint index
   - diff result and change summary
 
-Object Storage
+RustFS Object Storage
   - raw OpenAPI snapshots
   - normalized OpenAPI snapshots
+  - full diff snapshots
   - optional compressed schema AST
 
 Redis / Queue
@@ -198,7 +215,8 @@ MCP provides tool capabilities. A future Skill can teach AI agents the preferred
 
 Possible Skill workflows:
 
-- Backend publishes an updated API contract.
+- Backend or AI submits an updated API contract draft.
+- Reviewers publish after checking the draft diff preview.
 - Frontend compares two API versions.
 - Frontend asks for endpoint-specific TypeScript types and request functions.
 - AI identifies frontend files likely affected by breaking changes.
@@ -209,15 +227,16 @@ Possible Skill workflows:
 - GraphQL, gRPC, Postman, YApi, or Apifox import
 - Complete SDK/codegen platform
 - Automatic frontend repository edits
-- Heavy approval workflow
+- Complex multi-step approval workflow
 - Public SaaS multi-tenancy hardening
 
 ## Success Criteria
 
 The MVP is useful if:
 
-1. Backend developers can publish an OpenAPI version within one minute.
+1. Backend developers can submit or publish an OpenAPI version within one minute.
 2. Vdoc can show what changed since the previous version.
 3. Vdoc can identify common breaking changes.
 4. Frontend developers can query endpoint details and version diffs through Web UI or MCP.
-5. AI agents can use MCP responses to generate or update frontend integration code.
+5. AI agents can submit OpenAPI drafts through MCP and clearly wait for human approval.
+6. AI agents can use MCP responses to generate or update frontend integration code.
