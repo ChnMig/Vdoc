@@ -299,7 +299,7 @@ MCP Token 有效权限 = token scope codes 与用户在目标 Project 的角色�
 | 分支名唯一 | `UNIQUE (service_id, name)` |
 | 默认分支唯一 | `UNIQUE (service_id) WHERE is_default = true AND deleted_at IS NULL` |
 | Feature 命名 | `CHECK (kind <> 2 OR name LIKE 'feature/%')` |
-| 默认环境命名 | `CHECK (kind <> 1 OR name IN ('dev', 'test', 'prod'))` |
+| 默认环境命名 | 应用初始化保证默认环境名为 `dev`、`test`、`prod`。 |
 | 查询索引 | `INDEX (service_id, status)`、`INDEX (service_id, is_protected)` |
 
 ### 6.7 `api_contract_drafts`
@@ -718,6 +718,6 @@ PostgreSQL 不保存完整 Raw OpenAPI、完整 Normalized OpenAPI 或大型 Dif
 | 是否支持 branch-aware 版本唯一 | 已明确 `UNIQUE (service_id, branch_id, version_name)`。 |
 | 是否支持 promote | 已明确目标草稿字段 `branch_id`、`source_branch_id`、`source_version_id`、`base_version_id` 和 diff preview。 |
 | 是否记录用户代码 Git commit | 已明确 `api_contract_drafts.source_git_commit_id`，发布时复制到 `api_contract_versions.source_git_commit_id`。 |
-| 是否移除邀请 MVP | 已明确没有 `invited` 状态、`invited_by` 或 `joined_at`，成员由后台或管理员从现有用户手动添加。 |
+| 是否移除邀请 MVP | 已明确不做邀请状态和邀请相关字段，成员由后台或管理员从现有用户手动添加。 |
 | 是否避免 Project 绑定 MCP Token | 已明确 `mcp_tokens` 不含 `project_id`。 |
 | 是否明确 MCP 权限模型 | 已明确 token scopes 与用户 Project 角色权限取交集。 |

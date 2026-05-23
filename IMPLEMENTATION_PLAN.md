@@ -132,7 +132,7 @@ audit_logs
 - `raw_schema_hash` 和 `normalized_schema_hash` 都要保存。
 - `api_endpoints` 以 `contract_version_id + method + path` 唯一。
 - `mcp_tokens.user_id` 绑定用户，不绑定单个 Project；保存 `token_hash` 用于鉴权匹配，同时保存加密的 `token_ciphertext` 用于后台查看和复制。
-- MCP tool 有效权限 = token scopes 与用户在目标 Project 的角色权限交集；SuperAdmin 可兜底访问所有 Project。
+- MCP tool 有效权限 = token scope codes 与用户在目标 Project 的角色权限交集；SuperAdmin 可兜底访问所有 Project。
 - v0.1 不做项目绑定机器人/CI Token，作为 v0.2 扩展。
 - 所有项目级资源必须带 `project_id` 或可追溯到 `project_id`。
 - JWT 只保存必要用户身份，项目角色按 `user_id + project_id` 实时查询。
