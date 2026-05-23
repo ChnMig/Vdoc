@@ -11,8 +11,9 @@ v0.1 必须跑通：
   -> 系统超级管理员 / 成员
   -> Team / Project / Role
   -> Service
-  -> OpenAPI 上传
-  -> Contract Version
+  -> Branch / Environment
+  -> OpenAPI 上传并创建草稿
+  -> 人工审核发布 Contract Version
   -> Endpoint Index / Detail
   -> Semantic Diff
   -> Breaking Change
@@ -24,6 +25,7 @@ v0.1 必须跑通：
 v0.1 不做：
 
 - MCP 直接发布 OpenAPI，放到 v0.2。
+- 项目成员邀请流程，v0.1 由后台或 Project Admin 从现有系统用户手动加入项目。
 - 复杂组织级 RBAC、多级审批流、通知、PR Bot、SDK/codegen 平台。
 - GraphQL、gRPC、Postman、YApi、Apifox 导入。
 - 自动修改前端仓库或字段级前端代码影响分析。
@@ -102,6 +104,7 @@ project_members      # Project 内 Admin / Writer / Reader
 
 ```text
 api_services
+api_contract_branches
 api_contract_drafts
 api_contract_versions
 api_endpoints
@@ -121,8 +124,11 @@ audit_logs
 
 - `api_contract_versions` 已发布后不可变。
 - MCP 写入只能落到 `api_contract_drafts`，不能直接创建 `api_contract_versions`。
-- 草稿状态使用 `draft/submitted/changes_requested/rejected/published`。
-- 同一 `service_id` 下 `version_name` 唯一。
+- 草稿状态、角色、分支类型、schema 格式、source type、actor type、HTTP method、diff 状态、severity、diff change type、MCP scopes 等有限集合字段都使用从 1 开始的整数码，DB 层用 `smallint` 或 `smallint[]`，不使用 text enum。
+- OpenAPI 上传字段必须包含 `branch_id`，可选包含 `source_git_commit_id`。该字段表示用户应用或代码仓库的 Git commit ID，不是 Vdoc 自身 Git commit，也不是 Vdoc 契约分支。
+- 发布时把 `api_contract_drafts.source_git_commit_id` 复制到 `api_contract_versions.source_git_commit_id`。
+- 同一 `service_id + branch_id` 下 `version_name` 唯一。
+- `prod` 分支默认受保护，发布必须由 Project Admin 或 SuperAdmin 审核。
 - `raw_schema_hash` 和 `normalized_schema_hash` 都要保存。
 - `api_endpoints` 以 `contract_version_id + method + path` 唯一。
 - `mcp_tokens.user_id` 绑定用户，不绑定单个 Project；保存 `token_hash` 用于鉴权匹配，同时保存加密的 `token_ciphertext` 用于后台查看和复制。
@@ -158,6 +164,9 @@ PATCH /api/v1/private/projects/:project_id/members/:user_id/role
 POST /api/v1/private/projects/:project_id/services
 GET  /api/v1/private/projects/:project_id/services
 GET  /api/v1/private/projects/:project_id/services/:service_id
+GET  /api/v1/private/projects/:project_id/services/:service_id/branches
+POST /api/v1/private/projects/:project_id/services/:service_id/branches
+PATCH /api/v1/private/projects/:project_id/services/:service_id/branches/:branch_id
 
 GET  /api/v1/private/projects/:project_id/services/:service_id/contracts
 GET  /api/v1/private/projects/:project_id/services/:service_id/contracts/:version_id
@@ -170,6 +179,7 @@ POST /api/v1/private/projects/:project_id/services/:service_id/contract-drafts/:
 POST /api/v1/private/projects/:project_id/services/:service_id/contract-drafts/:draft_id/approve
 POST /api/v1/private/projects/:project_id/services/:service_id/contract-drafts/:draft_id/request-changes
 POST /api/v1/private/projects/:project_id/services/:service_id/contract-drafts/:draft_id/reject
+POST /api/v1/private/projects/:project_id/services/:service_id/contract-drafts/promote
 
 GET  /api/v1/private/projects/:project_id/services/:service_id/contracts/:version_id/endpoints
 GET  /api/v1/private/projects/:project_id/services/:service_id/contracts/:version_id/endpoints/:endpoint_id
@@ -241,36 +251,40 @@ make lint
 - 注册/登录或最小可用用户创建方式。
 - JWT 登录态。
 - Reader / Writer / Admin 项目级权限判断。
-- Team、Project、Member API。
+- Team、Project、Member API，其中 Member API 只从现有系统用户手动添加成员，不做邀请状态。
 
 验收：
 
 - SuperAdmin 可以创建系统成员、Team / Project，并指定 Project Admin。
-- Project Admin 可以添加成员并分配角色。
+- Project Admin 可以从现有系统用户添加成员并分配角色。
 - Reader 不能写入项目资源。
 - Writer 可以执行 `api:draft`，但不能执行 `api:publish`。
 - Project Admin 可以审核并发布 Contract Version。
 
 ### Milestone 2：Service、Contract Draft 与 Contract Version
 
-目标：能上传并保存不可变 OpenAPI 版本。
+目标：能按分支上传 OpenAPI 草稿，并在人工审核后保存不可变 OpenAPI 版本。
 
 交付：
 
-- `api_services`、`api_contract_drafts`、`api_contract_versions`。
-- OpenAPI JSON/YAML 上传和草稿创建接口。
+- `api_services`、`api_contract_branches`、`api_contract_drafts`、`api_contract_versions`。
+- Service 创建时初始化 `dev`、`test`、`prod` 分支，`prod` 默认 protected。
+- OpenAPI JSON/YAML 上传和草稿创建接口，入参包含 `branch_id`，可选包含 `source_git_commit_id`。
 - OpenAPI 3.x 基础校验。
 - Raw schema 保存。
 - Normalized schema 生成和 hash。
 - 重复上传相同 normalized hash 返回 No Changes。
 - 草稿提交审核、退回修改、拒绝和批准发布接口。
+- 跨分支 Promote 创建目标分支草稿，记录 `source_branch_id`、`source_version_id` 和 `base_version_id`，再走普通审核发布。
 
 验收：
 
-- Writer 上传合法 OpenAPI 后生成草稿。
+- Writer 上传合法 OpenAPI 后在目标 `branch_id` 下生成草稿。
 - 非法 OpenAPI 返回明确错误。
 - 同一内容重复上传不创建新版本。
 - 审核通过后生成不可变 Contract Version。
+- 发布后版本唯一性按 `service_id + branch_id + version_name` 保证。
+- `source_git_commit_id` 从草稿复制到发布版本。
 - Reader 可以查看版本列表和详情。
 
 ### Milestone 3：Endpoint Index 和详情
@@ -324,8 +338,8 @@ make lint
 
 - `mcp_tokens`，默认绑定 `user_id`。
 - `token_hash` + 加密 `token_ciphertext` 存储，支持后台查看和复制完整 token。
-- active/revoked 状态和 `revoked_at`。
-- scope 校验，以及 token 所属用户在目标 Project 下的角色权限校验。
+- Token 状态使用整数码，保存 `revoked_at`。
+- scopes 使用整数码数组，校验 token 所属用户在目标 Project 下的角色权限。
 - 查询 MCP tools。
 - `api:draft` MCP tools。
 - MCP tool 错误响应规范。

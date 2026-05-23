@@ -54,6 +54,7 @@ Vdoc 的目标不是再做一个 Swagger UI，而是解决 AI 辅助开发里经
 | Team | 团队协作边界。 |
 | Project | 团队下的产品或应用。 |
 | Service | 项目内的后端服务，例如 `user-service` 或 `order-service`。 |
+| Contract Branch / Environment | Service 下的契约发布轨道，例如 `dev`、`test`、`prod` 或 `feature/*`，其中 `prod` 默认受保护。 |
 | Contract Version | 某个服务的一次不可变 OpenAPI 快照。 |
 | Endpoint Index | 从 OpenAPI 解析出的结构化索引，包括路径、方法、参数、请求体、响应、标签和 operationId。 |
 | Semantic Diff | 面向接口契约的版本比较，而不是原始文本 diff。 |
@@ -64,9 +65,9 @@ Vdoc 的目标不是再做一个 Swagger UI，而是解决 AI 辅助开发里经
 
 1. SuperAdmin 创建系统成员、Team 和 Project。
 2. SuperAdmin 指定 Project Admin。
-3. Project Admin 邀请成员并分配项目级角色。
+3. Project Admin 从现有系统用户中手动添加成员并分配项目级角色。
 4. Project Admin 或 Writer 创建 Service。
-5. 后端开发上传，或 AI 通过 MCP 提交 OpenAPI 3.x 草稿。
+5. 后端开发上传，或 AI 通过 MCP 向目标分支提交 OpenAPI 3.x 草稿。
 6. Vdoc 校验并保存 Raw Schema。
 7. Project Admin 人工审核通过后，Vdoc 创建不可变 Contract Version。
 8. Vdoc 解析 Endpoint Index，用于快速查询和展示。
@@ -80,6 +81,8 @@ Vdoc 的目标不是再做一个 Swagger UI，而是解决 AI 辅助开发里经
 
 - 系统级 `SuperAdmin`；项目级角色：`Reader`、`Writer`、`Admin`，其中 Writer 只能提交草稿，Admin 负责审核发布
 - 通过 Web API 上传 OpenAPI 3.x，AI 可通过 MCP 提交和更新草稿
+- MVP 不做邀请流程，项目成员从现有系统用户手动添加
+- Service 契约分支和环境，支持 `dev`、`test`、受保护 `prod`、可选 `feature/*`，以及 promote 到目标分支草稿
 - 每个 Service 下的不可变接口契约版本
 - OpenAPI 草稿人工审核后发布
 - 接口列表和接口详情查询
@@ -137,6 +140,7 @@ Web App
 
 API Server
   - 项目管理
+  - Service 分支 / 环境管理
   - OpenAPI 上传
   - 草稿审核和发布
   - 接口契约版本生成

@@ -51,7 +51,7 @@ Team
             - Admin: api:read + api:draft + api:publish + project:manage + member:manage
 ```
 
-A user can join multiple projects with different project roles. Writer can create, update, and submit drafts only; publication must be performed by Project Admin or SuperAdmin. JWT stores only necessary user identity, while project permissions are resolved by `user_id + project_id`.
+A user can join multiple projects with different project roles. Writer can create, update, and submit drafts only; publication must be performed by Project Admin or SuperAdmin. JWT stores only necessary user identity, while project permissions are resolved by `user_id + project_id`. MVP members are manually added from existing system users, without an invitation flow.
 
 ## 2. Service and Contract Versioning
 
@@ -61,6 +61,8 @@ Rules:
 
 - A published contract version is immutable.
 - Uploading a changed schema first creates a draft; approval creates the new version.
+- Services have contract branches/environments: `dev`, `test`, protected `prod`, and optional `feature/*`.
+- Promote creates a draft on the target branch, then uses the same review and publication flow.
 - Raw OpenAPI is preserved for audit, download, and future reprocessing.
 - Normalized OpenAPI is stored for stable hashing and comparison.
 
@@ -70,6 +72,7 @@ Target processing flow:
 
 ```text
 Receive OpenAPI YAML/JSON
+  -> Read target branch_id and optional source_git_commit_id
   -> Validate OpenAPI 3.x
   -> Store raw schema
   -> Normalize schema
@@ -143,7 +146,7 @@ Breaking changes: 2
 GET /api/users/{id}
 - response.name deleted [breaking]
 - response.age string -> number [breaking]
-- response.avatar added [info]
+- response.email added [info]
 ```
 
 ## 7. MCP Integration
@@ -196,6 +199,7 @@ PostgreSQL
   - services and version metadata
   - endpoint index
   - diff result and change summary
+  - integer codes for finite status, type, method, severity, and scope fields
 
 RustFS Object Storage
   - raw OpenAPI snapshots

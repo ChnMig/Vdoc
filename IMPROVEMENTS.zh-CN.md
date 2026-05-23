@@ -51,7 +51,7 @@ Team
             - Admin: api:read + api:draft + api:publish + project:manage + member:manage
 ```
 
-用户可以加入多个 Project，并在不同 Project 中拥有不同角色。Writer 只能创建、更新和提交草稿；发布必须由 Project Admin 或 SuperAdmin 执行。JWT 只保存必要用户身份，项目权限按 `user_id + project_id` 查询。
+用户可以加入多个 Project，并在不同 Project 中拥有不同角色。Writer 只能创建、更新和提交草稿；发布必须由 Project Admin 或 SuperAdmin 执行。JWT 只保存必要用户身份，项目权限按 `user_id + project_id` 查询。MVP 成员从现有系统用户手动添加，不做邀请流程。
 
 ## 2. Service 和契约版本
 
@@ -61,6 +61,8 @@ Team
 
 - 已发布的契约版本不可变。
 - 上传变化后的 schema 会先创建草稿，审核通过后创建新版本。
+- Service 下有契约分支和环境，支持 `dev`、`test`、受保护 `prod` 和可选 `feature/*`。
+- Promote 会在目标分支创建草稿，并复用普通审核发布流程。
 - Raw OpenAPI 必须保留，便于审计、下载和未来重新处理。
 - Normalized OpenAPI 用于稳定 hash 和比较。
 
@@ -70,6 +72,7 @@ Team
 
 ```text
 接收 OpenAPI YAML/JSON
+  -> 读取目标 branch_id 和可选 source_git_commit_id
   -> 校验 OpenAPI 3.x
   -> 保存 raw schema
   -> 规范化 schema
@@ -143,7 +146,7 @@ Breaking changes：2
 GET /api/users/{id}
 - response.name deleted [breaking]
 - response.age string -> number [breaking]
-- response.avatar added [info]
+- response.email added [info]
 ```
 
 ## 7. MCP 集成
@@ -196,6 +199,7 @@ PostgreSQL
   - services and version metadata
   - endpoint index
   - diff result and change summary
+  - status、type、method、severity、scope 等有限集合字段的整数码
 
 RustFS Object Storage
   - raw OpenAPI snapshots

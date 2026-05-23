@@ -54,6 +54,7 @@ Not implemented yet:
 | Team | A collaboration boundary for people and projects. |
 | Project | A product or app owned by a team. |
 | Service | A backend service inside a project, such as `user-service` or `order-service`. |
+| Contract Branch / Environment | A Vdoc contract track under a service, such as `dev`, `test`, `prod`, or `feature/*`. `prod` is protected by default. |
 | Contract Version | An immutable OpenAPI snapshot for a service. |
 | Endpoint Index | A structured database index of paths, methods, parameters, request bodies, responses, tags, and operation IDs. |
 | Semantic Diff | Contract-aware comparison between two versions, not raw text diff. |
@@ -64,9 +65,9 @@ Not implemented yet:
 
 1. SuperAdmin creates system members, teams, and projects.
 2. SuperAdmin assigns the initial Project Admin.
-3. Project Admin invites members and assigns project-level roles.
+3. Project Admin manually adds existing system users and assigns project-level roles.
 4. Project Admin or Writer creates a service.
-5. Backend developer uploads, or AI submits an OpenAPI 3.x draft through MCP.
+5. Backend developer uploads, or AI submits an OpenAPI 3.x draft through MCP for a target branch.
 6. Vdoc validates and stores the raw schema.
 7. Project Admin approves the draft and Vdoc creates an immutable contract version.
 8. Vdoc parses an endpoint index for fast query and display.
@@ -80,6 +81,8 @@ Planned for the first usable version:
 
 - System-level `SuperAdmin`; project-level roles: `Reader`, `Writer`, `Admin`, where Writer submits drafts and Admin reviews/publishes them
 - OpenAPI 3.x upload through Web API, plus MCP draft submission and updates
+- Manual project member adds from existing system users, without invitation workflow in MVP
+- Service contract branches/environments with `dev`, `test`, protected `prod`, optional `feature/*`, and promote-to-target-draft flow
 - Immutable contract versions per service
 - Human-reviewed publication for OpenAPI drafts
 - Endpoint list and endpoint detail query
@@ -137,6 +140,7 @@ Web App
 
 API Server
   - Project management
+  - Service branch / environment management
   - OpenAPI upload
   - Draft review and publication
   - Contract version creation
