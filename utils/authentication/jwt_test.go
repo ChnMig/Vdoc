@@ -16,10 +16,10 @@ func init() {
 }
 
 func TestJWTIssueAndDecrypt(t *testing.T) {
-	testData := map[string]interface{}{
-		"user_id":  "123",
-		"username": "test_user",
-		"role":     "admin",
+	testData := map[string]any{
+		"user_id":      "123",
+		"project_role": "admin",
+		"permissions":  []string{"read", "write"},
 	}
 
 	// 测试签发 token
@@ -38,15 +38,18 @@ func TestJWTIssueAndDecrypt(t *testing.T) {
 		t.Fatalf("JWTDecrypt failed: %v", err)
 	}
 
-	// 验证数据
+	// 验证 JWT 只保留必要用户身份
 	if data["user_id"] != testData["user_id"] {
 		t.Errorf("user_id mismatch: got %v, want %v", data["user_id"], testData["user_id"])
 	}
-	if data["username"] != testData["username"] {
-		t.Errorf("username mismatch: got %v, want %v", data["username"], testData["username"])
+	if len(data) != 1 {
+		t.Fatalf("JWT data = %v, want only user_id", data)
 	}
-	if data["role"] != testData["role"] {
-		t.Errorf("role mismatch: got %v, want %v", data["role"], testData["role"])
+	if _, ok := data["project_role"]; ok {
+		t.Fatal("JWT data must not include project_role")
+	}
+	if _, ok := data["permissions"]; ok {
+		t.Fatal("JWT data must not include permissions")
 	}
 }
 
@@ -61,7 +64,7 @@ func TestJWTDecryptInvalidToken(t *testing.T) {
 func TestJWTDecryptExpiredToken(t *testing.T) {
 	// 创建一个已经过期的自定义 claims
 	claims := MapClaims{
-		Data: map[string]interface{}{"user_id": "123"},
+		Data: map[string]any{"user_id": "123"},
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Hour)), // 1小时前过期
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)), // 2小时前签发
@@ -121,7 +124,7 @@ func TestPrepareRegisteredClaims(t *testing.T) {
 
 func TestSignAndParseHS256(t *testing.T) {
 	claims := &MapClaims{
-		Data: map[string]interface{}{"user_id": "test-123"},
+		Data: map[string]any{"user_id": "test-123"},
 	}
 	PrepareRegisteredClaims(&claims.RegisteredClaims)
 

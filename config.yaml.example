@@ -43,3 +43,23 @@ log:
   max_age: 30       # 保留旧日志文件的最大天数
   level: "info"     # 业务日志级别: debug, info, warn, error
   gin_level: ""     # Gin access/error 日志级别；为空时跟随 level
+
+database:
+  enabled: false
+  dsn: "postgres://vdoc:vdoc@127.0.0.1:5432/vdoc?sslmode=disable"
+  max_open_conns: 20
+  max_idle_conns: 5
+
+storage:
+  enabled: false
+  endpoint: "127.0.0.1:9000"
+  bucket: "vdoc"
+  access_key: ""
+  secret_key: ""
+  region: "us-east-1"
+  use_ssl: false
+  path_style: true
+
+mcp_token:
+  cipher_key: ""  # 可选；为空时复用 jwt.key，生产环境建议设置独立的至少32字符密钥
+  cipher_kid: "local-aes-gcm-v1"

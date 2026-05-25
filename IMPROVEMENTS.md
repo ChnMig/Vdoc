@@ -4,9 +4,9 @@ Languages: [English](IMPROVEMENTS.md) | [简体中文](IMPROVEMENTS.zh-CN.md)
 
 This document tracks the product roadmap and backend improvement plan for Vdoc.
 
-## Current Backend Foundation
+## Current v0.1 Backend Foundation
 
-The repository currently provides a production-oriented Go/Gin backend scaffold:
+The repository currently provides the Vdoc v0.1 Go/Gin backend:
 
 - HTTP server lifecycle and graceful shutdown
 - Config loading through Viper and `VDOC_` environment variables
@@ -15,13 +15,17 @@ The repository currently provides a production-oriented Go/Gin backend scaffold:
 - Request tracing through `trace_id`
 - Unified response envelope
 - CORS, security headers, request body limit, recovery, and rate limiting
+- Public auth, private JWT routes, MCP token lifecycle, JSON-RPC MCP read and draft tools
+- SuperAdmin user lifecycle, teams, projects, members, services, branches, OpenAPI drafts, reviewed publishing, endpoint indexes, semantic diffs, and audit logs
+- GORM/PostgreSQL persistence with normalized tables when `database.enabled=true`
+- RustFS or S3-compatible object storage for raw/normalized schema snapshots when `storage.enabled=true`
 - Health endpoint and tests
 
-This foundation is ready for product-domain work, but it is not yet the API contract hub itself.
+The in-memory store remains available for local development and tests when `database.enabled=false`; database startup fails instead of silently falling back when `database.enabled=true` cannot initialize.
 
-## MVP Priorities
+## v0.1 Core Workflow
 
-The MVP should validate one core workflow:
+The current backend validates one core workflow:
 
 ```text
 Backend uploads or AI submits an OpenAPI draft through MCP
@@ -34,7 +38,7 @@ Backend uploads or AI submits an OpenAPI draft through MCP
 
 ## 1. Team, Project, and Role Model
 
-Implement a system-level super administrator plus project-level collaboration first. Avoid organization-wide RBAC until the product needs it.
+v0.1 implements a system-level super administrator plus project-level collaboration. Organization-wide RBAC remains deferred until the product needs it.
 
 Initial model:
 
@@ -85,13 +89,13 @@ Receive OpenAPI YAML/JSON
   -> Schedule semantic diff
 ```
 
-MVP should use RustFS for raw schemas, normalized schemas, and larger diff snapshots. The backend connects to RustFS through an S3-compatible API, while PostgreSQL stores only object keys, hashes, and metadata.
+v0.1 uses RustFS or another S3-compatible object store for raw schemas, normalized schemas, and larger diff snapshots when storage is enabled. PostgreSQL stores object keys, hashes, and metadata.
 
 ## 4. Endpoint Index
 
 Do not query large raw OpenAPI files for every read request. Parse a structured index.
 
-Index data should include:
+Index data includes:
 
 - HTTP method and path
 - Operation ID
@@ -105,7 +109,7 @@ Index data should include:
 
 ## 5. Semantic Diff
 
-Vdoc should compare API contracts, not raw JSON text.
+Vdoc compares API contracts, not raw JSON text.
 
 Initial diff scope:
 

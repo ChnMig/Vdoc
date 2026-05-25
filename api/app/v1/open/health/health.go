@@ -15,7 +15,7 @@ func Status(c *gin.Context) {
 	l := log.FromContext(c)
 	l.Debug("健康检查开始")
 
-	status, err := domain.GetStatus()
+	status, err := domain.GetStatusWithContext(c.Request.Context())
 	if err != nil {
 		// 仅在出错时记录请求参数，便于排查问题
 		log.WithRequest(c).Error("健康检查失败", zap.Error(err))
@@ -25,10 +25,25 @@ func Status(c *gin.Context) {
 	}
 
 	dto := StatusDTO{
-		Status:    status.Status,
-		Ready:     status.Ready,
-		Uptime:    status.Uptime.String(),
-		Timestamp: status.Timestamp,
+		Status:       status.Status,
+		Healthy:      status.Healthy,
+		Ready:        status.Ready,
+		Uptime:       status.Uptime.String(),
+		Timestamp:    status.Timestamp,
+		Dependencies: dependencyStatusDTOs(status.Dependencies),
 	}
 	response.ReturnOk(c, dto)
+}
+
+func dependencyStatusDTOs(statuses map[string]domain.DependencyStatus) map[string]DependencyStatusDTO {
+	dtos := make(map[string]DependencyStatusDTO, len(statuses))
+	for name, status := range statuses {
+		dtos[name] = DependencyStatusDTO{
+			Enabled: status.Enabled,
+			Ready:   status.Ready,
+			Status:  status.Status,
+			Message: status.Message,
+		}
+	}
+	return dtos
 }

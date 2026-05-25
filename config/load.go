@@ -16,23 +16,37 @@ var (
 )
 
 type loadedConfig struct {
-	ListenPort      int
-	MaxBodySize     int64
-	MaxHeaderBytes  int
-	ShutdownTimeout time.Duration
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
-	EnableRateLimit bool
-	GlobalRateLimit int
-	GlobalRateBurst int
-	PidFile         string
-	JWTKey          string
-	JWTExpiration   time.Duration
-	LogMaxSize      int
-	LogMaxAge       int
-	LogLevel        string
-	GinLogLevel     string
+	ListenPort          int
+	MaxBodySize         int64
+	MaxHeaderBytes      int
+	ShutdownTimeout     time.Duration
+	ReadTimeout         time.Duration
+	WriteTimeout        time.Duration
+	IdleTimeout         time.Duration
+	EnableRateLimit     bool
+	GlobalRateLimit     int
+	GlobalRateBurst     int
+	PidFile             string
+	JWTKey              string
+	JWTExpiration       time.Duration
+	LogMaxSize          int
+	LogMaxAge           int
+	LogLevel            string
+	GinLogLevel         string
+	DatabaseEnabled     bool
+	DatabaseDSN         string
+	DatabaseMaxOpenConn int
+	DatabaseMaxIdleConn int
+	StorageEnabled      bool
+	StorageEndpoint     string
+	StorageBucket       string
+	StorageAccessKey    string
+	StorageSecretKey    string
+	StorageRegion       string
+	StorageUseSSL       bool
+	StoragePathStyle    bool
+	MCPTokenCipherKey   string
+	MCPTokenCipherKID   string
 }
 
 // LoadConfig 使用 Viper 加载配置
@@ -94,6 +108,23 @@ func setDefaults() {
 	v.SetDefault("log.max_age", 30)  // 保留 30 天
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.gin_level", "")
+
+	v.SetDefault("database.enabled", false)
+	v.SetDefault("database.dsn", "")
+	v.SetDefault("database.max_open_conns", 20)
+	v.SetDefault("database.max_idle_conns", 5)
+
+	v.SetDefault("storage.enabled", false)
+	v.SetDefault("storage.endpoint", "")
+	v.SetDefault("storage.bucket", "vdoc")
+	v.SetDefault("storage.access_key", "")
+	v.SetDefault("storage.secret_key", "")
+	v.SetDefault("storage.region", "us-east-1")
+	v.SetDefault("storage.use_ssl", false)
+	v.SetDefault("storage.path_style", true)
+
+	v.SetDefault("mcp_token.cipher_key", "")
+	v.SetDefault("mcp_token.cipher_kid", "local-aes-gcm-v1")
 }
 
 // applyConfig 将 Viper 配置应用到全局变量
@@ -111,7 +142,7 @@ func applyValidatedConfig() error {
 	if err != nil {
 		return err
 	}
-	if err := validateConfig(cfg.JWTKey, int64(cfg.JWTExpiration)); err != nil {
+	if err := validateConfig(cfg); err != nil {
 		return err
 	}
 	applyLoadedConfig(cfg)
@@ -161,6 +192,22 @@ func readConfig() (loadedConfig, error) {
 	cfg.LogLevel = v.GetString("log.level")
 	cfg.GinLogLevel = v.GetString("log.gin_level")
 
+	cfg.DatabaseEnabled = v.GetBool("database.enabled")
+	cfg.DatabaseDSN = v.GetString("database.dsn")
+	cfg.DatabaseMaxOpenConn = v.GetInt("database.max_open_conns")
+	cfg.DatabaseMaxIdleConn = v.GetInt("database.max_idle_conns")
+
+	cfg.StorageEnabled = v.GetBool("storage.enabled")
+	cfg.StorageEndpoint = v.GetString("storage.endpoint")
+	cfg.StorageBucket = v.GetString("storage.bucket")
+	cfg.StorageAccessKey = v.GetString("storage.access_key")
+	cfg.StorageSecretKey = v.GetString("storage.secret_key")
+	cfg.StorageRegion = v.GetString("storage.region")
+	cfg.StorageUseSSL = v.GetBool("storage.use_ssl")
+	cfg.StoragePathStyle = v.GetBool("storage.path_style")
+	cfg.MCPTokenCipherKey = v.GetString("mcp_token.cipher_key")
+	cfg.MCPTokenCipherKID = v.GetString("mcp_token.cipher_kid")
+
 	return cfg, nil
 }
 
@@ -182,6 +229,20 @@ func applyLoadedConfig(cfg loadedConfig) {
 	LogMaxAge = cfg.LogMaxAge
 	LogLevel = cfg.LogLevel
 	GinLogLevel = cfg.GinLogLevel
+	DatabaseEnabled = cfg.DatabaseEnabled
+	DatabaseDSN = cfg.DatabaseDSN
+	DatabaseMaxOpenConn = cfg.DatabaseMaxOpenConn
+	DatabaseMaxIdleConn = cfg.DatabaseMaxIdleConn
+	StorageEnabled = cfg.StorageEnabled
+	StorageEndpoint = cfg.StorageEndpoint
+	StorageBucket = cfg.StorageBucket
+	StorageAccessKey = cfg.StorageAccessKey
+	StorageSecretKey = cfg.StorageSecretKey
+	StorageRegion = cfg.StorageRegion
+	StorageUseSSL = cfg.StorageUseSSL
+	StoragePathStyle = cfg.StoragePathStyle
+	MCPTokenCipherKey = cfg.MCPTokenCipherKey
+	MCPTokenCipherKID = cfg.MCPTokenCipherKID
 }
 
 // WatchConfig 监听配置文件变化并自动重新加载（热重载）

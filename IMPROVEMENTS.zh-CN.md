@@ -4,9 +4,9 @@
 
 本文档记录 Vdoc 的产品路线图和后端改进计划。
 
-## 当前后端基础
+## 当前 v0.1 后端基础
 
-当前仓库提供了偏生产可用的 Go/Gin 后端脚手架：
+当前仓库提供 Vdoc v0.1 的 Go/Gin 后端：
 
 - HTTP 服务生命周期和优雅关闭
 - 基于 Viper 和 `VDOC_` 环境变量的配置加载
@@ -15,13 +15,17 @@
 - 基于 `trace_id` 的请求追踪
 - 统一响应包裹
 - CORS、安全响应头、请求体大小限制、Recovery、限流中间件
+- 公开注册/登录、私有 JWT 路由、MCP Token 生命周期、JSON-RPC MCP 查询和草稿 tools
+- SuperAdmin 用户生命周期、Team、Project、Member、Service、Branch、OpenAPI 草稿、人工审核发布、Endpoint 索引、语义 Diff 和审计日志
+- `database.enabled=true` 时通过 GORM/PostgreSQL 和规范化表持久化
+- `storage.enabled=true` 时通过 RustFS 或 S3-compatible 对象存储保存 raw/normalized schema 快照
 - 健康检查接口和测试
 
-这些基础设施已经可以支撑后续业务开发，但它本身还不是完整的 API Contract Hub。
+`database.enabled=false` 时仍保留内存 store 供本地开发和测试使用；`database.enabled=true` 且数据库初始化失败时会直接启动失败，不会静默退回内存模式。
 
-## MVP 优先级
+## v0.1 核心链路
 
-MVP 需要验证一条核心链路：
+当前后端已经验证一条核心链路：
 
 ```text
 后端上传或 AI 通过 MCP 提交 OpenAPI 草稿
@@ -34,7 +38,7 @@ MVP 需要验证一条核心链路：
 
 ## 1. Team、Project 和角色模型
 
-先实现系统级超级管理员和项目级协作，不要一开始做复杂组织级 RBAC。
+v0.1 已经实现系统级超级管理员和项目级协作；复杂组织级 RBAC 暂缓到产品真正需要时再做。
 
 初始模型：
 
@@ -85,13 +89,13 @@ Team
   -> 调度 semantic diff
 ```
 
-MVP 直接使用 RustFS 保存 raw schema、normalized schema 和较大的 diff 快照。后端通过 S3-compatible API 接入 RustFS，PostgreSQL 只保存 object key、hash 和元数据。
+v0.1 在启用对象存储时使用 RustFS 或其他 S3-compatible 存储保存 raw schema、normalized schema 和较大的 diff 快照。PostgreSQL 只保存 object key、hash 和元数据。
 
 ## 4. Endpoint Index
 
 不要每次查询都读取大型 Raw OpenAPI 文件，而是解析成结构化索引。
 
-索引数据应包括：
+索引数据包括：
 
 - HTTP method 和 path
 - Operation ID
@@ -105,7 +109,7 @@ MVP 直接使用 RustFS 保存 raw schema、normalized schema 和较大的 diff 
 
 ## 5. Semantic Diff
 
-Vdoc 应该比较接口契约，而不是比较原始 JSON 文本。
+Vdoc 比较接口契约，而不是比较原始 JSON 文本。
 
 初始 diff 范围：
 

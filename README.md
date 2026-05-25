@@ -24,27 +24,30 @@ Backend uploads or AI submits an OpenAPI draft through MCP
 
 ## Current Status
 
-This repository currently contains the Go/Gin backend foundation for Vdoc.
+This repository contains the Go/Gin backend for Vdoc v0.1.
 
-Implemented today:
+API documentation:
 
-- Gin HTTP server scaffold
+- Human-readable guide: [docs/api/API.md](docs/api/API.md)
+- Machine-readable OpenAPI spec: [docs/api/openapi.yaml](docs/api/openapi.yaml)
+
+Implemented in v0.1:
+
 - Versioned route tree under `/api/v1`
-- Health endpoint: `GET /api/v1/open/health`
+- Public register/login and private JWT routes
+- SuperAdmin user lifecycle, teams, projects, members, services, and branches
+- OpenAPI draft upload, review, and immutable version publishing
+- Raw and normalized schema retrieval for drafts and published versions
+- Endpoint index queries and semantic API diff summaries
+- MCP token lifecycle and JSON-RPC MCP read and draft tools
 - Unified JSON response envelope with `trace_id` and `timestamp`
 - Request tracing, structured access logs, panic recovery, CORS, security headers, body-size limit, and rate-limit middleware
 - Viper-based configuration with `VDOC_` environment variables
-- JWT helpers and startup safety checks for insecure keys
 - Makefile targets for build, test, lint, format, and cross-platform packaging
 
-Not implemented yet:
+Not in v0.1:
 
-- Team, project, member, and role management
-- OpenAPI upload and storage
-- Contract versioning
-- Endpoint index parsing
-- Semantic API diff
-- MCP tools
+- Direct MCP publish tools, including `publish_api_schema` and `publish_api_version`
 - Code generation and frontend integration helpers
 
 ## Product Concepts
@@ -66,8 +69,8 @@ Not implemented yet:
 1. SuperAdmin creates system members, teams, and projects.
 2. SuperAdmin assigns the initial Project Admin.
 3. Project Admin manually adds existing system users and assigns project-level roles.
-4. Project Admin or Writer creates a service.
-5. Backend developer uploads, or AI submits an OpenAPI 3.x draft through MCP for a target branch.
+4. Project Admin creates a service.
+5. Writer uploads, or AI submits an OpenAPI 3.x draft through MCP for a target branch.
 6. Vdoc validates and stores the raw schema.
 7. Project Admin approves the draft and Vdoc creates an immutable contract version.
 8. Vdoc parses an endpoint index for fast query and display.
@@ -75,9 +78,9 @@ Not implemented yet:
 10. Vdoc stores a change summary and breaking-change list.
 11. Frontend developers and AI agents query endpoint details, diffs, and summaries.
 
-## MVP Scope
+## v0.1 Scope
 
-Planned for the first usable version:
+Implemented in the current v0.1 backend:
 
 - System-level `SuperAdmin`; project-level roles: `Reader`, `Writer`, `Admin`, where Writer submits drafts and Admin reviews/publishes them
 - OpenAPI 3.x upload through Web API, plus MCP draft submission and updates
@@ -98,7 +101,7 @@ Explicitly out of scope for the first MVP:
 - Automatic modification of frontend repositories
 - Complex multi-step approval workflows
 
-## Planned MCP Tools
+## MCP Tools In v0.1
 
 Read tools:
 
@@ -121,14 +124,14 @@ submit_api_version_draft
 get_api_version_draft
 ```
 
-Direct publish tools later:
+Direct publish tools are not available in v0.1:
 
 ```text
 publish_api_schema
 publish_api_version
 ```
 
-## Architecture Direction
+## Backend Architecture
 
 ```text
 Web App
@@ -162,9 +165,9 @@ Diff Engine
   - Breaking-change rules
 
 Storage
-  - PostgreSQL for metadata, endpoint indexes, and diff summaries
-  - RustFS for raw and normalized OpenAPI snapshots and large diff snapshots
-  - Redis or queue for parse, diff, and later codegen jobs
+  - PostgreSQL for users, teams, projects, services, branches, drafts, versions, endpoint indexes, diff summaries, audit logs, and token security metadata
+  - RustFS or any S3-compatible object storage for raw and normalized OpenAPI snapshots and large diff snapshots when `storage.enabled=true`
+  - In-memory compatibility store for local development and tests when `database.enabled=false`
 ```
 
 ## Repository Structure
@@ -174,11 +177,11 @@ vdoc/
 ├── main.go                  # Server lifecycle, CLI flags, config, logging, graceful shutdown
 ├── Makefile                 # Build, run, test, format, lint, verify
 ├── api/                     # Gin setup, middleware, response envelope, versioned routes
-├── common/                  # Shared DTO/type placeholder
+├── common/                  # Shared DTOs and common types
 ├── config/                  # Viper config loading, defaults, hot reload, safety checks
-├── db/                      # Data-access placeholder
-├── domain/health/           # Current health-domain example
-├── services/                # Application-service placeholder
+├── db/                      # GORM PostgreSQL client, migrations, and Vdoc repository
+├── domain/                  # Domain models, repository interfaces, and health state
+├── services/                # Vdoc service facade, object storage integration, OpenAPI parsing, and diff logic
 ├── static/                  # Static asset placeholder
 └── utils/                   # JWT, logging, context keys, PID file, IDs, crypto helpers
 ```
@@ -233,9 +236,7 @@ make build CROSS=1
 
 ## Current API
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/v1/open/health` | Service health and readiness status. |
+The full v0.1 route list is maintained in [docs/api/API.md](docs/api/API.md) and [docs/api/openapi.yaml](docs/api/openapi.yaml). The implemented surfaces include public health/auth/docs/MCP routes and private identity, user, team, project, member, service, branch, draft, contract, endpoint, diff, and MCP token routes.
 
 Responses use a project envelope. HTTP status is currently always `200`; semantic success or failure is represented by the JSON `code` and `status` fields.
 
@@ -249,7 +250,16 @@ Examples:
 export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
+export VDOC_DATABASE_ENABLED=true
+export VDOC_DATABASE_DSN="postgres://vdoc:vdoc@127.0.0.1:5432/vdoc?sslmode=disable"
+export VDOC_STORAGE_ENABLED=true
+export VDOC_STORAGE_ENDPOINT="127.0.0.1:9000"
+export VDOC_STORAGE_BUCKET="vdoc"
+export VDOC_STORAGE_ACCESS_KEY="rustfs-access-key"
+export VDOC_STORAGE_SECRET_KEY="rustfs-secret-key"
 ```
+
+When `database.enabled=true`, Vdoc connects to PostgreSQL during startup, creates its runtime tables, and loads existing state. Connection or migration failure aborts startup instead of silently falling back to memory. When `storage.enabled=true`, raw and normalized OpenAPI schemas are written to RustFS or any S3-compatible object storage; the bucket is created automatically when missing.
 
 Config file lookup order:
 

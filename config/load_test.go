@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -47,7 +46,7 @@ func TestSetDefaults(t *testing.T) {
 	tests := []struct {
 		name string
 		key  string
-		want interface{}
+		want any
 	}{
 		{"server port", "server.port", 8080},
 		{"max body size", "server.max_body_size", "10MB"},
@@ -55,6 +54,10 @@ func TestSetDefaults(t *testing.T) {
 		{"jwt expiration", "jwt.expiration", "12h"},
 		{"log max size", "log.max_size", 50},
 		{"enable rate limit", "server.enable_rate_limit", false},
+		{"database enabled", "database.enabled", false},
+		{"database max open conns", "database.max_open_conns", 20},
+		{"storage bucket", "storage.bucket", "vdoc"},
+		{"storage path style", "storage.path_style", true},
 	}
 
 	for _, tt := range tests {
@@ -99,15 +102,19 @@ func TestApplyConfig(t *testing.T) {
 
 func TestLoadConfigWithEnv(t *testing.T) {
 	// 设置环境变量
-	os.Setenv("VDOC_SERVER_PORT", "9090")
-	os.Setenv("VDOC_JWT_EXPIRATION", "24h")
+	t.Setenv("VDOC_SERVER_PORT", "9090")
+	t.Setenv("VDOC_JWT_EXPIRATION", "24h")
 	pidPath := filepath.Join(t.TempDir(), "vdoc.pid")
-	os.Setenv("VDOC_SERVER_PID_FILE", pidPath)
-	defer func() {
-		os.Unsetenv("VDOC_SERVER_PORT")
-		os.Unsetenv("VDOC_JWT_EXPIRATION")
-		os.Unsetenv("VDOC_SERVER_PID_FILE")
-	}()
+	t.Setenv("VDOC_SERVER_PID_FILE", pidPath)
+	t.Setenv("VDOC_DATABASE_ENABLED", "true")
+	t.Setenv("VDOC_DATABASE_DSN", "postgres://vdoc@127.0.0.1:5432/vdoc?sslmode=disable")
+	t.Setenv("VDOC_STORAGE_ENABLED", "true")
+	t.Setenv("VDOC_STORAGE_ENDPOINT", "127.0.0.1:9000")
+	t.Setenv("VDOC_STORAGE_BUCKET", "vdoc-test")
+	t.Setenv("VDOC_STORAGE_ACCESS_KEY", "test-access")
+	t.Setenv("VDOC_STORAGE_SECRET_KEY", "test-secret")
+	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEY", "0123456789abcdef0123456789abcdef")
+	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KID", "local-aes-gcm-v1")
 
 	// 重新加载配置
 	err := LoadConfig()
@@ -126,6 +133,18 @@ func TestLoadConfigWithEnv(t *testing.T) {
 
 	if PidFile != pidPath {
 		t.Errorf("PidFile = %s, want %s (from env)", PidFile, pidPath)
+	}
+
+	if !DatabaseEnabled || DatabaseDSN != "postgres://vdoc@127.0.0.1:5432/vdoc?sslmode=disable" {
+		t.Errorf("database env override failed")
+	}
+
+	if !StorageEnabled || StorageEndpoint != "127.0.0.1:9000" || StorageBucket != "vdoc-test" || StorageAccessKey != "test-access" || StorageSecretKey != "test-secret" {
+		t.Errorf("storage env override failed")
+	}
+
+	if MCPTokenCipherKey != "0123456789abcdef0123456789abcdef" || MCPTokenCipherKID != "local-aes-gcm-v1" {
+		t.Errorf("mcp token cipher env override failed")
 	}
 
 }

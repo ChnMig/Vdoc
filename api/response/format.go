@@ -20,32 +20,32 @@ func getTraceID(c *gin.Context) string {
 	return ""
 }
 
-func ReturnErrorWithData(c *gin.Context, data responseData, result interface{}) {
+func ReturnErrorWithData(c *gin.Context, data responseData, result any) {
 	l := log.WithRequest(c)
 	data.Timestamp = time.Now().Unix()
 	data.TraceID = getTraceID(c)
 	data.Detail = result
 	c.JSON(http.StatusOK, data)
-	l.Error("Returning error response with data", zap.Any("response", data))
+	l.Error("Returning error response with data", zap.Any("response", responseForLog(data)))
 	// Return directly
 	c.Abort()
 }
 
 // ResponseOk
-func ReturnOk(c *gin.Context, result interface{}) {
+func ReturnOk(c *gin.Context, result any) {
 	l := log.WithRequest(c)
 	data := OK
 	data.Timestamp = time.Now().Unix()
 	data.TraceID = getTraceID(c)
 	data.Detail = result
 	c.JSON(http.StatusOK, data)
-	l.Debug("Returning OK response", zap.Any("response", data))
+	l.Debug("Returning OK response", zap.Any("response", responseForLog(data)))
 	// Return directly
 	c.Abort()
 }
 
 // ResponseOkWithTotal
-func ReturnOkWithTotal(c *gin.Context, total int, result interface{}) {
+func ReturnOkWithTotal(c *gin.Context, total int, result any) {
 	l := log.WithRequest(c)
 	data := OK
 	data.Timestamp = time.Now().Unix()
@@ -53,7 +53,7 @@ func ReturnOkWithTotal(c *gin.Context, total int, result interface{}) {
 	data.Detail = result
 	data.Total = &total
 	c.JSON(http.StatusOK, data)
-	l.Debug("Returning OK response with total", zap.Any("response", data))
+	l.Debug("Returning OK response with total", zap.Any("response", responseForLog(data)))
 	// Return directly
 	c.Abort()
 }
@@ -82,4 +82,9 @@ func ReturnSuccess(c *gin.Context) {
 	l.Debug("Returning success response", zap.Any("response", data))
 	// Return directly
 	c.Abort()
+}
+
+func responseForLog(data responseData) responseData {
+	data.Detail = nil
+	return data
 }

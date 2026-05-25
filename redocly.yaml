@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # Vdoc REST handlers intentionally return application errors as HTTP 200 Vdoc envelopes.
+  operation-4xx-response: off
+  # Reusable payload schemas are kept as a machine-readable detail catalog for envelope responses.
+  no-unused-components: off

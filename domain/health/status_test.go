@@ -1,9 +1,17 @@
 package health
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+)
 
 // TestGetStatus 基础单元测试：验证健康状态的核心字段
 func TestGetStatus(t *testing.T) {
+	ResetDependencyChecksForTest()
+	t.Cleanup(ResetDependencyChecksForTest)
+
 	status, err := GetStatus()
 
 	if err != nil {
@@ -24,5 +32,73 @@ func TestGetStatus(t *testing.T) {
 
 	if status.Timestamp == 0 {
 		t.Errorf("GetStatus().Timestamp = %d, want non-zero", status.Timestamp)
+	}
+}
+
+func TestGetStatusReportsDisabledDependenciesAsReadyOverall(t *testing.T) {
+	SetDependencyChecks([]DependencyCheck{
+		{Name: "database", Enabled: false, DisabledMessage: "PostgreSQL disabled"},
+		{Name: "storage", Enabled: false, DisabledMessage: "object storage disabled"},
+	})
+	t.Cleanup(ResetDependencyChecksForTest)
+
+	status, err := GetStatus()
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if !status.Ready || !status.Healthy || status.Status != "ok" {
+		t.Fatalf("overall status = %+v, want ready ok", status)
+	}
+	if status.Dependencies["database"].Status != "disabled" || status.Dependencies["storage"].Status != "disabled" {
+		t.Fatalf("dependencies = %+v, want disabled statuses", status.Dependencies)
+	}
+}
+
+func TestGetStatusReportsEnabledHealthyDependencies(t *testing.T) {
+	SetDependencyChecks([]DependencyCheck{
+		{Name: "database", Enabled: true, ReadyMessage: "PostgreSQL ready", Check: func(ctx context.Context) error { return nil }},
+		{Name: "storage", Enabled: true, ReadyMessage: "object storage ready", Check: func(ctx context.Context) error { return nil }},
+	})
+	t.Cleanup(ResetDependencyChecksForTest)
+
+	status, err := GetStatus()
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if !status.Ready || !status.Healthy || status.Status != "ok" {
+		t.Fatalf("overall status = %+v, want ready ok", status)
+	}
+	for name, dependency := range status.Dependencies {
+		if !dependency.Enabled || !dependency.Ready || dependency.Status != "ready" {
+			t.Fatalf("dependency %s = %+v, want ready", name, dependency)
+		}
+	}
+}
+
+func TestGetStatusReportsEnabledUnhealthyDependencyWithSanitizedMessage(t *testing.T) {
+	SetDependencyChecks([]DependencyCheck{
+		{
+			Name:    "database",
+			Enabled: true,
+			Check: func(ctx context.Context) error {
+				return errors.New("connect postgres://vdoc:secret@127.0.0.1:5432/vdoc password=secret")
+			},
+		},
+	})
+	t.Cleanup(ResetDependencyChecksForTest)
+
+	status, err := GetStatus()
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	dependency := status.Dependencies["database"]
+	if status.Ready || status.Healthy || status.Status != "degraded" || dependency.Status != "error" {
+		t.Fatalf("status = %+v dependency = %+v, want degraded error", status, dependency)
+	}
+	if strings.Contains(dependency.Message, "secret") || strings.Contains(dependency.Message, "vdoc:secret") {
+		t.Fatalf("dependency message leaked credential: %q", dependency.Message)
+	}
+	if !strings.Contains(dependency.Message, "<redacted>") {
+		t.Fatalf("dependency message = %q, want redaction marker", dependency.Message)
 	}
 }

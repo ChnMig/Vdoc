@@ -170,6 +170,22 @@ func TestReturnErrorWithData(t *testing.T) {
 	}
 }
 
+func TestResponseForLogRedactsDetail(t *testing.T) {
+	total := 1
+	data := responseData{Code: 200, Status: "OK", Detail: map[string]string{"token": "vdoc_secret"}, Total: &total}
+
+	logged := responseForLog(data)
+	if logged.Detail != nil {
+		t.Fatalf("logged detail = %#v, want nil", logged.Detail)
+	}
+	if data.Detail == nil {
+		t.Fatal("responseForLog mutated original response detail")
+	}
+	if logged.Total == nil || *logged.Total != total || logged.Code != data.Code || logged.Status != data.Status {
+		t.Fatalf("logged response metadata = %+v, want code/status/total preserved", logged)
+	}
+}
+
 // 测试 trace_id 是否正确设置
 func TestTraceIDInResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)

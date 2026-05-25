@@ -1,4 +1,4 @@
-.PHONY: build build-local build-cross run dev clean clean-dist help test fmt lint verify
+.PHONY: build build-local build-cross run dev clean clean-dist help test test-e2e fmt lint verify
 
 # 版本信息
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -86,8 +86,9 @@ test: ## 运行测试并显示覆盖率（含中文提示与结果解析）
 	@echo "运行测试（带覆盖率）..."
 	@set -o pipefail; \
 	OUT=$$(mktemp -t go-test-XXXXXX); \
-	trap 'rm -f "$$OUT"' EXIT; \
-	if go test -v -coverprofile=coverage.out -covermode=atomic ./... | tee "$$OUT"; then \
+	COVER=$$(mktemp -t go-cover-XXXXXX); \
+	trap 'rm -f "$$OUT" "$$COVER"' EXIT; \
+	if go test -v -coverprofile="$$COVER" -covermode=atomic ./... | tee "$$OUT"; then \
 	  STATUS=0; \
 	else \
 	  STATUS=$$?; \
@@ -98,8 +99,8 @@ test: ## 运行测试并显示覆盖率（含中文提示与结果解析）
 	PASS_TESTS=$$(grep -c '^--- PASS:' "$$OUT" || true); \
 	FAIL_TESTS=$$(grep -c '^--- FAIL:' "$$OUT" || true); \
 	SKIP_TESTS=$$(grep -c '^--- SKIP:' "$$OUT" || true); \
-	if [ -f coverage.out ]; then \
-	  TOTAL_COV=$$(go tool cover -func=coverage.out | awk '/^total:/ {print $$3}'); \
+	if [ -f "$$COVER" ]; then \
+	  TOTAL_COV=$$(go tool cover -func="$$COVER" | awk '/^total:/ {print $$3}'); \
 	else \
 	  TOTAL_COV="N/A"; \
 	fi; \
@@ -107,6 +108,9 @@ test: ## 运行测试并显示覆盖率（含中文提示与结果解析）
 	echo "用例汇总：通过=$$PASS_TESTS 失败=$$FAIL_TESTS 跳过=$$SKIP_TESTS"; \
 	echo "总覆盖率：$$TOTAL_COV"; \
 	exit $$STATUS
+
+test-e2e: ## 运行 v0.1 REST+MCP E2E（默认内存；VDOC_E2E_LIVE=1 启用 PostgreSQL/RustFS）
+	@./scripts/vdoc-e2e.sh all
 
 fmt: ## 格式化代码
 	@echo "格式化代码..."

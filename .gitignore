@@ -3,7 +3,7 @@ bulid/
 bin/
 dist/
 *.exe
-vdoc
+/vdoc
 
 # dotenv and config
 .env

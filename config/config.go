@@ -51,6 +51,26 @@ var (
 	LogMaxAge   int
 	LogLevel    string
 	GinLogLevel string
+
+	// Database
+	DatabaseEnabled     bool
+	DatabaseDSN         string
+	DatabaseMaxOpenConn int
+	DatabaseMaxIdleConn int
+
+	// Object storage, compatible with RustFS/S3
+	StorageEnabled   bool
+	StorageEndpoint  string
+	StorageBucket    string
+	StorageAccessKey string
+	StorageSecretKey string
+	StorageRegion    string
+	StorageUseSSL    bool
+	StoragePathStyle bool
+
+	// MCP token encryption
+	MCPTokenCipherKey string
+	MCPTokenCipherKID string
 )
 
 // 分页配置

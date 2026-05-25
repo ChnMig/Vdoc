@@ -2,6 +2,7 @@ package authentication
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"vdoc/config"
@@ -16,10 +17,9 @@ var (
 	defaultAudience = "client"
 )
 
-// MapClaims 灵活的 Claims，使用 map 存储自定义数据
-// 适用于不同项目有不同数据结构的场景
+// MapClaims 保存本项目 JWT 需要的最小自定义数据。
 type MapClaims struct {
-	Data map[string]interface{} `json:"data"` // 自定义数据，完全灵活
+	Data map[string]any `json:"data"`
 	jwt.RegisteredClaims
 }
 
@@ -60,7 +60,7 @@ func SignHS256(claims jwt.Claims) (string, error) {
 
 // ParseHS256 使用 HS256 验证并解析 token，结果写入传入的 claims
 func ParseHS256(tokenString string, claims jwt.Claims) (*jwt.Token, error) {
-	return jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	return jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -68,25 +68,19 @@ func ParseHS256(tokenString string, claims jwt.Claims) (*jwt.Token, error) {
 	})
 }
 
-// JWTIssue 签发 JWT Token，使用 map 存储数据
-// 参数 data 可以是任何 map[string]interface{}，完全灵活
-// 使用示例：
-//
-//	data := map[string]interface{}{
-//	    "user_id": "123",
-//	    "username": "john",
-//	    "role": "admin",
-//	    "permissions": []string{"read", "write"},
-//	}
-//	token, err := JWTIssue(data)
-func JWTIssue(data map[string]interface{}) (string, error) {
-	claims := MapClaims{Data: data}
+// JWTIssue 签发仅包含必要用户身份的 JWT Token。
+func JWTIssue(data map[string]any) (string, error) {
+	userID, ok := data["user_id"].(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		return "", fmt.Errorf("user_id is required")
+	}
+	claims := MapClaims{Data: map[string]any{"user_id": userID}}
 	PrepareRegisteredClaims(&claims.RegisteredClaims)
 	return SignHS256(&claims)
 }
 
 // JWTDecrypt 解析 JWT Token，返回 map 数据
-func JWTDecrypt(tokenString string) (map[string]interface{}, error) {
+func JWTDecrypt(tokenString string) (map[string]any, error) {
 	claims := &MapClaims{}
 	token, err := ParseHS256(tokenString, claims)
 	if err != nil {

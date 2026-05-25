@@ -12,6 +12,11 @@ import (
 	"vdoc/api"
 	"vdoc/api/middleware"
 	"vdoc/config"
+	"vdoc/db/pgdb"
+	pgdbvdoc "vdoc/db/pgdb/vdoc"
+	domainhealth "vdoc/domain/health"
+	domainvdoc "vdoc/domain/vdoc"
+	vdocsvc "vdoc/services/vdoc"
 	"vdoc/utils/log"
 	"vdoc/utils/pathtool"
 	"vdoc/utils/pidfile"
@@ -80,6 +85,46 @@ func main() {
 		config.JWTKey,
 		int64(config.JWTExpiration),
 	)
+
+	startupCtx := context.Background()
+	var databaseClient *pgdb.Client
+	var databaseRepository domainvdoc.Repository
+	if config.DatabaseEnabled {
+		client, err := pgdb.Open(startupCtx)
+		if err != nil {
+			zap.L().Fatal("初始化 PostgreSQL 失败", zap.Error(err))
+		}
+		databaseClient = client
+		databaseRepository = pgdbvdoc.NewRepository(client.DB())
+	}
+
+	if err := vdocsvc.InitDefaultStore(startupCtx, vdocsvc.RuntimeConfig{
+		DatabaseEnabled:     config.DatabaseEnabled,
+		DatabaseDSN:         config.DatabaseDSN,
+		DatabaseMaxOpenConn: config.DatabaseMaxOpenConn,
+		DatabaseMaxIdleConn: config.DatabaseMaxIdleConn,
+		DatabaseRepository:  databaseRepository,
+		DatabaseClose: func() error {
+			if databaseClient == nil {
+				return nil
+			}
+			return databaseClient.Close()
+		},
+		StorageEnabled:   config.StorageEnabled,
+		StorageEndpoint:  config.StorageEndpoint,
+		StorageBucket:    config.StorageBucket,
+		StorageAccessKey: config.StorageAccessKey,
+		StorageSecretKey: config.StorageSecretKey,
+		StorageRegion:    config.StorageRegion,
+		StorageUseSSL:    config.StorageUseSSL,
+		StoragePathStyle: config.StoragePathStyle,
+	}); err != nil {
+		if databaseClient != nil {
+			_ = databaseClient.Close()
+		}
+		zap.L().Fatal("初始化 Vdoc 运行依赖失败", zap.Error(err))
+	}
+	configureDependencyHealth(databaseClient)
 
 	zap.L().Info("Starting HTTP service",
 		zap.String("mode", config.RunModel),
@@ -156,7 +201,10 @@ func main() {
 	// 清理资源
 	zap.L().Info("Cleaning up resources...")
 	middleware.CleanupAllLimiters() // 清理限流器
-	log.StopMonitor()               // 停止日志监控并刷新缓冲区
+	if err := vdocsvc.CloseDefaultStore(); err != nil {
+		zap.L().Warn("关闭 Vdoc 存储失败", zap.Error(err))
+	}
+	log.StopMonitor() // 停止日志监控并刷新缓冲区
 
 	// 删除 pid 文件（文件不存在视为成功）
 	if err := pidfile.Remove(pidFilePath); err != nil {
@@ -170,4 +218,28 @@ func main() {
 
 	zap.L().Info("Server exited", zap.Int("exit_code", exitCode))
 	ctx.Exit(exitCode)
+}
+
+func configureDependencyHealth(databaseClient *pgdb.Client) {
+	domainhealth.SetDependencyChecks([]domainhealth.DependencyCheck{
+		{
+			Name:            "database",
+			Enabled:         config.DatabaseEnabled,
+			ReadyMessage:    "PostgreSQL ready",
+			DisabledMessage: "PostgreSQL disabled",
+			Check: func(ctx context.Context) error {
+				if databaseClient == nil {
+					return fmt.Errorf("postgres database client is not initialized")
+				}
+				return databaseClient.Ping(ctx)
+			},
+		},
+		{
+			Name:            "storage",
+			Enabled:         config.StorageEnabled,
+			ReadyMessage:    "object storage ready",
+			DisabledMessage: "object storage disabled",
+			Check:           vdocsvc.CheckDefaultObjectStorage,
+		},
+	})
 }

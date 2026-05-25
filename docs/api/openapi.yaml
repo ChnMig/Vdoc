@@ -1,0 +1,1852 @@
+openapi: 3.1.0
+info:
+  title: Vdoc API
+  version: 0.1.0
+  description: Machine-readable contract for the Vdoc v0.1 HTTP API. REST handlers return HTTP 200 with the semantic result in the Vdoc envelope body. The MCP endpoint also accepts JSON-RPC 2.0 requests secured by an MCP token in the Authorization header.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+security: []
+tags:
+  - name: Open
+    description: Public health, authentication, docs, and MCP entry points.
+  - name: Identity
+    description: Current user identity.
+  - name: System Users
+    description: Super admin user lifecycle and user MCP token oversight.
+  - name: Teams
+    description: Team lifecycle.
+  - name: Projects
+    description: Project lifecycle and membership.
+  - name: Services
+    description: API service lifecycle.
+  - name: Branches
+    description: Service branch lifecycle.
+  - name: Contracts
+    description: Published API contract versions and stored schemas.
+  - name: Drafts
+    description: Contract draft creation, update, review, and promotion.
+  - name: Endpoints
+    description: Parsed endpoint data from published contracts.
+  - name: Diffs
+    description: Semantic API version comparison.
+  - name: MCP Tokens
+    description: User MCP token lifecycle.
+paths:
+  /api/v1/open/health:
+    get:
+      tags: [Open]
+      summary: Get service health.
+      operationId: getOpenHealth
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/open/auth/register:
+    post:
+      tags: [Open]
+      summary: Register a user and issue a JWT.
+      operationId: registerAuth
+      requestBody:
+        $ref: '#/components/requestBodies/RegisterRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/open/auth/login:
+    post:
+      tags: [Open]
+      summary: Authenticate a user and issue a JWT.
+      operationId: loginAuth
+      requestBody:
+        $ref: '#/components/requestBodies/LoginRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/open/docs/openapi.yaml:
+    get:
+      tags: [Open]
+      summary: Serve this OpenAPI YAML document.
+      operationId: getOpenAPISpec
+      responses:
+        '200':
+          $ref: '#/components/responses/OpenAPISpecResponse'
+  /api/v1/open/mcp:
+    post:
+      tags: [Open]
+      summary: Call MCP tools through JSON-RPC 2.0.
+      operationId: callMCP
+      security:
+        - MCPTokenAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/MCPJSONRPCRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/MCPJSONRPCResponse'
+  /api/v1/private/identity/me:
+    get:
+      tags: [Identity]
+      summary: Get the current user.
+      operationId: getIdentityMe
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/system/users:
+    get:
+      tags: [System Users]
+      summary: List system users.
+      operationId: listSystemUsers
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [System Users]
+      summary: Create a system user.
+      operationId: createSystemUser
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/CreateUserRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/system/users/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/UserID'
+    patch:
+      tags: [System Users]
+      summary: Update system user status or super admin flag.
+      operationId: patchSystemUser
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/PatchUserRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/system/users/{user_id}/mcp-tokens:
+    parameters:
+      - $ref: '#/components/parameters/UserID'
+    get:
+      tags: [System Users]
+      summary: List MCP tokens for a system user.
+      operationId: listSystemUserMCPTokens
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+  /api/v1/private/system/users/{user_id}/mcp-tokens/{token_id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/UserID'
+      - $ref: '#/components/parameters/TokenID'
+    post:
+      tags: [System Users]
+      summary: Revoke a system user's MCP token.
+      operationId: revokeSystemUserMCPToken
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/teams:
+    get:
+      tags: [Teams]
+      summary: List teams.
+      operationId: listTeams
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [Teams]
+      summary: Create a team.
+      operationId: createTeam
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/TeamRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/teams/{team_id}:
+    parameters:
+      - $ref: '#/components/parameters/TeamID'
+    get:
+      tags: [Teams]
+      summary: Get a team.
+      operationId: getTeam
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+    patch:
+      tags: [Teams]
+      summary: Update a team.
+      operationId: updateTeam
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/TeamRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/teams/{team_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/TeamID'
+    post:
+      tags: [Teams]
+      summary: Archive a team.
+      operationId: archiveTeam
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects:
+    get:
+      tags: [Projects]
+      summary: List projects visible to the current user.
+      operationId: listProjects
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [Projects]
+      summary: Create a project.
+      operationId: createProject
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ProjectRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+    get:
+      tags: [Projects]
+      summary: Get a project.
+      operationId: getProject
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+    patch:
+      tags: [Projects]
+      summary: Update a project.
+      operationId: updateProject
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ProjectUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+    post:
+      tags: [Projects]
+      summary: Archive a project.
+      operationId: archiveProject
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/members:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+    get:
+      tags: [Projects]
+      summary: List project members.
+      operationId: listProjectMembers
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [Projects]
+      summary: Add a project member.
+      operationId: addProjectMember
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ProjectMemberCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/UserID'
+    delete:
+      tags: [Projects]
+      summary: Remove a project member.
+      operationId: removeProjectMember
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/members/{user_id}/role:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/UserID'
+    patch:
+      tags: [Projects]
+      summary: Change a project member role.
+      operationId: patchProjectMemberRole
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ProjectMemberRoleRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+    get:
+      tags: [Services]
+      summary: List services in a project.
+      operationId: listProjectServices
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [Services]
+      summary: Create a service in a project.
+      operationId: createProjectService
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ServiceRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    get:
+      tags: [Services]
+      summary: Get a service.
+      operationId: getProjectService
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+    patch:
+      tags: [Services]
+      summary: Update a service.
+      operationId: updateProjectService
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ServiceRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    post:
+      tags: [Services]
+      summary: Archive a service.
+      operationId: archiveProjectService
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/branches:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    get:
+      tags: [Branches]
+      summary: List service branches.
+      operationId: listServiceBranches
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [Branches]
+      summary: Create a service branch.
+      operationId: createServiceBranch
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/BranchRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/branches/{branch_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/BranchID'
+    get:
+      tags: [Branches]
+      summary: Get a service branch.
+      operationId: getServiceBranch
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+    patch:
+      tags: [Branches]
+      summary: Update a service branch.
+      operationId: updateServiceBranch
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/BranchPatchRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/branches/{branch_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/BranchID'
+    post:
+      tags: [Branches]
+      summary: Archive a service branch.
+      operationId: archiveServiceBranch
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contracts:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    get:
+      tags: [Contracts]
+      summary: List published contract versions for a service.
+      operationId: listContracts
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contracts/{version_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/VersionID'
+    get:
+      tags: [Contracts]
+      summary: Get a published contract version.
+      operationId: getContract
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contracts/{version_id}/schemas/{schema_kind}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/VersionID'
+      - $ref: '#/components/parameters/SchemaKind'
+    get:
+      tags: [Contracts]
+      summary: Get raw or normalized schema content for a published version.
+      operationId: getContractSchema
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    get:
+      tags: [Drafts]
+      summary: List contract drafts for a service.
+      operationId: listContractDrafts
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [Drafts]
+      summary: Create a contract draft from schema content.
+      operationId: createContractDraft
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/DraftRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/{draft_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DraftID'
+    get:
+      tags: [Drafts]
+      summary: Get a contract draft.
+      operationId: getContractDraft
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+    patch:
+      tags: [Drafts]
+      summary: Update a contract draft before review.
+      operationId: updateContractDraft
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/DraftRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/{draft_id}/schemas/{schema_kind}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DraftID'
+      - $ref: '#/components/parameters/SchemaKind'
+    get:
+      tags: [Drafts]
+      summary: Get raw or normalized schema content for a draft.
+      operationId: getContractDraftSchema
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/{draft_id}/submit:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DraftID'
+    post:
+      tags: [Drafts]
+      summary: Submit a contract draft for review.
+      operationId: submitContractDraft
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/{draft_id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DraftID'
+    post:
+      tags: [Drafts]
+      summary: Approve a submitted draft and create a published version.
+      operationId: approveContractDraft
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/{draft_id}/request-changes:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DraftID'
+    post:
+      tags: [Drafts]
+      summary: Request changes on a submitted draft.
+      operationId: requestContractDraftChanges
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/{draft_id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DraftID'
+    post:
+      tags: [Drafts]
+      summary: Reject a submitted draft.
+      operationId: rejectContractDraft
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts/promote:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    post:
+      tags: [Drafts]
+      summary: Promote schema content from one branch into a draft on another branch.
+      operationId: promoteContractDraft
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/PromoteDraftRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contracts/{version_id}/endpoints:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/VersionID'
+    get:
+      tags: [Endpoints]
+      summary: List parsed endpoints for a contract version.
+      operationId: listContractEndpoints
+      security:
+        - JWTAuth: []
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: Optional endpoint path filter.
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/contracts/{version_id}/endpoints/{endpoint_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/VersionID'
+      - $ref: '#/components/parameters/EndpointID'
+    get:
+      tags: [Endpoints]
+      summary: Get parsed endpoint detail.
+      operationId: getContractEndpoint
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/diffs:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+    post:
+      tags: [Diffs]
+      summary: Compare two published contract versions.
+      operationId: createDiff
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/DiffCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/diffs/{diff_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DiffID'
+    get:
+      tags: [Diffs]
+      summary: Get a semantic diff.
+      operationId: getDiff
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/projects/{project_id}/services/{service_id}/diffs/{diff_id}/summary:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/ServiceID'
+      - $ref: '#/components/parameters/DiffID'
+    get:
+      tags: [Diffs]
+      summary: Get the semantic diff summary only.
+      operationId: getDiffSummary
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/mcp-tokens:
+    get:
+      tags: [MCP Tokens]
+      summary: List MCP tokens for the current user.
+      operationId: listMCPTokens
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocListEnvelopeResponse'
+    post:
+      tags: [MCP Tokens]
+      summary: Create an MCP token.
+      operationId: createMCPToken
+      security:
+        - JWTAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/MCPTokenCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/mcp-tokens/{token_id}:
+    parameters:
+      - $ref: '#/components/parameters/TokenID'
+    get:
+      tags: [MCP Tokens]
+      summary: Get MCP token metadata.
+      operationId: getMCPToken
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+  /api/v1/private/mcp-tokens/{token_id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/TokenID'
+    post:
+      tags: [MCP Tokens]
+      summary: Revoke an MCP token.
+      operationId: revokeMCPToken
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/VdocEnvelopeResponse'
+components:
+  securitySchemes:
+    JWTAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Raw JWT string issued by the login or register endpoint.
+    MCPTokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Raw MCP token string issued by the MCP token APIs.
+  parameters:
+    ProjectID:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Project ID.
+    ServiceID:
+      name: service_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Service ID.
+    BranchID:
+      name: branch_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Branch ID.
+    DraftID:
+      name: draft_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Draft ID.
+    VersionID:
+      name: version_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Published contract version ID.
+    EndpointID:
+      name: endpoint_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Parsed endpoint ID.
+    DiffID:
+      name: diff_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Semantic diff ID.
+    TokenID:
+      name: token_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: MCP token ID.
+    UserID:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: User ID.
+    TeamID:
+      name: team_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Team ID.
+    SchemaKind:
+      name: schema_kind
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [raw, normalized]
+      description: Selects either the stored raw schema or normalized schema.
+  requestBodies:
+    RegisterRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RegisterRequest'
+    LoginRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LoginRequest'
+    CreateUserRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateUserRequest'
+    PatchUserRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PatchUserRequest'
+    TeamRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TeamRequest'
+    ProjectRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProjectRequest'
+    ProjectUpdateRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProjectUpdateRequest'
+    ProjectMemberCreateRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProjectMemberCreateRequest'
+    ProjectMemberRoleRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProjectMemberRoleRequest'
+    ServiceRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ServiceRequest'
+    BranchRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BranchRequest'
+    BranchPatchRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BranchPatchRequest'
+    DraftRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DraftRequest'
+    PromoteDraftRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PromoteDraftRequest'
+    DiffCreateRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DiffCreateRequest'
+    MCPTokenCreateRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MCPTokenCreateRequest'
+    MCPJSONRPCRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/MCPJSONRPCRequest'
+              - $ref: '#/components/schemas/MCPLegacyRequest'
+  responses:
+    VdocEnvelopeResponse:
+      description: HTTP 200 response. Success and application errors are reported in the Vdoc envelope body.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VdocEnvelope'
+    VdocListEnvelopeResponse:
+      description: HTTP 200 response with Vdoc envelope and total count for list endpoints.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VdocListEnvelope'
+    OpenAPISpecResponse:
+      description: Checked-in OpenAPI YAML bytes.
+      content:
+        application/yaml:
+          schema:
+            type: string
+    MCPJSONRPCResponse:
+      description: HTTP 200 response containing a JSON-RPC success or error object. Legacy bridge calls return a Vdoc envelope.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/MCPJSONRPCSuccessResponse'
+              - $ref: '#/components/schemas/MCPJSONRPCErrorResponse'
+              - $ref: '#/components/schemas/MCPLegacyResponse'
+  schemas:
+    VdocEnvelope:
+      type: object
+      required: [code, status, description, timestamp]
+      properties:
+        code:
+          type: integer
+          description: Semantic status code carried in the body.
+          example: 200
+        status:
+          type: string
+          description: Semantic status string such as OK, INVALID_ARGUMENT, or UNAUTHENTICATED.
+          example: OK
+        description:
+          type: string
+          description: Stable status description.
+          example: No error
+        message:
+          type: string
+          description: Optional user-facing message, usually present on errors.
+        trace_id:
+          type: string
+          description: Optional request trace ID set by middleware.
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in seconds.
+        detail:
+          description: Optional success payload or structured error detail.
+        total:
+          type: integer
+          description: Optional total count. Present on endpoints using ReturnOkWithTotal.
+      examples:
+        - code: 200
+          status: OK
+          description: No error
+          trace_id: req-123
+          timestamp: 1780000000
+          detail: {}
+        - code: 400
+          status: INVALID_ARGUMENT
+          description: Client specified an invalid argument
+          message: invalid request body
+          trace_id: req-123
+          timestamp: 1780000000
+    VdocListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/VdocEnvelope'
+        - type: object
+          required: [total]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            detail:
+              type: array
+              items: {}
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/VdocEnvelope'
+        - type: object
+          required: [message]
+          properties:
+            code:
+              type: integer
+              enum: [400, 401, 403, 404, 409, 500]
+            status:
+              type: string
+              enum: [INVALID_ARGUMENT, FAILED_PRECONDITION, OUT_OF_RANGE, UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, ABORTED, ALREADY_EXISTS, INTERNAL]
+    ID:
+      type: string
+      description: Vdoc generated resource ID.
+      example: id_123
+    Timestamp:
+      type: string
+      format: date-time
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        password:
+          type: string
+          format: password
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        token:
+          type: string
+          description: JWT string for Authorization header use.
+    User:
+      type: object
+      description: User account summary returned without password hash.
+      required: [id, email, name, is_super_admin, status, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        is_super_admin:
+          type: boolean
+        status:
+          type: integer
+          enum: [1, 2]
+          description: 1 active, 2 disabled.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreateUserRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        password:
+          type: string
+          format: password
+        is_super_admin:
+          type: boolean
+    PatchUserRequest:
+      type: object
+      properties:
+        status:
+          type: integer
+          enum: [1, 2]
+        is_super_admin:
+          type: boolean
+    Team:
+      type: object
+      description: Team summary.
+      required: [id, name, created_by, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        name:
+          type: string
+        description:
+          type: string
+        created_by:
+          $ref: '#/components/schemas/ID'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    TeamRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    Project:
+      type: object
+      description: Project summary.
+      required: [id, team_id, name, status, created_by, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        team_id:
+          $ref: '#/components/schemas/ID'
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: integer
+          enum: [1, 2]
+          description: 1 active, 2 archived.
+        created_by:
+          $ref: '#/components/schemas/ID'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ProjectRequest:
+      type: object
+      properties:
+        team_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        admin_user_id:
+          type: string
+    ProjectUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    ProjectMember:
+      type: object
+      description: Project member role and status.
+      required: [project_id, user_id, role, status, added_by, created_at, updated_at]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/ID'
+        user_id:
+          $ref: '#/components/schemas/ID'
+        role:
+          type: integer
+          enum: [1, 2, 3]
+          description: 1 reader, 2 writer, 3 admin.
+        status:
+          type: integer
+          enum: [1, 2]
+        added_by:
+          $ref: '#/components/schemas/ID'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ProjectMemberCreateRequest:
+      type: object
+      required: [user_id, role]
+      properties:
+        user_id:
+          type: string
+        role:
+          type: integer
+          enum: [1, 2, 3]
+    ProjectMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: integer
+          enum: [1, 2, 3]
+    APIService:
+      type: object
+      description: API service owned by a project.
+      required: [id, project_id, name, status, created_by, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        project_id:
+          $ref: '#/components/schemas/ID'
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        base_path:
+          type: string
+        status:
+          type: integer
+          enum: [1, 2]
+        created_by:
+          $ref: '#/components/schemas/ID'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        base_path:
+          type: string
+    ContractBranch:
+      type: object
+      description: Service branch summary.
+      required: [id, service_id, name, kind, is_default, is_protected, status, created_by, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        service_id:
+          $ref: '#/components/schemas/ID'
+        name:
+          type: string
+        kind:
+          type: integer
+          enum: [1, 2]
+          description: 1 environment, 2 feature.
+        description:
+          type: string
+        is_default:
+          type: boolean
+        is_protected:
+          type: boolean
+        status:
+          type: integer
+          enum: [1, 2]
+        created_by:
+          $ref: '#/components/schemas/ID'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    BranchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    BranchPatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        is_default:
+          type: boolean
+        is_protected:
+          type: boolean
+    ContractDraft:
+      type: object
+      description: Editable API contract draft, including stored raw and normalized schemas.
+      required: [id, project_id, service_id, branch_id, version_name, schema_format, source_type, raw_schema, normalized_schema, raw_schema_hash, normalized_schema_hash, status, created_by, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        project_id:
+          $ref: '#/components/schemas/ID'
+        service_id:
+          $ref: '#/components/schemas/ID'
+        branch_id:
+          $ref: '#/components/schemas/ID'
+        version_name:
+          type: string
+        changelog:
+          type: string
+        source_git_commit_id:
+          type: string
+        schema_format:
+          type: integer
+          enum: [1, 2]
+          description: 1 OpenAPI 3.0, 2 OpenAPI 3.1.
+        source_type:
+          type: integer
+          enum: [1, 2, 3]
+        raw_schema:
+          type: string
+        normalized_schema:
+          type: string
+        raw_schema_object_key:
+          type: string
+        normalized_schema_object_key:
+          type: string
+        raw_schema_hash:
+          type: string
+        normalized_schema_hash:
+          type: string
+        status:
+          type: integer
+          enum: [1, 2, 3, 4, 5]
+        diff_preview:
+          $ref: '#/components/schemas/Diff'
+        created_by:
+          $ref: '#/components/schemas/ID'
+        submitted_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    DraftRequest:
+      type: object
+      required: [branch_id, version_name, schema_content]
+      properties:
+        branch_id:
+          type: string
+        version_name:
+          type: string
+        changelog:
+          type: string
+        source_git_commit_id:
+          type: string
+        schema_content:
+          type: string
+          description: OpenAPI 3.0 or 3.1 document content.
+    PromoteDraftRequest:
+      type: object
+      required: [source_branch_id, target_branch_id, version_name]
+      properties:
+        source_branch_id:
+          type: string
+        target_branch_id:
+          type: string
+        version_name:
+          type: string
+        changelog:
+          type: string
+    ContractVersion:
+      type: object
+      description: Published API contract version summary.
+      required: [id, project_id, service_id, branch_id, draft_id, version_name, schema_format, source_type, raw_schema, normalized_schema, raw_schema_hash, normalized_schema_hash, status, published_by, published_at, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        project_id:
+          $ref: '#/components/schemas/ID'
+        service_id:
+          $ref: '#/components/schemas/ID'
+        branch_id:
+          $ref: '#/components/schemas/ID'
+        draft_id:
+          $ref: '#/components/schemas/ID'
+        version_name:
+          type: string
+        changelog:
+          type: string
+        source_git_commit_id:
+          type: string
+        schema_format:
+          type: integer
+          enum: [1, 2]
+        source_type:
+          type: integer
+          enum: [1, 2, 3]
+        raw_schema:
+          type: string
+        normalized_schema:
+          type: string
+        raw_schema_object_key:
+          type: string
+        normalized_schema_object_key:
+          type: string
+        raw_schema_hash:
+          type: string
+        normalized_schema_hash:
+          type: string
+        status:
+          type: integer
+          enum: [1]
+        published_by:
+          $ref: '#/components/schemas/ID'
+        published_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    SchemaDocument:
+      type: object
+      description: Stored raw or normalized schema document.
+      required: [owner_type, owner_id, kind, content, object_key, hash]
+      properties:
+        owner_type:
+          type: string
+        owner_id:
+          $ref: '#/components/schemas/ID'
+        kind:
+          type: string
+          enum: [raw, normalized]
+        content:
+          type: string
+        object_key:
+          type: string
+        hash:
+          type: string
+    Endpoint:
+      type: object
+      description: Parsed OpenAPI operation stored for a contract version.
+      required: [id, contract_version_id, method, path, deprecated, hash, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        contract_version_id:
+          $ref: '#/components/schemas/ID'
+        method:
+          type: string
+        path:
+          type: string
+        operation_id:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        deprecated:
+          type: boolean
+        parameters: {}
+        request_body: {}
+        responses: {}
+        security: {}
+        servers: {}
+        normalized_operation: {}
+        schema_refs: {}
+        hash:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    Diff:
+      type: object
+      description: Semantic diff between two contract versions.
+      required: [id, service_id, diff_status, summary, items, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        service_id:
+          $ref: '#/components/schemas/ID'
+        from_version_id:
+          $ref: '#/components/schemas/ID'
+        to_version_id:
+          $ref: '#/components/schemas/ID'
+        diff_object_key:
+          type: string
+        diff_hash:
+          type: string
+        diff_status:
+          type: integer
+          enum: [3]
+        summary:
+          $ref: '#/components/schemas/DiffSummary'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiffItem'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    DiffSummary:
+      type: object
+      required: [added_endpoints, removed_endpoints, modified_endpoints, breaking_changes]
+      properties:
+        added_endpoints:
+          type: integer
+        removed_endpoints:
+          type: integer
+        modified_endpoints:
+          type: integer
+        breaking_changes:
+          type: integer
+    DiffItem:
+      type: object
+      required: [id, change_type, severity, message, is_breaking, must_handle, sort_order]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        change_type:
+          type: integer
+          enum: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        severity:
+          type: integer
+          enum: [1, 2, 3]
+        method:
+          type: string
+        path:
+          type: string
+        operation_id:
+          type: string
+        location:
+          type: string
+        old_value: {}
+        new_value: {}
+        message:
+          type: string
+        frontend_impact:
+          type: string
+        is_breaking:
+          type: boolean
+        must_handle:
+          type: boolean
+        sort_order:
+          type: integer
+    DiffCreateRequest:
+      type: object
+      required: [from_version_id, to_version_id]
+      properties:
+        from_version_id:
+          type: string
+        to_version_id:
+          type: string
+    MCPToken:
+      type: object
+      description: MCP token metadata. The token value is only returned when created or explicitly fetched by its owner.
+      required: [id, user_id, name, scopes, status, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        user_id:
+          $ref: '#/components/schemas/ID'
+        name:
+          type: string
+        token:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: integer
+            enum: [1, 2]
+        status:
+          type: integer
+          enum: [1, 2, 3]
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        revoked_at:
+          $ref: '#/components/schemas/Timestamp'
+        revoked_by:
+          type: string
+        last_used_at:
+          $ref: '#/components/schemas/Timestamp'
+    MCPTokenCreateRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: integer
+            enum: [1, 2]
+          description: 1 api:read, 2 api:draft.
+        expires_at:
+          type: string
+          format: date-time
+    MCPToolName:
+      type: string
+      enum:
+        - list_projects
+        - list_services
+        - list_api_versions
+        - get_latest_schema
+        - get_endpoint_detail
+        - compare_api_versions
+        - get_change_summary
+        - create_api_version_draft
+        - update_api_version_draft
+        - submit_api_version_draft
+        - get_api_version_draft
+    MCPJSONRPCRequest:
+      oneOf:
+        - $ref: '#/components/schemas/MCPToolsListRequest'
+        - $ref: '#/components/schemas/MCPToolsCallRequest'
+    MCPToolsListRequest:
+      type: object
+      required: [jsonrpc, id, method]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+        method:
+          type: string
+          const: tools/list
+        params:
+          type: object
+          additionalProperties: false
+    MCPToolsCallRequest:
+      type: object
+      required: [jsonrpc, id, method, params]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+        method:
+          type: string
+          const: tools/call
+        params:
+          $ref: '#/components/schemas/MCPToolCallParams'
+    MCPToolCallParams:
+      type: object
+      required: [name, arguments]
+      properties:
+        name:
+          $ref: '#/components/schemas/MCPToolName'
+        arguments:
+          $ref: '#/components/schemas/MCPToolArguments'
+    MCPToolArguments:
+      oneOf:
+        - $ref: '#/components/schemas/MCPEmptyArguments'
+        - $ref: '#/components/schemas/MCPProjectArguments'
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - $ref: '#/components/schemas/MCPVersionArguments'
+        - $ref: '#/components/schemas/MCPLatestSchemaArguments'
+        - $ref: '#/components/schemas/MCPEndpointArguments'
+        - $ref: '#/components/schemas/MCPCompareArguments'
+        - $ref: '#/components/schemas/MCPDiffArguments'
+        - $ref: '#/components/schemas/MCPDraftCreateArguments'
+        - $ref: '#/components/schemas/MCPDraftUpdateArguments'
+        - $ref: '#/components/schemas/MCPDraftIDArguments'
+    MCPEmptyArguments:
+      type: object
+      additionalProperties: false
+    MCPProjectArguments:
+      type: object
+      required: [project_id]
+      properties:
+        project_id:
+          type: string
+    MCPServiceArguments:
+      type: object
+      required: [project_id, service_id]
+      properties:
+        project_id:
+          type: string
+        service_id:
+          type: string
+    MCPVersionArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+    MCPLatestSchemaArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - type: object
+          properties:
+            branch_id:
+              type: string
+    MCPEndpointArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - type: object
+          required: [version_id, endpoint_id]
+          properties:
+            version_id:
+              type: string
+            endpoint_id:
+              type: string
+    MCPCompareArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - type: object
+          required: [from_version_id, to_version_id]
+          properties:
+            from_version_id:
+              type: string
+            to_version_id:
+              type: string
+    MCPDiffArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - type: object
+          required: [diff_id]
+          properties:
+            diff_id:
+              type: string
+    MCPDraftCreateArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - type: object
+          required: [branch_id, version_name, schema_content]
+          properties:
+            branch_id:
+              type: string
+            version_name:
+              type: string
+            changelog:
+              type: string
+            source_git_commit_id:
+              type: string
+            schema_content:
+              type: string
+    MCPDraftUpdateArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPDraftCreateArguments'
+        - type: object
+          required: [draft_id]
+          properties:
+            draft_id:
+              type: string
+    MCPDraftIDArguments:
+      allOf:
+        - $ref: '#/components/schemas/MCPServiceArguments'
+        - type: object
+          required: [draft_id]
+          properties:
+            draft_id:
+              type: string
+    MCPToolDefinition:
+      type: object
+      required: [name, description, inputSchema]
+      properties:
+        name:
+          $ref: '#/components/schemas/MCPToolName'
+        description:
+          type: string
+        inputSchema:
+          type: object
+    MCPJSONRPCSuccessResponse:
+      type: object
+      required: [jsonrpc, id, result]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/MCPToolsListResult'
+            - $ref: '#/components/schemas/MCPToolResult'
+    MCPToolsListResult:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPToolDefinition'
+    MCPToolResult:
+      description: Result returned by the selected MCP tool.
+    MCPJSONRPCErrorResponse:
+      type: object
+      required: [jsonrpc, id, error]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: integer
+              enum: [-32600, -32601, -32602, -32001, -32003, -32004, -32009, -32099]
+            message:
+              type: string
+            data: {}
+    MCPLegacyRequest:
+      type: object
+      required: [tool, arguments]
+      properties:
+        tool:
+          $ref: '#/components/schemas/MCPToolName'
+        arguments:
+          $ref: '#/components/schemas/MCPToolArguments'
+    MCPLegacyResponse:
+      allOf:
+        - $ref: '#/components/schemas/VdocEnvelope'
+        - type: object
+          properties:
+            detail:
+              type: object
+              required: [tool, result]
+              properties:
+                tool:
+                  $ref: '#/components/schemas/MCPToolName'
+                result: {}
