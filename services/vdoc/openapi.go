@@ -37,15 +37,21 @@ func ParseOpenAPI(content string) (ParsedOpenAPI, error) {
 	if !ok || len(paths) == 0 {
 		return ParsedOpenAPI{}, fmt.Errorf("%w: paths is required", ErrInvalidArgument)
 	}
+	if err := validateOpenAPIInfo(raw); err != nil {
+		return ParsedOpenAPI{}, err
+	}
 	normalizedBytes, err := json.Marshal(normalizeValue(raw))
 	if err != nil {
 		return ParsedOpenAPI{}, err
 	}
 	endpoints := []Endpoint{}
 	for _, pathName := range keys(paths) {
+		if !strings.HasPrefix(pathName, "/") {
+			return ParsedOpenAPI{}, fmt.Errorf("%w: path must start with /", ErrInvalidArgument)
+		}
 		pathItem, ok := asMap(paths[pathName])
 		if !ok {
-			continue
+			return ParsedOpenAPI{}, fmt.Errorf("%w: path item must be an object", ErrInvalidArgument)
 		}
 		for _, method := range openAPIMethods {
 			op, ok := asMap(pathItem[method])
@@ -63,6 +69,19 @@ func ParseOpenAPI(content string) (ParsedOpenAPI, error) {
 		return ParsedOpenAPI{}, fmt.Errorf("%w: no endpoint operation found", ErrInvalidArgument)
 	}
 	return ParsedOpenAPI{SchemaFormat: format, Normalized: string(normalizedBytes), Endpoints: endpoints}, nil
+}
+
+func validateOpenAPIInfo(root map[string]any) error {
+	info, ok := asMap(root["info"])
+	if !ok {
+		return fmt.Errorf("%w: info is required", ErrInvalidArgument)
+	}
+	title, _ := info["title"].(string)
+	version, _ := info["version"].(string)
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(version) == "" {
+		return fmt.Errorf("%w: info.title and info.version are required", ErrInvalidArgument)
+	}
+	return nil
 }
 
 func decodeOpenAPI(content string) (map[string]any, error) {
@@ -103,7 +122,13 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 	if responses, ok, err := resolveOptional(root, op["responses"], refs); err != nil {
 		return Endpoint{}, err
 	} else if ok {
+		responsesMap, ok := asMap(responses)
+		if !ok || len(responsesMap) == 0 {
+			return Endpoint{}, fmt.Errorf("%w: operation responses must be a non-empty object", ErrInvalidArgument)
+		}
 		endpoint.Responses = responses
+	} else {
+		return Endpoint{}, fmt.Errorf("%w: operation responses are required", ErrInvalidArgument)
 	}
 	if security, ok := effectiveValue(root, pathItem, op, "security"); ok {
 		endpoint.Security = normalizeValue(security)

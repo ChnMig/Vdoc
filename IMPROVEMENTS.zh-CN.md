@@ -16,7 +16,7 @@
 - 统一响应包裹
 - CORS、安全响应头、请求体大小限制、Recovery、限流中间件
 - 公开注册/登录、私有 JWT 路由、MCP Token 生命周期、JSON-RPC MCP 查询和草稿 tools
-- SuperAdmin 用户生命周期、Team、Project、Member、Service、Branch、OpenAPI 草稿、人工审核发布、Endpoint 索引、语义 Diff 和审计日志
+- SuperAdmin 用户生命周期、Team、Project、Member、Document、Document Branch、OpenAPI 与 Markdown 草稿、人工审核发布、Endpoint 索引、语义 Diff、Markdown Diff 和审计日志
 - `database.enabled=true` 时通过 GORM/PostgreSQL 和规范化表持久化
 - `storage.enabled=true` 时通过 RustFS 或 S3-compatible 对象存储保存 raw/normalized schema 快照
 - 健康检查接口和测试
@@ -25,15 +25,15 @@
 
 ## v0.1 核心链路
 
-当前后端已经验证一条核心链路：
+当前后端已经验证一条多类型文档核心链路：
 
 ```text
-后端上传或 AI 通过 MCP 提交 OpenAPI 草稿
+后端上传或 AI 通过 MCP 提交 OpenAPI 或 Markdown 草稿
         -> 人工审核后 Vdoc 创建版本
-        -> Vdoc 解析接口契约
-        -> Vdoc 计算语义 Diff
-        -> 前端或 AI 查询变化
-        -> 前端更新对接代码
+        -> Vdoc 在适用时解析 OpenAPI Endpoint
+        -> Vdoc 计算 OpenAPI 语义 Diff 或 Markdown 文本 Diff
+        -> 前端或 AI 查询变化和已审核文档内容
+        -> 前端更新对接代码或项目知识
 ```
 
 ## 1. Team、Project 和角色模型
@@ -57,18 +57,19 @@ Team
 
 用户可以加入多个 Project，并在不同 Project 中拥有不同角色。Writer 只能创建、更新和提交草稿；发布必须由 Project Admin 或 SuperAdmin 执行。JWT 只保存必要用户身份，项目权限按 `user_id + project_id` 查询。MVP 成员从现有系统用户手动添加，不做邀请流程。
 
-## 2. Service 和契约版本
+## 2. Project Document 和版本
 
-每个 Project 可以包含多个 Service。每个 Service 管理自己的 OpenAPI 版本。
+每个 Project 可以包含多个多类型 Document。v0.1 支持 OpenAPI API 文档和 Markdown 纯文档。`relative_path` 是文档唯一存储路径身份。
 
 规则：
 
-- 已发布的契约版本不可变。
-- 上传变化后的 schema 会先创建草稿，审核通过后创建新版本。
-- Service 下有契约分支和环境，支持 `dev`、`test`、受保护 `prod` 和可选 `feature/*`。
+- 已发布的 Document Version 不可变。
+- 上传变化后的内容会先创建草稿，审核通过后创建新版本。
+- Document 下有分支和环境，支持 `dev`、`test`、受保护 `prod` 和可选 `feature/*`。
 - Promote 会在目标分支创建草稿，并复用普通审核发布流程。
-- Raw OpenAPI 必须保留，便于审计、下载和未来重新处理。
-- Normalized OpenAPI 用于稳定 hash 和比较。
+- Raw 内容必须保留，便于审计、下载和未来重新处理。
+- OpenAPI 使用 normalized 快照做稳定 hash 和语义比较。
+- Markdown 使用 stable 快照做纯文件 Diff 和最新文档查询。
 
 ## 3. OpenAPI 上传流水线
 
@@ -82,14 +83,14 @@ Team
   -> 规范化 schema
   -> 计算 raw 和 normalized hash
   -> 检测无变化上传
-  -> 创建 contract draft
+  -> 创建 document draft
   -> 人工审核通过
-  -> 创建 contract version
+  -> 创建 document version
   -> 解析 endpoint index
   -> 调度 semantic diff
 ```
 
-v0.1 在启用对象存储时使用 RustFS 或其他 S3-compatible 存储保存 raw schema、normalized schema 和较大的 diff 快照。PostgreSQL 只保存 object key、hash 和元数据。
+v0.1 在启用对象存储时使用 RustFS 或其他 S3-compatible 存储保存 raw、normalized、stable 和较大的 diff 快照。PostgreSQL 只保存 object key、hash 和元数据。
 
 ## 4. Endpoint Index
 
@@ -109,7 +110,7 @@ v0.1 在启用对象存储时使用 RustFS 或其他 S3-compatible 存储保存 
 
 ## 5. Semantic Diff
 
-Vdoc 比较接口契约，而不是比较原始 JSON 文本。
+Vdoc 比较 OpenAPI 结构，而不是比较原始 JSON 文本。Markdown 文档使用纯文件 Diff，不使用 Endpoint 级语义规则。
 
 初始 diff 范围：
 
@@ -140,7 +141,7 @@ Vdoc 比较接口契约，而不是比较原始 JSON 文本。
 摘要示例：
 
 ```text
-user-service 1.0.0 -> 1.1.0
+apis/petstore.yaml 1.0.0 -> 1.1.0
 
 新增接口：0
 删除接口：0
@@ -161,7 +162,7 @@ MCP 是 Vdoc 面向 AI 的核心集成入口。
 
 ```text
 list_projects
-list_services
+list_documents
 list_api_versions
 get_latest_schema
 get_endpoint_detail
@@ -171,14 +172,15 @@ create_api_version_draft
 update_api_version_draft
 submit_api_version_draft
 get_api_version_draft
+get_latest_doc
+compare_doc_versions
+create_doc_draft
+update_doc_draft
+submit_doc_draft
+get_doc_draft
 ```
 
-后续再做直接发布工具：
-
-```text
-publish_api_schema
-publish_api_version
-```
+v0.1 不提供直接发布工具。版本发布必须由 Admin 或 SuperAdmin 人工审核触发。
 
 安全要求：
 
@@ -187,7 +189,8 @@ publish_api_version
 - `api:read` token 不能创建或更新草稿。
 - `api:draft` token 只有在用户具备目标项目 Writer/Admin/SuperAdmin 权限时才能提交草稿，但不能发布 schema。
 - 发布必须由 Project Admin 或 SuperAdmin 通过具备 `api:publish` 的人工审核动作触发。
-- 用户可以在后台查看和复制自己 active 状态的完整 MCP Token，也可以生成新 token 并废弃旧 token。
+- 创建 Token 时返回一次性可复制 MCP Token 值。列表、详情和废弃响应都会脱敏。
+- 用户可以在后台查看脱敏后的 active MCP Token，也可以生成新 token 并废弃旧 token。
 - 后端使用 `token_hash` 做调用鉴权，使用加密保存的 `token_ciphertext` 支持后台展示。
 - 草稿写入、token 查看/复制、token 废弃、token 使用和发布操作必须可审计。
 - MCP tools 绝不能返回原始密钥；只有后台 token 管理接口可以向 token 所属用户返回完整 token。
@@ -200,14 +203,15 @@ publish_api_version
 ```text
 PostgreSQL
   - users, teams, projects, members, permissions
-  - services and version metadata
+  - documents, branches, drafts, and version metadata
   - endpoint index
   - diff result and change summary
   - status、type、method、severity、scope 等有限集合字段的整数码
 
 RustFS Object Storage
-  - raw OpenAPI snapshots
+  - raw OpenAPI and Markdown snapshots
   - normalized OpenAPI snapshots
+  - stable Markdown snapshots
   - full diff snapshots
   - optional compressed schema AST
 
@@ -223,11 +227,12 @@ MCP 提供工具能力。未来可以通过 Skill 告诉 AI Agent 如何正确�
 
 可能的 Skill 工作流：
 
-- 后端或 AI 提交更新后的 API 契约草稿。
+- 后端或 AI 提交更新后的 OpenAPI 或 Markdown 文档草稿。
 - 审核人查看草稿 diff preview 后发布。
 - 前端比较两个 API 版本。
 - 前端请求某个 endpoint 的 TypeScript 类型和请求函数。
 - AI 识别 breaking changes 可能影响的前端文件。
+- AI 查询最新 Markdown guide，或比较两个 Markdown 文档版本。
 
 ## 当前非目标
 
@@ -242,9 +247,9 @@ MCP 提供工具能力。未来可以通过 Skill 告诉 AI Agent 如何正确�
 
 如果满足以下条件，MVP 就有价值：
 
-1. 后端开发能在 1 分钟内提交 OpenAPI 草稿，Project Admin 能在审核后发布版本。
+1. 后端开发能在 1 分钟内提交 OpenAPI 或 Markdown 草稿，Project Admin 能在审核后发布版本。
 2. Vdoc 能展示相较上一版本发生了什么变化。
 3. Vdoc 能识别常见 breaking changes。
-4. 前端能通过 Web UI 或 MCP 查询接口详情和版本差异。
-5. AI Agent 能通过 MCP 提交 OpenAPI 草稿，并明确等待人工审核发布。
-6. AI Agent 能基于 MCP 返回结果生成或更新前端对接代码。
+4. 前端能通过 Web UI 或 MCP 查询接口详情、Markdown 内容和版本差异。
+5. AI Agent 能通过 MCP 提交 OpenAPI 和 Markdown 草稿，并明确等待人工审核发布。
+6. AI Agent 能基于 MCP 返回结果生成或更新前端对接代码和项目指导。

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,14 +15,42 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func TestRepositorySourceDoesNotUsePrototypeStateTable(t *testing.T) {
+func TestRepositorySourceDoesNotUsePrototypeOrOldTableNames(t *testing.T) {
 	for _, path := range []string{"repo.go", "model.go"} {
 		source, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
-		if strings.Contains(strings.ToLower(string(source)), "vdoc_state") {
-			t.Fatalf("%s must not depend on vdoc_state", path)
+		text := strings.ToLower(string(source))
+		for _, forbidden := range []string{"vdoc" + "_state", "api" + "_services", "api" + "_contract_", "api" + "_version_diffs", "api" + "_diff_items", "service" + "_id", "contract" + "_version_id"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s must not depend on old persistence name %q", path, forbidden)
+			}
+		}
+	}
+}
+
+func TestRepositorySourceDoesNotKeepWholeStateAggregatePersistence(t *testing.T) {
+	wholeStateWriteAPI := regexp.MustCompile(`func \(r \*Repository\) (?:Save|Persist|Upsert|Record)[A-Za-z0-9]*\(ctx context\.Context,\s*(?:state|snapshot) \*domainvdoc\.State`)
+	for _, path := range []string{"repo.go", "../../../services/vdoc/postgres_repository.go"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if path == "repo.go" && wholeStateWriteAPI.Match(source) {
+			t.Fatalf("%s must not expose a DB write API that accepts a whole domain state", path)
+		}
+		text := strings.ToLower(string(source))
+		for _, forbidden := range []string{
+			"func (r *repository) persist" + "documentworkflowstate(ctx context.context, snapshot *" + "domainvdoc.state)",
+			"func (r *repository) save" + "state(ctx context.context, state *" + "domainvdoc.state)",
+			"persist" + "domainsnapshot",
+			"document" + "workflowrepository",
+			"save" + "state(ctx context.context, state *" + "domainvdoc.state)",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s must not keep whole-state aggregate persistence marker %q", path, forbidden)
+			}
 		}
 	}
 }
@@ -41,6 +70,42 @@ func TestDiffPreviewJSONRoundTripsSummary(t *testing.T) {
 	}
 }
 
+func TestDocumentVersionDiffMappingPreservesDocumentIdentity(t *testing.T) {
+	source, err := os.ReadFile("repo.go")
+	if err != nil {
+		t.Fatalf("read repo.go: %v", err)
+	}
+	text := string(source)
+
+	persistedDiffStart := strings.Index(text, "Create(&DocumentVersionDiff")
+	if persistedDiffStart == -1 {
+		t.Fatal("repo.go missing DocumentVersionDiff persistence mapping")
+	}
+	persistedDiffSection := text[persistedDiffStart:]
+	if persistedDiffEnd := strings.Index(persistedDiffSection, "BreakingChangesJSON"); persistedDiffEnd != -1 {
+		persistedDiffSection = persistedDiffSection[:persistedDiffEnd]
+	}
+	if !strings.Contains(persistedDiffSection, "DocumentID: domainDocumentID(diff.DocumentID, diff.ServiceID)") {
+		t.Fatal("DocumentVersionDiff persistence must store canonical document identity with service compatibility fallback")
+	}
+
+	loadDiffsStart := strings.Index(text, "func (r *Repository) loadDiffs")
+	if loadDiffsStart == -1 {
+		t.Fatal("repo.go missing loadDiffs")
+	}
+	loadDiffsSection := text[loadDiffsStart:]
+	loadDiffsEnd := strings.Index(loadDiffsSection, "var items []DocumentDiffItem")
+	if loadDiffsEnd == -1 {
+		t.Fatal("loadDiffs missing diff-item loading boundary")
+	}
+	loadDiffsSection = loadDiffsSection[:loadDiffsEnd]
+	for _, want := range []string{"DocumentID: model.DocumentID", "ServiceID: model.DocumentID"} {
+		if !strings.Contains(loadDiffsSection, want) {
+			t.Fatalf("loadDiffs missing persisted diff identity mapping %q", want)
+		}
+	}
+}
+
 func TestMCPTokenModelMappingRoundTripsSecurityFields(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	expiresAt := now.Add(time.Hour)
@@ -54,7 +119,7 @@ func TestMCPTokenModelMappingRoundTripsSecurityFields(t *testing.T) {
 		TokenHash:       "hash-value",
 		TokenCiphertext: []byte{1, 2, 3, 4},
 		CipherKID:       "test-kid",
-		Scopes:          []int{domainvdoc.ScopeAPIRead, domainvdoc.ScopeAPIDraft},
+		Scopes:          []int{domainvdoc.ScopeAPIRead, domainvdoc.ScopeAPIDraft, domainvdoc.ScopeDocRead, domainvdoc.ScopeDocDraft},
 		Status:          domainvdoc.MCPTokenStatusRevoked,
 		ExpiresAt:       &expiresAt,
 		LastUsedAt:      &now,
@@ -71,7 +136,7 @@ func TestMCPTokenModelMappingRoundTripsSecurityFields(t *testing.T) {
 	if !bytes.Equal(model.TokenCiphertext, token.TokenCiphertext) || model.CipherKID != token.CipherKID || model.ExpiresAt != token.ExpiresAt || model.RevokedBy == nil || *model.RevokedBy != revokedBy {
 		t.Fatalf("model security fields = %+v, want ciphertext/kid/expiry/revoked_by", model)
 	}
-	if model.Status != token.Status || len(model.Scopes) != 2 || model.Scopes[0] != domainvdoc.ScopeAPIRead || model.Scopes[1] != domainvdoc.ScopeAPIDraft || model.LastUsedAt != token.LastUsedAt || model.RevokedAt != token.RevokedAt {
+	if model.Status != token.Status || len(model.Scopes) != 4 || model.Scopes[0] != domainvdoc.ScopeAPIRead || model.Scopes[1] != domainvdoc.ScopeAPIDraft || model.Scopes[2] != domainvdoc.ScopeDocRead || model.Scopes[3] != domainvdoc.ScopeDocDraft || model.LastUsedAt != token.LastUsedAt || model.RevokedAt != token.RevokedAt {
 		t.Fatalf("model lifecycle fields = status %d scopes %#v last_used %v revoked_at %v", model.Status, model.Scopes, model.LastUsedAt, model.RevokedAt)
 	}
 
@@ -79,8 +144,29 @@ func TestMCPTokenModelMappingRoundTripsSecurityFields(t *testing.T) {
 	if loaded.Token != "" || !bytes.Equal(loaded.TokenCiphertext, token.TokenCiphertext) || loaded.CipherKID != token.CipherKID || loaded.ExpiresAt != token.ExpiresAt || loaded.RevokedBy == nil || *loaded.RevokedBy != revokedBy {
 		t.Fatalf("loaded token = %+v, want redacted token with security fields", loaded)
 	}
-	if loaded.Status != token.Status || len(loaded.Scopes) != 2 || loaded.Scopes[0] != domainvdoc.ScopeAPIRead || loaded.Scopes[1] != domainvdoc.ScopeAPIDraft || loaded.LastUsedAt != token.LastUsedAt || loaded.RevokedAt != token.RevokedAt {
+	if loaded.Status != token.Status || len(loaded.Scopes) != 4 || loaded.Scopes[0] != domainvdoc.ScopeAPIRead || loaded.Scopes[1] != domainvdoc.ScopeAPIDraft || loaded.Scopes[2] != domainvdoc.ScopeDocRead || loaded.Scopes[3] != domainvdoc.ScopeDocDraft || loaded.LastUsedAt != token.LastUsedAt || loaded.RevokedAt != token.RevokedAt {
 		t.Fatalf("loaded lifecycle fields = status %d scopes %#v last_used %v revoked_at %v", loaded.Status, loaded.Scopes, loaded.LastUsedAt, loaded.RevokedAt)
+	}
+}
+
+func TestDocumentWorkflowModelMappingKeepsDocumentIdentity(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	document := &domainvdoc.APIService{ID: "document-id", ProjectID: "project-id", Name: "checkout", DocumentType: domainvdoc.DocumentTypeOpenAPI, RelativePath: "apis/checkout.yaml", Status: domainvdoc.DocumentStatusActive, CreatedBy: "admin-id", CreatedAt: now, UpdatedAt: now}
+	draft := &domainvdoc.ContractDraft{ID: "draft-id", ProjectID: "project-id", DocumentID: document.ID, ServiceID: document.ID, BranchID: "branch-id", VersionName: "1.0.0", SourceGitCommitID: "abc123", SchemaFormat: domainvdoc.DocumentFormatOpenAPI31, SourceType: domainvdoc.SourceTypeWebUpload, RawSchema: "raw", NormalizedSchema: "{}", RawSchemaObjectKey: "raw-key", NormalizedObjectKey: "normalized-key", RawSchemaHash: "raw-hash", NormalizedSchemaHash: "normalized-hash", Status: domainvdoc.DraftStatusSubmitted, CreatedBy: "writer-id", SubmittedAt: &now, CreatedAt: now, UpdatedAt: now}
+	version := &domainvdoc.ContractVersion{ID: "version-id", ProjectID: "project-id", DocumentID: document.ID, ServiceID: document.ID, BranchID: "branch-id", DraftID: draft.ID, VersionName: draft.VersionName, SourceGitCommitID: draft.SourceGitCommitID, SchemaFormat: draft.SchemaFormat, SourceType: draft.SourceType, RawSchema: draft.RawSchema, NormalizedSchema: draft.NormalizedSchema, RawSchemaObjectKey: draft.RawSchemaObjectKey, NormalizedObjectKey: draft.NormalizedObjectKey, RawSchemaHash: draft.RawSchemaHash, NormalizedSchemaHash: draft.NormalizedSchemaHash, Status: domainvdoc.VersionStatusPublished, PublishedBy: "admin-id", PublishedAt: now, CreatedAt: now, UpdatedAt: now}
+
+	documentModel := documentModelFromDomain(document)
+	draftModel := documentDraftModelFromDomain(draft, document)
+	versionModel := documentVersionModelFromDomain(version, document, 3, 7)
+
+	if documentModel.DocumentType != domainvdoc.DocumentTypeOpenAPI || documentModel.RelativePath != document.RelativePath {
+		t.Fatalf("document model = %+v, want OpenAPI relative path", documentModel)
+	}
+	if draftModel.ProjectID != document.ProjectID || draftModel.DocumentID != document.ID || draftModel.RelativePath != document.RelativePath || stringValue(draftModel.SourceGitCommitID) != draft.SourceGitCommitID {
+		t.Fatalf("draft model = %+v, want project/document/path/source commit", draftModel)
+	}
+	if versionModel.ProjectID != document.ProjectID || versionModel.DocumentID != document.ID || versionModel.RelativePath != document.RelativePath || stringValue(versionModel.SourceGitCommitID) != version.SourceGitCommitID || versionModel.EndpointCount != 7 || versionModel.VersionNo != 3 {
+		t.Fatalf("version model = %+v, want project/document/path/source commit/version metadata", versionModel)
 	}
 }
 
@@ -108,10 +194,10 @@ func TestAuditPersistenceSourceLoadsAndInsertsConflictSafe(t *testing.T) {
 		"loadAudits(ctx, state)",
 		"func (r *Repository) loadAudits",
 		"Order(\"created_at,id\")",
-		"insertStateAudits(ctx, state)",
+		"func (r *Repository) RecordAudit",
 		"insertByIDIgnoreConflict(ctx, auditLogModelFromDomain(audit))",
 		"contract_draft.review",
-		"api_contract_version.publish",
+		"document_version.publish",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("repo.go missing audit persistence marker %q", want)
@@ -166,7 +252,7 @@ func TestPublishStateSourceUsesTransactionLockingAndAudit(t *testing.T) {
 		"clause.Locking{Strength: \"UPDATE\"}",
 		"ensureVersionAvailable",
 		"insertPublishAudit",
-		"api_contract_version.publish",
+		"document_version.publish",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("repo.go missing %q in publish transaction path", want)
@@ -181,10 +267,10 @@ func TestPublishedRowsUseInsertOnlyPersistence(t *testing.T) {
 	}
 	text := string(source)
 	for _, want := range []string{
-		"insertByIDIgnoreConflict(ctx, &APIContractVersion",
-		"insertByIDIgnoreConflict(ctx, &APIEndpoint",
-		"insertByIDIgnoreConflict(ctx, &APIVersionDiff",
-		"insertByIDIgnoreConflict(ctx, &APIDiffItem",
+		"Create(&DocumentVersion",
+		"Create(&APIEndpoint",
+		"Create(&DocumentVersionDiff",
+		"Create(&DocumentDiffItem",
 		"ON CONFLICT (endpoint_id) DO NOTHING",
 	} {
 		if !strings.Contains(text, want) {
@@ -192,10 +278,10 @@ func TestPublishedRowsUseInsertOnlyPersistence(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"r.upsertByID(ctx, &APIContractVersion",
+		"r.upsertByID(ctx, &DocumentVersion",
 		"r.upsertByID(ctx, &APIEndpoint",
-		"r.upsertByID(ctx, &APIVersionDiff",
-		"r.upsertByID(ctx, &APIDiffItem",
+		"r.upsertByID(ctx, &DocumentVersionDiff",
+		"r.upsertByID(ctx, &DocumentDiffItem",
 		"ON CONFLICT (endpoint_id) DO UPDATE",
 	} {
 		if strings.Contains(text, forbidden) {

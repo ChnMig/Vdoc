@@ -20,9 +20,9 @@ import (
 	"vdoc/api/app/v1/open"
 	"vdoc/api/app/v1/private"
 	"vdoc/api/middleware"
+	app "vdoc/appstore"
 	"vdoc/config"
 	apidocs "vdoc/docs/api"
-	app "vdoc/services/vdoc"
 )
 
 type docsEnvelope struct {
@@ -120,15 +120,18 @@ func TestAPIDocsRequiredPhrases(t *testing.T) {
 	document := readDocsMarkdown(t, "API.md")
 	requiredPhrases := []string{
 		"Vdoc Response Envelope",
+		"Projects directly own typed Documents",
+		"document_type",
+		"document path identity",
 		"SuperAdmin",
 		"Reader",
 		"Writer",
 		"Admin",
-		"schema_kind",
+		"content_kind",
 		"raw",
 		"normalized",
 		"register/login",
-		"create project/service",
+		"create project/document",
 		"upload draft",
 		"submit",
 		"approve",
@@ -137,8 +140,13 @@ func TestAPIDocsRequiredPhrases(t *testing.T) {
 		"create MCP token",
 		"MCP tools/list",
 		"MCP tools/call",
-		"publish_api_schema",
-		"publish_api_version",
+		"list_documents",
+		"get_latest_doc",
+		"compare_doc_versions",
+		"create_doc_draft",
+		"markdown_content",
+		"one time copyable",
+		"Direct publish tools are intentionally not exposed in v0.1",
 	}
 	missing := make([]string, 0)
 	for _, phrase := range requiredPhrases {
@@ -148,6 +156,40 @@ func TestAPIDocsRequiredPhrases(t *testing.T) {
 	}
 	if len(missing) > 0 {
 		t.Fatalf("API.md missing required phrases: %s", strings.Join(missing, ", "))
+	}
+}
+
+func TestAPIDocsUseProjectDocumentLanguage(t *testing.T) {
+	files := []string{
+		"API.md",
+		"openapi.yaml",
+		"../../README.md",
+		"../../README.zh-CN.md",
+		"../../IMPROVEMENTS.md",
+		"../../IMPROVEMENTS.zh-CN.md",
+		"../../DATABASE_SCHEMA.md",
+		"../../IMPLEMENTATION_PLAN.md",
+	}
+	staleTerms := []string{
+		"list_" + "services",
+		"service" + "_id",
+		"Service" + " ID",
+		"/" + "services",
+		"api" + "_contract",
+		"file" + "name",
+		"File" + "name",
+		"file" + "_name",
+		"File" + "Name",
+		strings.Join([]string{"publish", "api", "schema"}, "_"),
+		strings.Join([]string{"publish", "api", "version"}, "_"),
+	}
+	for _, path := range files {
+		body := readDocsMarkdown(t, path)
+		for _, term := range staleTerms {
+			if strings.Contains(body, term) {
+				t.Fatalf("%s contains stale active document wording %q", path, term)
+			}
+		}
 	}
 }
 
@@ -206,55 +248,55 @@ func TestAPIDocsExampleSmoke(t *testing.T) {
 		"description":   "API docs smoke project",
 		"admin_user_id": registerDetail.User.ID,
 	}))
-	service := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services", jwtToken, map[string]any{
-		"name":         "petstore",
-		"display_name": "Petstore",
-		"description":  "Docs sample service",
-		"base_path":    "/petstore",
+	document := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents", jwtToken, map[string]any{
+		"name":          "petstore",
+		"document_type": 1,
+		"relative_path": "apis/petstore.yaml",
+		"description":   "Docs sample document",
 	}))
-	branchesEnvelope := performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/branches", jwtToken, nil)
+	branchesEnvelope := performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/branches", jwtToken, nil)
 	branches := decodeDocsDetail[[]docsBranch](t, branchesEnvelope)
 	branchID := docsBranchID(t, branches, "dev")
 
-	draftOne := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts", jwtToken, map[string]any{
+	draftOne := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts", jwtToken, map[string]any{
 		"branch_id":            branchID,
 		"version_name":         "1.0.0",
 		"changelog":            "Initial pet list",
 		"source_git_commit_id": "abc1234",
 		"schema_content":       docsSmokeOpenAPI("1.0.0", false),
 	}))
-	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draftOne.ID+"/schemas/raw", jwtToken, nil), "raw")
-	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draftOne.ID+"/schemas/normalized", jwtToken, nil), "normalized")
-	performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draftOne.ID+"/submit", jwtToken, nil)
-	versionOne := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draftOne.ID+"/approve", jwtToken, nil))
-	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contracts/"+versionOne.ID+"/schemas/raw", jwtToken, nil), "raw")
-	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contracts/"+versionOne.ID+"/schemas/normalized", jwtToken, nil), "normalized")
+	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/content/raw", jwtToken, nil), "raw")
+	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/content/normalized", jwtToken, nil), "normalized")
+	performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/submit", jwtToken, nil)
+	versionOne := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/approve", jwtToken, nil))
+	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/versions/"+versionOne.ID+"/content/raw", jwtToken, nil), "raw")
+	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/versions/"+versionOne.ID+"/content/normalized", jwtToken, nil), "normalized")
 
-	endpointList := decodeDocsDetail[[]docsEndpoint](t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contracts/"+versionOne.ID+"/endpoints?path=/pets", jwtToken, nil))
+	endpointList := decodeDocsDetail[[]docsEndpoint](t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/versions/"+versionOne.ID+"/endpoints?path=/pets", jwtToken, nil))
 	if len(endpointList) != 1 || endpointList[0].ID == "" || endpointList[0].Path != "/pets" {
 		t.Fatalf("endpoint list = %+v, want /pets endpoint", endpointList)
 	}
-	endpoint := decodeDocsDetail[docsEndpoint](t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contracts/"+versionOne.ID+"/endpoints/"+endpointList[0].ID, jwtToken, nil))
+	endpoint := decodeDocsDetail[docsEndpoint](t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/versions/"+versionOne.ID+"/endpoints/"+endpointList[0].ID, jwtToken, nil))
 	if endpoint.ID != endpointList[0].ID {
 		t.Fatalf("endpoint detail id = %q, want %q", endpoint.ID, endpointList[0].ID)
 	}
 
-	draftTwo := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts", jwtToken, map[string]any{
+	draftTwo := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts", jwtToken, map[string]any{
 		"branch_id":      branchID,
 		"version_name":   "1.1.0",
 		"changelog":      "Add pet detail",
 		"schema_content": docsSmokeOpenAPI("1.1.0", true),
 	}))
-	performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draftTwo.ID+"/submit", jwtToken, nil)
-	versionTwo := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draftTwo.ID+"/approve", jwtToken, nil))
-	diff := decodeDocsDetail[docsDiff](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/diffs", jwtToken, map[string]any{
+	performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftTwo.ID+"/submit", jwtToken, nil)
+	versionTwo := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftTwo.ID+"/approve", jwtToken, nil))
+	diff := decodeDocsDetail[docsDiff](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/diffs", jwtToken, map[string]any{
 		"from_version_id": versionOne.ID,
 		"to_version_id":   versionTwo.ID,
 	}))
 	if diff.ID == "" || diff.Summary.AddedEndpoints == 0 {
 		t.Fatalf("diff = %+v, want id and added endpoint count", diff)
 	}
-	performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/diffs/"+diff.ID+"/summary", jwtToken, nil)
+	performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/diffs/"+diff.ID+"/summary", jwtToken, nil)
 
 	mcpToken := decodeDocsDetail[docsMCPToken](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/mcp-tokens", jwtToken, map[string]any{
 		"name":   "docs-agent",
@@ -275,7 +317,7 @@ func TestAPIDocsExampleSmoke(t *testing.T) {
 			"name": "get_endpoint_detail",
 			"arguments": map[string]any{
 				"project_id":  project.ID,
-				"service_id":  service.ID,
+				"document_id": document.ID,
 				"version_id":  versionOne.ID,
 				"endpoint_id": endpoint.ID,
 			},
@@ -284,7 +326,7 @@ func TestAPIDocsExampleSmoke(t *testing.T) {
 	if !bytes.Contains(toDocsJSON(t, toolCall.Result), []byte(endpoint.ID)) {
 		t.Fatalf("tools/call result = %s, want endpoint id", string(toDocsJSON(t, toolCall.Result)))
 	}
-	t.Logf("documented curl sequence fixture passed: register/login, create project/service, upload draft, submit, approve, query endpoint, compare diff, create MCP token, MCP tools/list, MCP tools/call")
+	t.Logf("documented curl sequence fixture passed: register/login, create project/document, upload draft, submit, approve, query endpoint, compare diff, create MCP token, MCP tools/list, MCP tools/call")
 }
 
 func newDocsSmokeRouter(t *testing.T) *gin.Engine {
@@ -396,7 +438,7 @@ func docsBranchID(t *testing.T, branches []docsBranch, name string) string {
 func assertDocsSchema(t *testing.T, envelope docsEnvelope, kind string) {
 	t.Helper()
 	var schema struct {
-		Kind    string `json:"kind"`
+		Kind    string `json:"content_kind"`
 		Content string `json:"content"`
 		Hash    string `json:"hash"`
 	}

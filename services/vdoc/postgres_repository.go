@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"context"
+	"sort"
 
 	domainvdoc "vdoc/domain/vdoc"
 )
@@ -15,46 +16,89 @@ func (p *postgresPersistence) load(ctx context.Context, store *Store) error {
 	return store.hydrateSchemaObjectsLocked(ctx)
 }
 
+type documentMutationRepository interface {
+	UpsertDocument(ctx context.Context, document *domainvdoc.APIService) error
+	UpsertDocumentBranch(ctx context.Context, branch *domainvdoc.ContractBranch) error
+	UpsertDocumentDraft(ctx context.Context, draft *domainvdoc.ContractDraft, document *domainvdoc.APIService) error
+}
+
 func (p *postgresPersistence) saveLocked(ctx context.Context, store *Store) error {
-	return p.repo.SaveState(ctx, store.stateLocked())
+	if repo, ok := p.repo.(documentMutationRepository); ok {
+		if err := p.saveDocumentWorkflowLocked(ctx, store, repo); err != nil {
+			return err
+		}
+	}
+	for _, token := range sortedStoreValues(store.tokens, func(value *domainvdoc.MCPToken) string { return value.ID }) {
+		if err := p.repo.UpsertMCPToken(ctx, token); err != nil {
+			return err
+		}
+	}
+	for _, audit := range sortedStoreValues(store.audits, func(value *domainvdoc.AuditLog) string {
+		return value.CreatedAt.Format(sortableTimeLayout) + ":" + value.ID
+	}) {
+		if err := p.repo.RecordAudit(ctx, audit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *postgresPersistence) saveDocumentWorkflowLocked(ctx context.Context, store *Store, repo documentMutationRepository) error {
+	for _, document := range sortedStoreValues(store.apiServices, func(value *domainvdoc.APIService) string { return value.ID }) {
+		if err := repo.UpsertDocument(ctx, document); err != nil {
+			return err
+		}
+	}
+	for _, branch := range sortedStoreValues(store.branches, func(value *domainvdoc.ContractBranch) string { return value.ID }) {
+		if err := repo.UpsertDocumentBranch(ctx, branch); err != nil {
+			return err
+		}
+	}
+	for _, draft := range sortedStoreValues(store.drafts, func(value *domainvdoc.ContractDraft) string { return value.ID }) {
+		document := store.apiServices[documentIdentity(draft.DocumentID, draft.ServiceID)]
+		if err := repo.UpsertDocumentDraft(ctx, draft, document); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *postgresPersistence) publishLocked(ctx context.Context, input domainvdoc.PublishStateInput) error {
 	return p.repo.PublishState(ctx, input)
 }
 
-func (s *Store) applyStateLocked(state *domainvdoc.State) {
-	if state == nil {
-		state = domainvdoc.NewState()
+func (s *Store) applyStateLocked(loaded *domainvdoc.State) {
+	if loaded == nil {
+		loaded = domainvdoc.NewState()
 	}
-	s.users = state.Users
-	s.teams = state.Teams
-	s.projects = state.Projects
-	s.members = state.Members
-	s.services = state.Services
-	s.branches = state.Branches
-	s.drafts = state.Drafts
-	s.versions = state.Versions
-	s.endpoints = state.Endpoints
-	s.diffs = state.Diffs
-	s.tokens = state.Tokens
-	s.audits = state.AuditLogs
+	s.users = loaded.Users
+	s.teams = loaded.Teams
+	s.projects = loaded.Projects
+	s.members = loaded.Members
+	s.apiServices = loaded.APIServices
+	s.branches = loaded.Branches
+	s.drafts = loaded.Drafts
+	s.versions = loaded.Versions
+	s.endpoints = loaded.Endpoints
+	s.diffs = loaded.Diffs
+	s.tokens = loaded.Tokens
+	s.audits = loaded.AuditLogs
 }
 
 func (s *Store) stateLocked() *domainvdoc.State {
 	return &domainvdoc.State{
-		Users:     s.users,
-		Teams:     s.teams,
-		Projects:  s.projects,
-		Members:   s.members,
-		Services:  s.services,
-		Branches:  s.branches,
-		Drafts:    s.drafts,
-		Versions:  s.versions,
-		Endpoints: s.endpoints,
-		Diffs:     s.diffs,
-		Tokens:    s.tokens,
-		AuditLogs: s.audits,
+		Users:       s.users,
+		Teams:       s.teams,
+		Projects:    s.projects,
+		Members:     s.members,
+		APIServices: s.apiServices,
+		Branches:    s.branches,
+		Drafts:      s.drafts,
+		Versions:    s.versions,
+		Endpoints:   s.endpoints,
+		Diffs:       s.diffs,
+		Tokens:      s.tokens,
+		AuditLogs:   s.audits,
 	}
 }
 
@@ -76,9 +120,9 @@ func (s *Store) cloneStateLocked() *domainvdoc.State {
 		copied := *value
 		state.Members[key] = &copied
 	}
-	for key, value := range s.services {
+	for key, value := range s.apiServices {
 		copied := *value
-		state.Services[key] = &copied
+		state.APIServices[key] = &copied
 	}
 	for key, value := range s.branches {
 		copied := *value
@@ -115,6 +159,24 @@ func (s *Store) cloneStateLocked() *domainvdoc.State {
 		state.AuditLogs[key] = cloneAuditLog(value)
 	}
 	return state
+}
+
+const sortableTimeLayout = "2006-01-02T15:04:05.999999999Z07:00"
+
+func sortedStoreValues[T any](items map[string]*T, key func(*T) string) []*T {
+	values := make([]*T, 0, len(items))
+	for _, value := range items {
+		values = append(values, value)
+	}
+	sort.Slice(values, func(first, second int) bool { return key(values[first]) < key(values[second]) })
+	return values
+}
+
+func documentIdentity(documentID, serviceID string) string {
+	if documentID != "" {
+		return documentID
+	}
+	return serviceID
 }
 
 func (s *Store) hydrateSchemaObjectsLocked(ctx context.Context) error {

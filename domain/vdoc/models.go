@@ -1,296 +1,113 @@
 package vdoc
 
-import "time"
-
-const (
-	UserStatusActive   = 1
-	UserStatusDisabled = 2
-
-	ProjectStatusActive   = 1
-	ProjectStatusArchived = 2
-
-	MemberRoleReader = 1
-	MemberRoleWriter = 2
-	MemberRoleAdmin  = 3
-
-	MemberStatusActive   = 1
-	MemberStatusDisabled = 2
-
-	ServiceStatusActive   = 1
-	ServiceStatusArchived = 2
-
-	BranchKindEnvironment = 1
-	BranchKindFeature     = 2
-
-	BranchStatusActive   = 1
-	BranchStatusArchived = 2
-
-	DraftStatusDraft            = 1
-	DraftStatusSubmitted        = 2
-	DraftStatusChangesRequested = 3
-	DraftStatusRejected         = 4
-	DraftStatusPublished        = 5
-
-	VersionStatusPublished = 1
-
-	SchemaFormatOpenAPI30 = 1
-	SchemaFormatOpenAPI31 = 2
-
-	SourceTypeWebUpload = 1
-	SourceTypeMCPUpload = 2
-	SourceTypePromote   = 3
-
-	DiffStatusSucceeded = 3
-
-	SeverityInfo     = 1
-	SeverityWarning  = 2
-	SeverityBreaking = 3
-
-	ChangeEndpointAdded      = 1
-	ChangeEndpointRemoved    = 2
-	ChangeEndpointModified   = 3
-	ChangeParameterAdded     = 4
-	ChangeParameterRemoved   = 5
-	ChangeParameterChanged   = 6
-	ChangeRequestBodyChanged = 7
-	ChangeResponseChanged    = 8
-	ChangeSecurityChanged    = 9
-	ChangeDeprecatedChanged  = 10
-
-	MCPTokenStatusActive  = 1
-	MCPTokenStatusRevoked = 2
-	MCPTokenStatusExpired = 3
-
-	ScopeAPIRead  = 1
-	ScopeAPIDraft = 2
-
-	AuditActorUser     = 1
-	AuditActorMCPToken = 2
-	AuditActorSystem   = 3
+import (
+	commonvdoc "vdoc/common/vdoc"
+	domainaudit "vdoc/domain/audit"
+	domaindocument "vdoc/domain/document"
+	domainbranch "vdoc/domain/documentbranch"
+	domaindiff "vdoc/domain/documentdiff"
+	domaindraft "vdoc/domain/documentdraft"
+	domainversion "vdoc/domain/documentversion"
+	domainmcp "vdoc/domain/mcp"
+	domainproject "vdoc/domain/project"
+	domainuser "vdoc/domain/user"
 )
 
-type User struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	Name         string    `json:"name"`
-	PasswordHash string    `json:"-"`
-	IsSuperAdmin bool      `json:"is_super_admin"`
-	Status       int       `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
+const (
+	UserStatusActive   = commonvdoc.UserStatusActive
+	UserStatusDisabled = commonvdoc.UserStatusDisabled
 
-type Team struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
+	ProjectStatusActive   = commonvdoc.ProjectStatusActive
+	ProjectStatusArchived = commonvdoc.ProjectStatusArchived
 
-type Project struct {
-	ID          string    `json:"id"`
-	TeamID      string    `json:"team_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Status      int       `json:"status"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
+	MemberRoleReader = commonvdoc.MemberRoleReader
+	MemberRoleWriter = commonvdoc.MemberRoleWriter
+	MemberRoleAdmin  = commonvdoc.MemberRoleAdmin
 
-type ProjectMember struct {
-	ProjectID string    `json:"project_id"`
-	UserID    string    `json:"user_id"`
-	Role      int       `json:"role"`
-	Status    int       `json:"status"`
-	AddedBy   string    `json:"added_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+	MemberStatusActive   = commonvdoc.MemberStatusActive
+	MemberStatusDisabled = commonvdoc.MemberStatusDisabled
 
-type APIService struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	Name        string    `json:"name"`
-	DisplayName string    `json:"display_name,omitempty"`
-	Description string    `json:"description,omitempty"`
-	BasePath    string    `json:"base_path,omitempty"`
-	Status      int       `json:"status"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
+	DocumentTypeOpenAPI  = commonvdoc.DocumentTypeOpenAPI
+	DocumentTypeMarkdown = commonvdoc.DocumentTypeMarkdown
 
-type ContractBranch struct {
-	ID          string    `json:"id"`
-	ServiceID   string    `json:"service_id"`
-	Name        string    `json:"name"`
-	Kind        int       `json:"kind"`
-	Description string    `json:"description,omitempty"`
-	IsDefault   bool      `json:"is_default"`
-	IsProtected bool      `json:"is_protected"`
-	Status      int       `json:"status"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
+	DocumentStatusActive   = commonvdoc.DocumentStatusActive
+	DocumentStatusArchived = commonvdoc.DocumentStatusArchived
 
-type ContractDraft struct {
-	ID                   string     `json:"id"`
-	ProjectID            string     `json:"project_id"`
-	ServiceID            string     `json:"service_id"`
-	BranchID             string     `json:"branch_id"`
-	VersionName          string     `json:"version_name"`
-	Changelog            string     `json:"changelog,omitempty"`
-	SourceGitCommitID    string     `json:"source_git_commit_id,omitempty"`
-	SchemaFormat         int        `json:"schema_format"`
-	SourceType           int        `json:"source_type"`
-	SourceBranchID       string     `json:"source_branch_id,omitempty"`
-	SourceVersionID      string     `json:"source_version_id,omitempty"`
-	BaseVersionID        string     `json:"base_version_id,omitempty"`
-	RawSchema            string     `json:"raw_schema"`
-	NormalizedSchema     string     `json:"normalized_schema"`
-	RawSchemaObjectKey   string     `json:"raw_schema_object_key,omitempty"`
-	NormalizedObjectKey  string     `json:"normalized_schema_object_key,omitempty"`
-	RawSchemaHash        string     `json:"raw_schema_hash"`
-	NormalizedSchemaHash string     `json:"normalized_schema_hash"`
-	Status               int        `json:"status"`
-	DiffPreview          *Diff      `json:"diff_preview,omitempty"`
-	CreatedBy            string     `json:"created_by"`
-	SubmittedAt          *time.Time `json:"submitted_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-}
+	ServiceStatusActive   = commonvdoc.DocumentStatusActive
+	ServiceStatusArchived = commonvdoc.DocumentStatusArchived
 
-type ContractVersion struct {
-	ID                   string    `json:"id"`
-	ProjectID            string    `json:"project_id"`
-	ServiceID            string    `json:"service_id"`
-	BranchID             string    `json:"branch_id"`
-	DraftID              string    `json:"draft_id"`
-	VersionName          string    `json:"version_name"`
-	Changelog            string    `json:"changelog,omitempty"`
-	SourceGitCommitID    string    `json:"source_git_commit_id,omitempty"`
-	SchemaFormat         int       `json:"schema_format"`
-	SourceType           int       `json:"source_type"`
-	SourceBranchID       string    `json:"source_branch_id,omitempty"`
-	SourceVersionID      string    `json:"source_version_id,omitempty"`
-	BaseVersionID        string    `json:"base_version_id,omitempty"`
-	RawSchema            string    `json:"raw_schema"`
-	NormalizedSchema     string    `json:"normalized_schema"`
-	RawSchemaObjectKey   string    `json:"raw_schema_object_key,omitempty"`
-	NormalizedObjectKey  string    `json:"normalized_schema_object_key,omitempty"`
-	RawSchemaHash        string    `json:"raw_schema_hash"`
-	NormalizedSchemaHash string    `json:"normalized_schema_hash"`
-	Status               int       `json:"status"`
-	PublishedBy          string    `json:"published_by"`
-	PublishedAt          time.Time `json:"published_at"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
-}
+	BranchKindEnvironment = commonvdoc.BranchKindEnvironment
+	BranchKindFeature     = commonvdoc.BranchKindFeature
 
-type SchemaDocument struct {
-	OwnerType string `json:"owner_type"`
-	OwnerID   string `json:"owner_id"`
-	Kind      string `json:"kind"`
-	Content   string `json:"content"`
-	ObjectKey string `json:"object_key"`
-	Hash      string `json:"hash"`
-}
+	BranchStatusActive   = commonvdoc.BranchStatusActive
+	BranchStatusArchived = commonvdoc.BranchStatusArchived
 
-type Endpoint struct {
-	ID                  string    `json:"id"`
-	ContractVersionID   string    `json:"contract_version_id"`
-	Method              string    `json:"method"`
-	Path                string    `json:"path"`
-	OperationID         string    `json:"operation_id,omitempty"`
-	Summary             string    `json:"summary,omitempty"`
-	Tags                []string  `json:"tags,omitempty"`
-	Deprecated          bool      `json:"deprecated"`
-	Parameters          any       `json:"parameters,omitempty"`
-	RequestBody         any       `json:"request_body,omitempty"`
-	Responses           any       `json:"responses,omitempty"`
-	Security            any       `json:"security,omitempty"`
-	Servers             any       `json:"servers,omitempty"`
-	NormalizedOperation any       `json:"normalized_operation,omitempty"`
-	SchemaRefs          any       `json:"schema_refs,omitempty"`
-	Hash                string    `json:"hash"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-}
+	DraftStatusDraft            = commonvdoc.DraftStatusDraft
+	DraftStatusSubmitted        = commonvdoc.DraftStatusSubmitted
+	DraftStatusChangesRequested = commonvdoc.DraftStatusChangesRequested
+	DraftStatusRejected         = commonvdoc.DraftStatusRejected
+	DraftStatusPublished        = commonvdoc.DraftStatusPublished
 
-type Diff struct {
-	ID            string      `json:"id"`
-	ServiceID     string      `json:"service_id"`
-	FromVersionID string      `json:"from_version_id,omitempty"`
-	ToVersionID   string      `json:"to_version_id,omitempty"`
-	ObjectKey     string      `json:"diff_object_key,omitempty"`
-	Hash          string      `json:"diff_hash,omitempty"`
-	DiffStatus    int         `json:"diff_status"`
-	Summary       DiffSummary `json:"summary"`
-	Items         []DiffItem  `json:"items"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
-}
+	VersionStatusPublished = commonvdoc.VersionStatusPublished
 
-type DiffSummary struct {
-	AddedEndpoints    int `json:"added_endpoints"`
-	RemovedEndpoints  int `json:"removed_endpoints"`
-	ModifiedEndpoints int `json:"modified_endpoints"`
-	BreakingChanges   int `json:"breaking_changes"`
-}
+	SchemaFormatOpenAPI30 = commonvdoc.SchemaFormatOpenAPI30
+	SchemaFormatOpenAPI31 = commonvdoc.SchemaFormatOpenAPI31
 
-type DiffItem struct {
-	ID             string `json:"id"`
-	ChangeType     int    `json:"change_type"`
-	Severity       int    `json:"severity"`
-	Method         string `json:"method,omitempty"`
-	Path           string `json:"path,omitempty"`
-	OperationID    string `json:"operation_id,omitempty"`
-	Location       string `json:"location,omitempty"`
-	OldValue       any    `json:"old_value,omitempty"`
-	NewValue       any    `json:"new_value,omitempty"`
-	Message        string `json:"message"`
-	FrontendImpact string `json:"frontend_impact,omitempty"`
-	IsBreaking     bool   `json:"is_breaking"`
-	MustHandle     bool   `json:"must_handle"`
-	SortOrder      int    `json:"sort_order"`
-}
+	DocumentFormatOpenAPI30 = commonvdoc.DocumentFormatOpenAPI30
+	DocumentFormatOpenAPI31 = commonvdoc.DocumentFormatOpenAPI31
+	DocumentFormatMarkdown  = commonvdoc.DocumentFormatMarkdown
 
-type MCPToken struct {
-	ID              string     `json:"id"`
-	UserID          string     `json:"user_id"`
-	Name            string     `json:"name"`
-	TokenHash       string     `json:"-"`
-	TokenCiphertext []byte     `json:"-"`
-	CipherKID       string     `json:"cipher_kid,omitempty"`
-	Token           string     `json:"token,omitempty"`
-	Scopes          []int      `json:"scopes"`
-	Status          int        `json:"status"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
-	RevokedBy       *string    `json:"revoked_by,omitempty"`
-	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
-}
+	SourceTypeWebUpload = commonvdoc.SourceTypeWebUpload
+	SourceTypeMCPUpload = commonvdoc.SourceTypeMCPUpload
+	SourceTypePromote   = commonvdoc.SourceTypePromote
+	SourceTypeWebEdit   = commonvdoc.SourceTypeWebEdit
 
-type AuditLog struct {
-	ID           string            `json:"id"`
-	ActorType    int               `json:"actor_type"`
-	ActorUserID  string            `json:"actor_user_id,omitempty"`
-	ActorTokenID string            `json:"actor_token_id,omitempty"`
-	Action       string            `json:"action"`
-	ResourceType string            `json:"resource_type"`
-	ResourceID   string            `json:"resource_id,omitempty"`
-	ProjectID    string            `json:"project_id,omitempty"`
-	ServiceID    string            `json:"service_id,omitempty"`
-	Metadata     map[string]string `json:"metadata"`
-	IPAddress    string            `json:"ip_address,omitempty"`
-	UserAgent    string            `json:"user_agent,omitempty"`
-	RequestID    string            `json:"request_id,omitempty"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
-}
+	DiffStatusPending   = commonvdoc.DiffStatusPending
+	DiffStatusRunning   = commonvdoc.DiffStatusRunning
+	DiffStatusSucceeded = commonvdoc.DiffStatusSucceeded
+	DiffStatusFailed    = commonvdoc.DiffStatusFailed
+
+	SeverityInfo     = commonvdoc.SeverityInfo
+	SeverityWarning  = commonvdoc.SeverityWarning
+	SeverityBreaking = commonvdoc.SeverityBreaking
+
+	ChangeEndpointAdded      = commonvdoc.ChangeEndpointAdded
+	ChangeEndpointRemoved    = commonvdoc.ChangeEndpointRemoved
+	ChangeEndpointModified   = commonvdoc.ChangeEndpointModified
+	ChangeParameterAdded     = commonvdoc.ChangeParameterAdded
+	ChangeParameterRemoved   = commonvdoc.ChangeParameterRemoved
+	ChangeParameterChanged   = commonvdoc.ChangeParameterChanged
+	ChangeRequestBodyChanged = commonvdoc.ChangeRequestBodyChanged
+	ChangeResponseChanged    = commonvdoc.ChangeResponseChanged
+	ChangeSecurityChanged    = commonvdoc.ChangeSecurityChanged
+	ChangeDeprecatedChanged  = commonvdoc.ChangeDeprecatedChanged
+
+	MCPTokenStatusActive  = commonvdoc.MCPTokenStatusActive
+	MCPTokenStatusRevoked = commonvdoc.MCPTokenStatusRevoked
+	MCPTokenStatusExpired = commonvdoc.MCPTokenStatusExpired
+
+	ScopeAPIRead  = commonvdoc.ScopeAPIRead
+	ScopeAPIDraft = commonvdoc.ScopeAPIDraft
+	ScopeDocRead  = commonvdoc.ScopeDocRead
+	ScopeDocDraft = commonvdoc.ScopeDocDraft
+
+	AuditActorUser     = commonvdoc.AuditActorUser
+	AuditActorMCPToken = commonvdoc.AuditActorMCPToken
+	AuditActorSystem   = commonvdoc.AuditActorSystem
+)
+
+type User = domainuser.User
+type Team = domainproject.Team
+type Project = domainproject.Project
+type ProjectMember = domainproject.ProjectMember
+type APIService = domaindocument.Document
+type ContractBranch = domainbranch.ContractBranch
+type ContractDraft = domaindraft.ContractDraft
+type ContractVersion = domainversion.ContractVersion
+type SchemaDocument = domainversion.SchemaDocument
+type Endpoint = domaindiff.Endpoint
+type Diff = domaindiff.Diff
+type DiffSummary = domaindiff.DiffSummary
+type DiffItem = domaindiff.DiffItem
+type MCPToken = domainmcp.MCPToken
+type AuditLog = domainaudit.AuditLog

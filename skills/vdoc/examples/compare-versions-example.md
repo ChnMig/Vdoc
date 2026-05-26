@@ -13,7 +13,7 @@ Use this workflow before migration advice or frontend impact analysis. The IDs b
     "name": "compare_api_versions",
     "arguments": {
       "project_id": "proj_placeholder",
-      "service_id": "svc_placeholder",
+      "document_id": "doc_placeholder",
       "from_version_id": "ver_placeholder_from",
       "to_version_id": "ver_placeholder_to"
     }
@@ -34,7 +34,7 @@ Use the returned diff items as the source of truth. For each item, preserve fiel
     "name": "get_change_summary",
     "arguments": {
       "project_id": "proj_placeholder",
-      "service_id": "svc_placeholder",
+      "document_id": "doc_placeholder",
       "diff_id": "diff_placeholder"
     }
   }

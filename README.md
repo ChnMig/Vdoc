@@ -2,24 +2,24 @@
 
 Languages: [English](README.md) | [简体中文](README.zh-CN.md)
 
-AI-friendly API contract hub with OpenAPI versioning, semantic diff, and MCP.
+AI-friendly document collaboration hub with OpenAPI docs, Markdown docs, semantic diff, and MCP.
 
-Vdoc helps AI/vibe-coding teams keep backend API changes, frontend integration work, and AI agent context in sync.
+Vdoc helps AI/vibe-coding teams keep API changes, Markdown project knowledge, frontend integration work, and AI agent context in sync.
 
 ## What Is Vdoc?
 
-Vdoc is an API contract collaboration platform for fast-moving teams. It treats OpenAPI as the source of truth, stores every published contract as an immutable version, computes semantic diffs between versions, and exposes contract knowledge to both humans and AI agents.
+Vdoc is a document collaboration platform for fast-moving teams. A Project owns typed Documents, including OpenAPI API docs and Markdown docs. Vdoc stores every published document as an immutable version, computes OpenAPI semantic diffs or Markdown text diffs, and exposes reviewed document knowledge to both humans and AI agents.
 
 The long-term goal is not to build another Swagger UI clone. Vdoc focuses on the workflow that often breaks in AI-assisted development:
 
 ```text
-Backend uploads or AI submits an OpenAPI draft through MCP
+Backend uploads or AI submits an OpenAPI or Markdown draft through MCP
         -> A human reviewer approves it and Vdoc creates an immutable version
-        -> Vdoc parses endpoint contracts
-        -> Vdoc computes semantic diff against the previous version
-        -> Vdoc marks breaking changes
-        -> Frontend or AI queries changes and endpoint details
-        -> Frontend updates integration code with context
+        -> Vdoc parses OpenAPI endpoints when applicable
+        -> Vdoc computes OpenAPI semantic diff or Markdown text diff
+        -> Vdoc marks breaking changes when applicable
+        -> Frontend or AI queries changes, endpoint details, or Markdown content
+        -> Frontend updates integration code and project knowledge with context
 ```
 
 ## Current Status
@@ -35,10 +35,10 @@ Implemented in v0.1:
 
 - Versioned route tree under `/api/v1`
 - Public register/login and private JWT routes
-- SuperAdmin user lifecycle, teams, projects, members, services, and branches
-- OpenAPI draft upload, review, and immutable version publishing
-- Raw and normalized schema retrieval for drafts and published versions
-- Endpoint index queries and semantic API diff summaries
+- SuperAdmin user lifecycle, teams, projects, members, documents, and document branches
+- OpenAPI and Markdown draft upload, review, and immutable version publishing
+- Raw, normalized, and stable content retrieval for drafts and published versions
+- Endpoint index queries, semantic OpenAPI diff summaries, and Markdown file diffs
 - MCP token lifecycle and JSON-RPC MCP read and draft tools
 - Unified JSON response envelope with `trace_id` and `timestamp`
 - Request tracing, structured access logs, panic recovery, CORS, security headers, body-size limit, and rate-limit middleware
@@ -47,7 +47,7 @@ Implemented in v0.1:
 
 Not in v0.1:
 
-- Direct MCP publish tools, including `publish_api_schema` and `publish_api_version`
+- Direct MCP publish tools
 - Code generation and frontend integration helpers
 
 ## Product Concepts
@@ -56,42 +56,44 @@ Not in v0.1:
 |---|---|
 | Team | A collaboration boundary for people and projects. |
 | Project | A product or app owned by a team. |
-| Service | A backend service inside a project, such as `user-service` or `order-service`. |
-| Contract Branch / Environment | A Vdoc contract track under a service, such as `dev`, `test`, `prod`, or `feature/*`. `prod` is protected by default. |
-| Contract Version | An immutable OpenAPI snapshot for a service. |
+| Document | A typed project document. v0.1 supports OpenAPI API docs and Markdown docs. |
+| Document Type | `1` means OpenAPI. `2` means Markdown. |
+| Relative Path | The project-local path identity for a document, such as `apis/petstore.yaml` or `docs/runbook.md`. |
+| Document Branch / Environment | A Vdoc document track, such as `dev`, `test`, `prod`, or `feature/*`. `prod` is protected by default. |
+| Document Version | An immutable snapshot for one typed document. |
 | Endpoint Index | A structured database index of paths, methods, parameters, request bodies, responses, tags, and operation IDs. |
 | Semantic Diff | Contract-aware comparison between two versions, not raw text diff. |
 | Breaking Change | A change that can break frontend consumers, such as field removal, type change, new required parameter, or endpoint removal. |
-| MCP Token | A user-bound AI tool token that users can view, copy, generate, and revoke in the backend; effective permissions come from token scopes plus the user's role on the target project. |
+| MCP Token | A user-bound AI tool token. Creation returns the one-time copyable token value, while later list/get responses are redacted. Effective permissions come from token scopes plus the user's role on the target project. |
 
 ## MVP Workflow
 
 1. SuperAdmin creates system members, teams, and projects.
 2. SuperAdmin assigns the initial Project Admin.
 3. Project Admin manually adds existing system users and assigns project-level roles.
-4. Project Admin creates a service.
-5. Writer uploads, or AI submits an OpenAPI 3.x draft through MCP for a target branch.
-6. Vdoc validates and stores the raw schema.
-7. Project Admin approves the draft and Vdoc creates an immutable contract version.
-8. Vdoc parses an endpoint index for fast query and display.
-9. Vdoc compares the new version with the previous one.
-10. Vdoc stores a change summary and breaking-change list.
-11. Frontend developers and AI agents query endpoint details, diffs, and summaries.
+4. Project Admin creates an OpenAPI or Markdown Document with a `relative_path`.
+5. Writer uploads through Web API, or AI submits a draft through MCP for a target document branch.
+6. Vdoc validates and stores raw content plus normalized or stable snapshots.
+7. Project Admin approves the draft and Vdoc creates an immutable document version.
+8. Vdoc parses an endpoint index for OpenAPI documents.
+9. Vdoc compares the new version with the previous one using OpenAPI semantic diff or Markdown text diff.
+10. Vdoc stores a change summary and breaking-change list when applicable.
+11. Frontend developers and AI agents query endpoint details, Markdown content, diffs, and summaries.
 
 ## v0.1 Scope
 
 Implemented in the current v0.1 backend:
 
 - System-level `SuperAdmin`; project-level roles: `Reader`, `Writer`, `Admin`, where Writer submits drafts and Admin reviews/publishes them
-- OpenAPI 3.x upload through Web API, plus MCP draft submission and updates
+- OpenAPI 3.x and Markdown upload through Web API, plus MCP draft submission and updates
 - Manual project member adds from existing system users, without invitation workflow in MVP
-- Service contract branches/environments with `dev`, `test`, protected `prod`, optional `feature/*`, and promote-to-target-draft flow
-- Immutable contract versions per service
-- Human-reviewed publication for OpenAPI drafts
+- Document branches/environments with `dev`, `test`, protected `prod`, optional `feature/*`, and promote-to-target-draft flow
+- Immutable versions per typed document
+- Human-reviewed publication for OpenAPI and Markdown drafts
 - Endpoint list and endpoint detail query
-- Version comparison with semantic diff
+- Version comparison with semantic OpenAPI diff or Markdown file diff
 - Breaking-change summary
-- MCP read and draft tools first, direct publish tools later
+- MCP read and draft tools only; human review publishes versions
 
 Explicitly out of scope for the first MVP:
 
@@ -107,12 +109,14 @@ Read tools:
 
 ```text
 list_projects
-list_services
+list_documents
 list_api_versions
 get_latest_schema
 get_endpoint_detail
 compare_api_versions
 get_change_summary
+get_latest_doc
+compare_doc_versions
 ```
 
 Draft tools for v0.1:
@@ -122,14 +126,13 @@ create_api_version_draft
 update_api_version_draft
 submit_api_version_draft
 get_api_version_draft
+create_doc_draft
+update_doc_draft
+submit_doc_draft
+get_doc_draft
 ```
 
-Direct publish tools are not available in v0.1:
-
-```text
-publish_api_schema
-publish_api_version
-```
+Direct publish tools are not available in v0.1. Human Admin or SuperAdmin review publishes versions.
 
 ## Backend Architecture
 
@@ -143,18 +146,18 @@ Web App
 
 API Server
   - Project management
-  - Service branch / environment management
-  - OpenAPI upload
+  - Document and document branch management
+  - OpenAPI and Markdown upload
   - Draft review and publication
-  - Contract version creation
+  - Document version creation
   - Permission checks
   - Diff query
   - MCP token management
 
 MCP Server
-  - AI contract lookup
+  - AI OpenAPI and Markdown document lookup
   - AI version diff lookup
-  - AI OpenAPI draft submit/update
+  - AI OpenAPI and Markdown draft submit/update
   - AI frontend change summaries
 
 Diff Engine
@@ -165,8 +168,8 @@ Diff Engine
   - Breaking-change rules
 
 Storage
-  - PostgreSQL for users, teams, projects, services, branches, drafts, versions, endpoint indexes, diff summaries, audit logs, and token security metadata
-  - RustFS or any S3-compatible object storage for raw and normalized OpenAPI snapshots and large diff snapshots when `storage.enabled=true`
+  - PostgreSQL for users, teams, projects, documents, branches, drafts, versions, endpoint indexes, diff summaries, audit logs, and token security metadata
+  - RustFS or any S3-compatible object storage for raw, normalized, stable, and large diff snapshots when `storage.enabled=true`
   - In-memory compatibility store for local development and tests when `database.enabled=false`
 ```
 
@@ -176,14 +179,14 @@ Storage
 vdoc/
 ├── main.go                  # Server lifecycle, CLI flags, config, logging, graceful shutdown
 ├── Makefile                 # Build, run, test, format, lint, verify
-├── api/                     # Gin setup, middleware, response envelope, versioned routes
-├── common/                  # Shared DTOs and common types
+├── api/                     # Transport layer: Gin routes, middleware, request/response DTOs, error mapping
+├── common/                  # Shared business semantics: enums, constants, DTOs used across modules, events
 ├── config/                  # Viper config loading, defaults, hot reload, safety checks
-├── db/                      # GORM PostgreSQL client, migrations, and Vdoc repository
-├── domain/                  # Domain models, repository interfaces, and health state
-├── services/                # Vdoc service facade, object storage integration, OpenAPI parsing, and diff logic
+├── db/                      # Persistence adapters: GORM/PostgreSQL models, queries, migrations, RustFS/S3 adapters
+├── domain/                  # Business rules, state transitions, domain errors, repository and storage ports
+├── services/                # Long running cron, worker, and consumer lifecycle tasks
 ├── static/                  # Static asset placeholder
-└── utils/                   # JWT, logging, context keys, PID file, IDs, crypto helpers
+└── utils/                   # Business neutral infrastructure helpers for JWT, logging, IDs, crypto, paths
 ```
 
 ## Quick Start
@@ -236,7 +239,7 @@ make build CROSS=1
 
 ## Current API
 
-The full v0.1 route list is maintained in [docs/api/API.md](docs/api/API.md) and [docs/api/openapi.yaml](docs/api/openapi.yaml). The implemented surfaces include public health/auth/docs/MCP routes and private identity, user, team, project, member, service, branch, draft, contract, endpoint, diff, and MCP token routes.
+The full v0.1 route list is maintained in [docs/api/API.md](docs/api/API.md) and [docs/api/openapi.yaml](docs/api/openapi.yaml). The implemented surfaces include public health/auth/docs/MCP routes and private identity, user, team, project, member, document, branch, draft, version, endpoint, diff, and MCP token routes.
 
 Responses use a project envelope. HTTP status is currently always `200`; semantic success or failure is represented by the JSON `code` and `status` fields.
 
@@ -275,7 +278,7 @@ Config file lookup order:
 
 ## Contributing
 
-Issues and pull requests are welcome. Since the project is early, please keep changes aligned with the MVP scope: OpenAPI contracts, immutable versions, endpoint indexes, semantic diff, and MCP integration.
+Issues and pull requests are welcome. Since the project is early, please keep changes aligned with the MVP scope: OpenAPI and Markdown documents, immutable versions, endpoint indexes, semantic diff, Markdown diff, and MCP integration.
 
 ## License
 

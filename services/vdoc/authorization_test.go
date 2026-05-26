@@ -98,8 +98,8 @@ func TestDraftRoutesRejectMismatchedBranchBinding(t *testing.T) {
 	store.users["writer"] = &User{ID: "writer", Email: "writer@example.com", Status: UserStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.projects["project-a"] = &Project{ID: "project-a", Name: "Project A", Status: ProjectStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.members[memberKey("project-a", "writer")] = &ProjectMember{ProjectID: "project-a", UserID: "writer", Role: MemberRoleWriter, Status: MemberStatusActive, CreatedAt: now, UpdatedAt: now}
-	store.services["service-a"] = &APIService{ID: "service-a", ProjectID: "project-a", Name: "service-a", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
-	store.services["service-b"] = &APIService{ID: "service-b", ProjectID: "project-a", Name: "service-b", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
+	store.apiServices["service-a"] = &APIService{ID: "service-a", ProjectID: "project-a", Name: "service-a", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
+	store.apiServices["service-b"] = &APIService{ID: "service-b", ProjectID: "project-a", Name: "service-b", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.branches["branch-b"] = &ContractBranch{ID: "branch-b", ServiceID: "service-b", Name: "dev", Status: BranchStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.drafts["draft-a"] = &ContractDraft{ID: "draft-a", ProjectID: "project-a", ServiceID: "service-a", BranchID: "branch-b", VersionName: "draft-a", RawSchema: testOpenAPI("mismatchedDraft"), NormalizedSchema: testOpenAPI("mismatchedDraft"), Status: DraftStatusDraft, CreatedAt: now, UpdatedAt: now}
 
@@ -138,7 +138,7 @@ func newCrossProjectAuthorizationStore() *Store {
 	store.projects["project-a"] = &Project{ID: "project-a", Name: "Project A", Status: ProjectStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.projects["project-b"] = &Project{ID: "project-b", Name: "Project B", Status: ProjectStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.members[memberKey("project-a", "reader")] = &ProjectMember{ProjectID: "project-a", UserID: "reader", Role: MemberRoleReader, Status: MemberStatusActive, CreatedAt: now, UpdatedAt: now}
-	store.services["service-b"] = &APIService{ID: "service-b", ProjectID: "project-b", Name: "service-b", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
+	store.apiServices["service-b"] = &APIService{ID: "service-b", ProjectID: "project-b", Name: "service-b", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.versions["version-b-from"] = &ContractVersion{ID: "version-b-from", ProjectID: "project-b", ServiceID: "service-b", Status: VersionStatusPublished, PublishedAt: now, CreatedAt: now, UpdatedAt: now}
 	store.versions["version-b-to"] = &ContractVersion{ID: "version-b-to", ProjectID: "project-b", ServiceID: "service-b", Status: VersionStatusPublished, PublishedAt: now, CreatedAt: now, UpdatedAt: now}
 	store.endpoints["endpoint-b"] = &Endpoint{ID: "endpoint-b", ContractVersionID: "version-b-from", Method: "GET", Path: "/secret", CreatedAt: now, UpdatedAt: now}
@@ -157,7 +157,7 @@ func newProjectRoleAuthorizationStore() *Store {
 	store.members[memberKey("project-a", "reader")] = &ProjectMember{ProjectID: "project-a", UserID: "reader", Role: MemberRoleReader, Status: MemberStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.members[memberKey("project-a", "writer")] = &ProjectMember{ProjectID: "project-a", UserID: "writer", Role: MemberRoleWriter, Status: MemberStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.members[memberKey("project-a", "admin")] = &ProjectMember{ProjectID: "project-a", UserID: "admin", Role: MemberRoleAdmin, Status: MemberStatusActive, CreatedAt: now, UpdatedAt: now}
-	store.services["service-a"] = &APIService{ID: "service-a", ProjectID: "project-a", Name: "service-a", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
+	store.apiServices["service-a"] = &APIService{ID: "service-a", ProjectID: "project-a", Name: "service-a", Status: ServiceStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.branches["branch-a"] = &ContractBranch{ID: "branch-a", ServiceID: "service-a", Name: "dev", Status: BranchStatusActive, CreatedAt: now, UpdatedAt: now}
 	store.drafts["draft-a"] = &ContractDraft{ID: "draft-a", ProjectID: "project-a", ServiceID: "service-a", BranchID: "branch-a", VersionName: "draft-a", RawSchema: testOpenAPI("draftA"), NormalizedSchema: testOpenAPI("draftA"), RawSchemaHash: sha(testOpenAPI("draftA")), NormalizedSchemaHash: sha(testOpenAPI("draftA")), Status: DraftStatusDraft, CreatedAt: now, UpdatedAt: now}
 	return store

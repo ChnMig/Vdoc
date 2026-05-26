@@ -1,14 +1,18 @@
 package vdoc
 
-import "errors"
+import (
+	"errors"
+
+	commonvdoc "vdoc/common/vdoc"
+)
 
 var (
-	ErrInvalidArgument    = errors.New("invalid argument")
-	ErrUnauthenticated    = errors.New("unauthenticated")
-	ErrPermissionDenied   = errors.New("permission denied")
-	ErrNotFound           = errors.New("not found")
-	ErrAlreadyExists      = errors.New("already exists")
-	ErrFailedPrecondition = errors.New("failed precondition")
+	ErrInvalidArgument    = commonvdoc.ErrInvalidArgument
+	ErrUnauthenticated    = commonvdoc.ErrUnauthenticated
+	ErrPermissionDenied   = commonvdoc.ErrPermissionDenied
+	ErrNotFound           = commonvdoc.ErrNotFound
+	ErrAlreadyExists      = commonvdoc.ErrAlreadyExists
+	ErrFailedPrecondition = commonvdoc.ErrFailedPrecondition
 )
 
 func Is(err, target error) bool { return errors.Is(err, target) }

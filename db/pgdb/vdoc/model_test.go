@@ -10,22 +10,22 @@ import (
 
 func TestModelsDeclareV01TableNames(t *testing.T) {
 	models := map[string]interface{ TableName() string }{
-		"schema_migrations":     SchemaMigration{},
-		"users":                 User{},
-		"teams":                 Team{},
-		"projects":              Project{},
-		"project_members":       ProjectMember{},
-		"api_services":          APIService{},
-		"api_contract_branches": APIContractBranch{},
-		"mcp_tokens":            MCPToken{},
-		"api_contract_drafts":   APIContractDraft{},
-		"api_contract_versions": APIContractVersion{},
-		"api_endpoints":         APIEndpoint{},
-		"api_endpoint_details":  APIEndpointDetail{},
-		"api_version_diffs":     APIVersionDiff{},
-		"api_diff_items":        APIDiffItem{},
-		"audit_logs":            AuditLog{},
-		"vdoc_schema_objects":   SchemaObject{},
+		"schema_migrations":      SchemaMigration{},
+		"users":                  User{},
+		"teams":                  Team{},
+		"projects":               Project{},
+		"project_members":        ProjectMember{},
+		"documents":              Document{},
+		"document_branches":      DocumentBranch{},
+		"mcp_tokens":             MCPToken{},
+		"document_drafts":        DocumentDraft{},
+		"document_versions":      DocumentVersion{},
+		"api_endpoints":          APIEndpoint{},
+		"api_endpoint_details":   APIEndpointDetail{},
+		"document_version_diffs": DocumentVersionDiff{},
+		"document_diff_items":    DocumentDiffItem{},
+		"audit_logs":             AuditLog{},
+		"vdoc_schema_objects":    SchemaObject{},
 	}
 	for want, model := range models {
 		if got := model.TableName(); got != want {
@@ -74,6 +74,29 @@ func TestMCPTokenModelDeclaresSecurityColumns(t *testing.T) {
 	}
 }
 
+func TestDocumentModelsDeclareProjectDocumentColumns(t *testing.T) {
+	documentType := reflect.TypeFor[Document]()
+	for fieldName, wantParts := range map[string][]string{
+		"DocumentType": {"column:document_type", "type:smallint", "not null"},
+		"RelativePath": {"column:relative_path", "type:text", "not null"},
+	} {
+		field, ok := documentType.FieldByName(fieldName)
+		if !ok {
+			t.Fatalf("Document.%s missing", fieldName)
+		}
+		if got := field.Tag.Get("gorm"); !containsAll(got, wantParts) {
+			t.Fatalf("Document.%s gorm tag = %q, want parts %#v", fieldName, got, wantParts)
+		}
+	}
+	for _, modelType := range []reflect.Type{reflect.TypeFor[DocumentDraft](), reflect.TypeFor[DocumentVersion]()} {
+		for _, fieldName := range []string{"ProjectID", "DocumentID", "RelativePath", "SourceGitCommitID", "RawSchemaObjectKey", "NormalizedSchemaObjectKey", "StableSchemaObjectKey"} {
+			if _, ok := modelType.FieldByName(fieldName); !ok {
+				t.Fatalf("%s.%s missing", modelType.Name(), fieldName)
+			}
+		}
+	}
+}
+
 func TestAuditLogModelDeclaresSchemaColumns(t *testing.T) {
 	modelType := reflect.TypeFor[AuditLog]()
 	fields := map[string][]string{
@@ -84,7 +107,7 @@ func TestAuditLogModelDeclaresSchemaColumns(t *testing.T) {
 		"ResourceType": {"column:resource_type", "type:text", "not null"},
 		"ResourceID":   {"column:resource_id", "type:uuid"},
 		"ProjectID":    {"column:project_id", "type:uuid"},
-		"ServiceID":    {"column:service_id", "type:uuid"},
+		"DocumentID":   {"column:document_id", "type:uuid"},
 		"Metadata":     {"column:metadata", "type:jsonb", "not null"},
 		"IPAddress":    {"column:ip_address", "type:inet"},
 		"UserAgent":    {"column:user_agent", "type:text"},

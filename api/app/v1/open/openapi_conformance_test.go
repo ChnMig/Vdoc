@@ -29,22 +29,22 @@ var openAPIMethods = map[string]struct{}{
 }
 
 var listRouteKeys = map[string]struct{}{
-	"GET /api/v1/private/system/users":                                                                 {},
-	"GET /api/v1/private/system/users/{user_id}/mcp-tokens":                                            {},
-	"GET /api/v1/private/teams":                                                                        {},
-	"GET /api/v1/private/projects":                                                                     {},
-	"GET /api/v1/private/projects/{project_id}/members":                                                {},
-	"GET /api/v1/private/projects/{project_id}/services":                                               {},
-	"GET /api/v1/private/projects/{project_id}/services/{service_id}/branches":                         {},
-	"GET /api/v1/private/projects/{project_id}/services/{service_id}/contract-drafts":                  {},
-	"GET /api/v1/private/projects/{project_id}/services/{service_id}/contracts":                        {},
-	"GET /api/v1/private/projects/{project_id}/services/{service_id}/contracts/{version_id}/endpoints": {},
-	"GET /api/v1/private/mcp-tokens":                                                                   {},
+	"GET /api/v1/private/system/users":                                                                  {},
+	"GET /api/v1/private/system/users/{user_id}/mcp-tokens":                                             {},
+	"GET /api/v1/private/teams":                                                                         {},
+	"GET /api/v1/private/projects":                                                                      {},
+	"GET /api/v1/private/projects/{project_id}/members":                                                 {},
+	"GET /api/v1/private/projects/{project_id}/documents":                                               {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                        {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                          {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/versions":                        {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/endpoints": {},
+	"GET /api/v1/private/mcp-tokens":                                                                    {},
 }
 
 var requiredMCPTools = []string{
 	"list_projects",
-	"list_services",
+	"list_documents",
 	"list_api_versions",
 	"get_latest_schema",
 	"get_endpoint_detail",
@@ -54,9 +54,15 @@ var requiredMCPTools = []string{
 	"update_api_version_draft",
 	"submit_api_version_draft",
 	"get_api_version_draft",
+	"get_latest_doc",
+	"compare_doc_versions",
+	"create_doc_draft",
+	"update_doc_draft",
+	"submit_doc_draft",
+	"get_doc_draft",
 }
 
-func TestOpenAPIDocumentRouteServesCheckedInSpec(t *testing.T) {
+func TestOpenAPISpecRouteServesCheckedInSpec(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	open.RegisterRoutes(router.Group("/api/v1/open"))
@@ -125,6 +131,7 @@ func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
 	}
 
 	assertMCPToolEnum(t)
+	assertOpenAPICurrentDescriptions(t)
 }
 
 func registeredAPIRouteSet() map[string]struct{} {
@@ -188,13 +195,33 @@ func assertMCPToolEnum(t *testing.T) {
 			t.Fatalf("MCPToolName enum missing %q", name)
 		}
 	}
-	for _, name := range []string{"publish_api_schema", "publish_api_version"} {
-		if _, ok := found[name]; ok {
-			t.Fatalf("MCPToolName enum must not expose %q", name)
+	for name := range found {
+		if strings.HasPrefix(name, "publish_") {
+			t.Fatalf("MCPToolName enum must not expose direct publish tool %q", name)
 		}
 	}
 	if len(found) != len(requiredMCPTools) {
 		t.Fatalf("MCPToolName enum count = %d, want %d", len(found), len(requiredMCPTools))
+	}
+}
+
+func assertOpenAPICurrentDescriptions(t *testing.T) {
+	t.Helper()
+	body, err := os.ReadFile(openAPISpecPath(t))
+	if err != nil {
+		t.Fatalf("read openapi.yaml: %v", err)
+	}
+	document := string(body)
+	requiredPhrases := []string{
+		"Projects own typed Documents",
+		"document_type 1 is OpenAPI and 2 is Markdown",
+		"relative_path is the stored project-local path identity",
+		"one time copyable token value only on create",
+	}
+	for _, phrase := range requiredPhrases {
+		if !strings.Contains(document, phrase) {
+			t.Fatalf("openapi.yaml missing current description %q", phrase)
+		}
 	}
 }
 

@@ -12,7 +12,7 @@ type SchemaMigration struct {
 	AppliedAt time.Time `gorm:"column:applied_at;type:timestamptz;not null"`
 }
 
-func (SchemaMigration) TableName() string { return "schema_migrations" }
+func (SchemaMigration) TableName() string { return TableNameSchemaMigrations }
 
 type User struct {
 	pgdb.Base
@@ -25,7 +25,7 @@ type User struct {
 	pgdb.SoftDelete
 }
 
-func (User) TableName() string { return "users" }
+func (User) TableName() string { return TableNameUsers }
 
 type Team struct {
 	pgdb.Base
@@ -36,7 +36,7 @@ type Team struct {
 	pgdb.SoftDelete
 }
 
-func (Team) TableName() string { return "teams" }
+func (Team) TableName() string { return TableNameTeams }
 
 type Project struct {
 	pgdb.Base
@@ -49,7 +49,7 @@ type Project struct {
 	pgdb.SoftDelete
 }
 
-func (Project) TableName() string { return "projects" }
+func (Project) TableName() string { return TableNameProjects }
 
 type ProjectMember struct {
 	pgdb.Base
@@ -62,25 +62,25 @@ type ProjectMember struct {
 	pgdb.SoftDelete
 }
 
-func (ProjectMember) TableName() string { return "project_members" }
+func (ProjectMember) TableName() string { return TableNameProjectMembers }
 
-type APIService struct {
+type Document struct {
 	pgdb.Base
-	ProjectID   string  `gorm:"column:project_id;type:uuid;not null"`
-	Name        string  `gorm:"column:name;type:text;not null"`
-	DisplayName *string `gorm:"column:display_name;type:text"`
-	Description *string `gorm:"column:description;type:text"`
-	BasePath    *string `gorm:"column:base_path;type:text"`
-	Status      int     `gorm:"column:status;type:smallint;not null;default:1"`
-	CreatedBy   string  `gorm:"column:created_by;type:uuid;not null"`
+	ProjectID    string  `gorm:"column:project_id;type:uuid;not null"`
+	Name         string  `gorm:"column:name;type:text;not null"`
+	DocumentType int     `gorm:"column:document_type;type:smallint;not null"`
+	RelativePath string  `gorm:"column:relative_path;type:text;not null"`
+	Description  *string `gorm:"column:description;type:text"`
+	Status       int     `gorm:"column:status;type:smallint;not null;default:1"`
+	CreatedBy    string  `gorm:"column:created_by;type:uuid;not null"`
 	pgdb.SoftDelete
 }
 
-func (APIService) TableName() string { return "api_services" }
+func (Document) TableName() string { return TableNameDocuments }
 
-type APIContractBranch struct {
+type DocumentBranch struct {
 	pgdb.Base
-	ServiceID   string  `gorm:"column:service_id;type:uuid;not null"`
+	DocumentID  string  `gorm:"column:document_id;type:uuid;not null"`
 	Name        string  `gorm:"column:name;type:text;not null"`
 	Kind        int     `gorm:"column:kind;type:smallint;not null"`
 	Description *string `gorm:"column:description;type:text"`
@@ -91,7 +91,7 @@ type APIContractBranch struct {
 	pgdb.SoftDelete
 }
 
-func (APIContractBranch) TableName() string { return "api_contract_branches" }
+func (DocumentBranch) TableName() string { return TableNameDocumentBranches }
 
 type MCPToken struct {
 	pgdb.Base
@@ -109,19 +109,23 @@ type MCPToken struct {
 	pgdb.SoftDelete
 }
 
-func (MCPToken) TableName() string { return "mcp_tokens" }
+func (MCPToken) TableName() string { return TableNameMCPTokens }
 
-type APIContractDraft struct {
+type DocumentDraft struct {
 	pgdb.Base
-	ServiceID                 string     `gorm:"column:service_id;type:uuid;not null"`
+	ProjectID                 string     `gorm:"column:project_id;type:uuid;not null"`
+	DocumentID                string     `gorm:"column:document_id;type:uuid;not null"`
 	BranchID                  string     `gorm:"column:branch_id;type:uuid;not null"`
 	VersionName               string     `gorm:"column:version_name;type:text;not null"`
+	RelativePath              string     `gorm:"column:relative_path;type:text;not null"`
 	Status                    int        `gorm:"column:status;type:smallint;not null;default:1"`
-	SchemaFormat              int        `gorm:"column:schema_format;type:smallint;not null"`
+	DocumentFormat            int        `gorm:"column:document_format;type:smallint;not null"`
 	RawSchemaObjectKey        string     `gorm:"column:raw_schema_object_key;type:text;not null"`
 	NormalizedSchemaObjectKey string     `gorm:"column:normalized_schema_object_key;type:text;not null"`
+	StableSchemaObjectKey     *string    `gorm:"column:stable_schema_object_key;type:text"`
 	RawSchemaHash             string     `gorm:"column:raw_schema_hash;type:text;not null"`
 	NormalizedSchemaHash      string     `gorm:"column:normalized_schema_hash;type:text;not null"`
+	StableSchemaHash          *string    `gorm:"column:stable_schema_hash;type:text"`
 	SchemaSizeBytes           int64      `gorm:"column:schema_size_bytes;type:bigint;not null"`
 	SchemaMetadata            pgdb.JSONB `gorm:"column:schema_metadata;type:jsonb;not null;default:'{}'"`
 	Changelog                 *string    `gorm:"column:changelog;type:text"`
@@ -143,25 +147,29 @@ type APIContractDraft struct {
 	pgdb.SoftDelete
 }
 
-func (APIContractDraft) TableName() string { return "api_contract_drafts" }
+func (DocumentDraft) TableName() string { return TableNameDocumentDrafts }
 
-type APIContractVersion struct {
+type DocumentVersion struct {
 	pgdb.Base
-	ServiceID                 string     `gorm:"column:service_id;type:uuid;not null"`
+	ProjectID                 string     `gorm:"column:project_id;type:uuid;not null"`
+	DocumentID                string     `gorm:"column:document_id;type:uuid;not null"`
 	BranchID                  string     `gorm:"column:branch_id;type:uuid;not null"`
 	VersionName               string     `gorm:"column:version_name;type:text;not null"`
 	VersionNo                 int        `gorm:"column:version_no;type:integer;not null"`
+	RelativePath              string     `gorm:"column:relative_path;type:text;not null"`
 	Status                    int        `gorm:"column:status;type:smallint;not null;default:1"`
 	SourceDraftID             string     `gorm:"column:source_draft_id;type:uuid;not null"`
 	SourceType                int        `gorm:"column:source_type;type:smallint;not null;default:1"`
 	SourceBranchID            *string    `gorm:"column:source_branch_id;type:uuid"`
 	SourceVersionID           *string    `gorm:"column:source_version_id;type:uuid"`
 	BaseVersionID             *string    `gorm:"column:base_version_id;type:uuid"`
-	SchemaFormat              int        `gorm:"column:schema_format;type:smallint;not null"`
+	DocumentFormat            int        `gorm:"column:document_format;type:smallint;not null"`
 	RawSchemaObjectKey        string     `gorm:"column:raw_schema_object_key;type:text;not null"`
 	NormalizedSchemaObjectKey string     `gorm:"column:normalized_schema_object_key;type:text;not null"`
+	StableSchemaObjectKey     *string    `gorm:"column:stable_schema_object_key;type:text"`
 	RawSchemaHash             string     `gorm:"column:raw_schema_hash;type:text;not null"`
 	NormalizedSchemaHash      string     `gorm:"column:normalized_schema_hash;type:text;not null"`
+	StableSchemaHash          *string    `gorm:"column:stable_schema_hash;type:text"`
 	SchemaSizeBytes           int64      `gorm:"column:schema_size_bytes;type:bigint;not null"`
 	SchemaMetadata            pgdb.JSONB `gorm:"column:schema_metadata;type:jsonb;not null;default:'{}'"`
 	Changelog                 *string    `gorm:"column:changelog;type:text"`
@@ -171,12 +179,12 @@ type APIContractVersion struct {
 	PublishedAt               time.Time  `gorm:"column:published_at;type:timestamptz;not null"`
 }
 
-func (APIContractVersion) TableName() string { return "api_contract_versions" }
+func (DocumentVersion) TableName() string { return TableNameDocumentVersions }
 
 type APIEndpoint struct {
 	pgdb.Base
-	ContractVersionID string           `gorm:"column:contract_version_id;type:uuid;not null"`
-	ServiceID         string           `gorm:"column:service_id;type:uuid;not null"`
+	DocumentVersionID string           `gorm:"column:document_version_id;type:uuid;not null"`
+	DocumentID        string           `gorm:"column:document_id;type:uuid;not null"`
 	BranchID          string           `gorm:"column:branch_id;type:uuid;not null"`
 	Method            int              `gorm:"column:method;type:smallint;not null"`
 	Path              string           `gorm:"column:path;type:text;not null"`
@@ -192,7 +200,7 @@ type APIEndpoint struct {
 	SortOrder         int              `gorm:"column:sort_order;type:integer;not null;default:0"`
 }
 
-func (APIEndpoint) TableName() string { return "api_endpoints" }
+func (APIEndpoint) TableName() string { return TableNameAPIEndpoints }
 
 type APIEndpointDetail struct {
 	pgdb.Base
@@ -206,11 +214,11 @@ type APIEndpointDetail struct {
 	SchemaRefsJSON          pgdb.JSONB `gorm:"column:schema_refs_json;type:jsonb"`
 }
 
-func (APIEndpointDetail) TableName() string { return "api_endpoint_details" }
+func (APIEndpointDetail) TableName() string { return TableNameAPIEndpointDetails }
 
-type APIVersionDiff struct {
+type DocumentVersionDiff struct {
 	pgdb.Base
-	ServiceID           string     `gorm:"column:service_id;type:uuid;not null"`
+	DocumentID          string     `gorm:"column:document_id;type:uuid;not null"`
 	FromBranchID        string     `gorm:"column:from_branch_id;type:uuid;not null"`
 	ToBranchID          string     `gorm:"column:to_branch_id;type:uuid;not null"`
 	FromVersionID       string     `gorm:"column:from_version_id;type:uuid;not null"`
@@ -229,9 +237,9 @@ type APIVersionDiff struct {
 	GeneratedAt         *time.Time `gorm:"column:generated_at;type:timestamptz"`
 }
 
-func (APIVersionDiff) TableName() string { return "api_version_diffs" }
+func (DocumentVersionDiff) TableName() string { return TableNameDocumentVersionDiffs }
 
-type APIDiffItem struct {
+type DocumentDiffItem struct {
 	pgdb.Base
 	DiffID         string     `gorm:"column:diff_id;type:uuid;not null"`
 	EndpointID     *string    `gorm:"column:endpoint_id;type:uuid"`
@@ -249,7 +257,7 @@ type APIDiffItem struct {
 	SortOrder      int        `gorm:"column:sort_order;type:integer;not null;default:0"`
 }
 
-func (APIDiffItem) TableName() string { return "api_diff_items" }
+func (DocumentDiffItem) TableName() string { return TableNameDocumentDiffItems }
 
 type AuditLog struct {
 	pgdb.Base
@@ -260,14 +268,14 @@ type AuditLog struct {
 	ResourceType string     `gorm:"column:resource_type;type:text;not null"`
 	ResourceID   *string    `gorm:"column:resource_id;type:uuid"`
 	ProjectID    *string    `gorm:"column:project_id;type:uuid"`
-	ServiceID    *string    `gorm:"column:service_id;type:uuid"`
+	DocumentID   *string    `gorm:"column:document_id;type:uuid"`
 	Metadata     pgdb.JSONB `gorm:"column:metadata;type:jsonb;not null;default:'{}'"`
 	IPAddress    *string    `gorm:"column:ip_address;type:inet"`
 	UserAgent    *string    `gorm:"column:user_agent;type:text"`
 	RequestID    *string    `gorm:"column:request_id;type:text"`
 }
 
-func (AuditLog) TableName() string { return "audit_logs" }
+func (AuditLog) TableName() string { return TableNameAuditLogs }
 
 type SchemaObject struct {
 	ObjectKey   string     `gorm:"column:object_key;type:text;primaryKey"`
@@ -282,4 +290,4 @@ type SchemaObject struct {
 	CreatedAt   time.Time  `gorm:"column:created_at;type:timestamptz;not null;autoCreateTime"`
 }
 
-func (SchemaObject) TableName() string { return "vdoc_schema_objects" }
+func (SchemaObject) TableName() string { return TableNameSchemaObjects }

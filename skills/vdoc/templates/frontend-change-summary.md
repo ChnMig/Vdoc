@@ -5,7 +5,7 @@ Use this template after calling `compare_api_versions` and, when helpful, `get_c
 ## Source
 
 - Project: `{{project_id_or_name}}`
-- Service: `{{service_id_or_name}}`
+- Document: `{{document_id_or_name}}`
 - From version: `{{from_version_id_or_name}}`
 - To version: `{{to_version_id_or_name}}`
 - MCP calls used: `compare_api_versions` `{{diff_id}}`, optional `get_change_summary`

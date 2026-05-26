@@ -30,10 +30,13 @@ func TestCreateDraftWritesSchemaObjectsBeforeDatabaseCommit(t *testing.T) {
 	if len(repo.objects) != 2 {
 		t.Fatalf("recorded object refs = %d, want 2", len(repo.objects))
 	}
-	if repo.saves != 1 {
-		t.Fatalf("database saves = %d, want 1", repo.saves)
+	if repo.saves == 0 {
+		t.Fatal("database-backed draft creation did not persist narrow document records")
 	}
-	if got := strings.Join(repo.events, ","); got != "record:raw,record:normalized,save" {
+	if len(repo.events) < 2 {
+		t.Fatalf("repository events = %v, want object records before DB persistence", repo.events)
+	}
+	if got := strings.Join(repo.events[:2], ","); got != "record:raw,record:normalized" {
 		t.Fatalf("repository events = %s", got)
 	}
 	for _, ref := range repo.objects {
@@ -46,8 +49,8 @@ func TestCreateDraftWritesSchemaObjectsBeforeDatabaseCommit(t *testing.T) {
 		if ref.SizeBytes <= 0 {
 			t.Fatalf("ref size = %d, want positive", ref.SizeBytes)
 		}
-		if ref.Metadata["project_id"] != projectID || ref.Metadata["service_id"] != serviceID || ref.Metadata["branch_id"] != branchID {
-			t.Fatalf("ref metadata = %#v, want project/service/branch IDs", ref.Metadata)
+		if ref.Metadata["project_id"] != projectID || ref.Metadata["document_id"] != serviceID || ref.Metadata["branch_id"] != branchID {
+			t.Fatalf("ref metadata = %#v, want project/document/branch IDs", ref.Metadata)
 		}
 	}
 	if stored := store.drafts[draft.ID]; stored == nil || stored.RawSchema == "" || stored.NormalizedSchema == "" {
@@ -293,12 +296,18 @@ func TestPublishDraftWritesDiffSnapshotObjectWhenPreviousVersionExists(t *testin
 	if diffWrite == nil {
 		t.Fatalf("full diff object write not found in %#v", objects.writes)
 	}
-	wantPrefix := "projects/" + projectID + "/services/" + serviceID + "/branches/" + branchID + "/diffs/"
+	if strings.Contains(diffWrite.Key, "/services/") {
+		t.Fatalf("diff object key %q uses service-oriented path", diffWrite.Key)
+	}
+	wantPrefix := "projects/" + projectID + "/documents/" + serviceID + "/branches/" + branchID + "/diffs/"
 	if !strings.HasPrefix(diffWrite.Key, wantPrefix) || !strings.Contains(diffWrite.Key, "/full-") || !strings.HasSuffix(diffWrite.Key, ".json") {
 		t.Fatalf("diff object key = %q, want prefix %q and full hash suffix", diffWrite.Key, wantPrefix)
 	}
 	if diffWrite.Metadata["from_version_id"] == "" || diffWrite.Metadata["to_version_id"] == "" {
 		t.Fatalf("diff metadata missing version IDs: %#v", diffWrite.Metadata)
+	}
+	if diffWrite.Metadata["document_id"] != serviceID {
+		t.Fatalf("diff metadata = %#v, want document_id %q", diffWrite.Metadata, serviceID)
 	}
 	var diffRef *domainvdoc.ObjectRef
 	for index := range repo.objects {
@@ -565,11 +574,64 @@ func (r *recordingRepository) LoadState(ctx context.Context) (*domainvdoc.State,
 	return cloneRepositoryStateWithoutBodies(r.state), nil
 }
 
-func (r *recordingRepository) SaveState(ctx context.Context, state *domainvdoc.State) error {
+func (r *recordingRepository) UpsertDocument(ctx context.Context, document *domainvdoc.APIService) error {
 	_ = ctx
+	if document == nil {
+		return nil
+	}
+	r.ensureState()
 	r.saves++
-	r.events = append(r.events, "save")
-	r.state = cloneRepositoryStateWithoutBodies(state)
+	copied := *document
+	r.state.APIServices[document.ID] = &copied
+	return nil
+}
+
+func (r *recordingRepository) UpsertDocumentBranch(ctx context.Context, branch *domainvdoc.ContractBranch) error {
+	_ = ctx
+	if branch == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *branch
+	r.state.Branches[branch.ID] = &copied
+	return nil
+}
+
+func (r *recordingRepository) UpsertDocumentDraft(ctx context.Context, draft *domainvdoc.ContractDraft, document *domainvdoc.APIService) error {
+	_ = ctx
+	_ = document
+	if draft == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *draft
+	copied.RawSchema = ""
+	copied.NormalizedSchema = ""
+	r.state.Drafts[draft.ID] = &copied
+	return nil
+}
+
+func (r *recordingRepository) UpsertMCPToken(ctx context.Context, token *domainvdoc.MCPToken) error {
+	_ = ctx
+	if token == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *token
+	copied.Token = ""
+	copied.Scopes = append([]int(nil), token.Scopes...)
+	copied.TokenCiphertext = append([]byte(nil), token.TokenCiphertext...)
+	copied.ExpiresAt = copyTimePtr(token.ExpiresAt)
+	copied.LastUsedAt = copyTimePtr(token.LastUsedAt)
+	copied.RevokedAt = copyTimePtr(token.RevokedAt)
+	if token.RevokedBy != nil {
+		revokedBy := *token.RevokedBy
+		copied.RevokedBy = &revokedBy
+	}
+	r.state.Tokens[token.ID] = &copied
 	return nil
 }
 
@@ -618,6 +680,12 @@ func (r *recordingRepository) resetEvents() {
 	r.events = nil
 	r.saves = 0
 	r.publishes = 0
+}
+
+func (r *recordingRepository) ensureState() {
+	if r.state == nil {
+		r.state = domainvdoc.NewState()
+	}
 }
 
 func publishObjectStorageDraft(t *testing.T, store *Store, actorID, projectID, serviceID, branchID, versionName, schema string) *ContractVersion {
@@ -676,6 +744,9 @@ func assertSchemaObjectWrite(t *testing.T, write ObjectWrite, projectID, service
 	if write.Metadata["owner_id"] != ownerID || write.Metadata["kind"] != kind || write.Metadata["sha256"] != hash {
 		t.Fatalf("write metadata = %#v, want owner/kind/hash", write.Metadata)
 	}
+	if write.Metadata["document_id"] != serviceID || write.Metadata["project_id"] != projectID || write.Metadata["branch_id"] != branchID {
+		t.Fatalf("write metadata = %#v, want project/document/branch IDs", write.Metadata)
+	}
 }
 
 func assertRichSchemaKey(t *testing.T, key, projectID, serviceID, branchID, ownerCollection, ownerID, kind, hash string) {
@@ -683,7 +754,10 @@ func assertRichSchemaKey(t *testing.T, key, projectID, serviceID, branchID, owne
 	if strings.HasPrefix(key, "schemas/") {
 		t.Fatalf("object key %q uses old shallow schemas prefix", key)
 	}
-	want := "projects/" + projectID + "/services/" + serviceID + "/branches/" + branchID + "/" + ownerCollection + "/" + ownerID + "/" + kind + "-" + hash + ".json"
+	if strings.Contains(key, "/services/") {
+		t.Fatalf("object key %q uses service-oriented path", key)
+	}
+	want := "projects/" + projectID + "/documents/" + serviceID + "/branches/" + branchID + "/" + ownerCollection + "/" + ownerID + "/" + kind + "-" + hash + ".json"
 	if key != want {
 		t.Fatalf("object key = %q, want %q", key, want)
 	}
@@ -714,9 +788,9 @@ func cloneRepositoryStateWithoutBodies(state *domainvdoc.State) *domainvdoc.Stat
 		copied := *value
 		clone.Members[key] = &copied
 	}
-	for key, value := range state.Services {
+	for key, value := range state.APIServices {
 		copied := *value
-		clone.Services[key] = &copied
+		clone.APIServices[key] = &copied
 	}
 	for key, value := range state.Branches {
 		copied := *value

@@ -2,7 +2,7 @@ package auth
 
 import (
 	"vdoc/api/response"
-	app "vdoc/services/vdoc"
+	app "vdoc/appstore"
 	"vdoc/utils/authentication"
 	"vdoc/utils/contextkey"
 

@@ -85,7 +85,7 @@ check_allowed_sql_execution() {
 
 check_absent "api/app forbidden DB imports" 'gorm\.io|vdoc/db/pgdb|database/sql|github\.com/jackc/pgx' api/app --glob '*.go' --glob '!**/*_test.go'
 check_absent "runtime vdoc_state dependency" 'vdoc_state' api domain services/vdoc db --glob '*.go' --glob '*.sql' --glob '!**/*_test.go'
-check_absent "handler/service/domain direct DB access" 'gorm\.Open|sql\.Open|pgdb\.Open|vdoc/db/pgdb|database/sql|github\.com/jackc/pgx' api/app services/vdoc domain --glob '*.go' --glob '!**/*_test.go'
+check_absent "transport/domain/background runtime direct DB access" 'gorm\.Open|sql\.Open|pgdb\.Open|vdoc/db/pgdb|database/sql|github\.com/jackc/pgx' api/app services/vdoc domain --glob '*.go' --glob '!**/*_test.go'
 check_allowed_paths "database/sql and pgx confined to db boundaries" 'database/sql|github\.com/jackc/pgx|\bpgx\b' . --glob '*.go' --glob '!**/*_test.go'
 check_allowed_sql_execution
 check_absent "v0.2 MCP publish tools not exposed" 'publish_api_schema|publish_api_version' api/app/v1/open/mcp docs/api/openapi.yaml --glob '!**/*_test.go'
@@ -97,8 +97,8 @@ go test ./db/pgdb/vdoc -run TestRepositorySourceDoesNotUsePrototypeStateTable -c
 go test ./api/app/v1/open -run TestOpenAPISpecMatchesRegisteredRoutes -count=1 -v
 
 if [ "$failures" -ne 0 ]; then
-  printf 'Prototype/layering audit failed with %d issue(s).\n' "$failures"
+  printf 'Layering audit failed with %d issue(s).\n' "$failures"
   exit 1
 fi
 
-printf 'Prototype/layering audit passed.\n'
+printf 'Layering audit passed.\n'

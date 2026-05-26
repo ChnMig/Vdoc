@@ -23,7 +23,7 @@ Use this workflow before generating endpoint integration code, client types, req
     "name": "get_endpoint_detail",
     "arguments": {
       "project_id": "proj_placeholder",
-      "service_id": "svc_placeholder",
+      "document_id": "doc_placeholder",
       "version_id": "ver_placeholder",
       "endpoint_id": "endpoint_placeholder"
     }

@@ -61,28 +61,90 @@ func TestDatabaseEnabledDefaultStoreRefreshesFromRepository(t *testing.T) {
 	ResetDefaultStoreForTest()
 	t.Cleanup(ResetDefaultStoreForTest)
 
-	repo := newRecordingRepository(nil)
+	seed, actorID, projectID, _, _ := newObjectStorageTestStore(t)
+	repo := newRecordingRepository(seed.stateLocked())
 	if err := InitDefaultStore(context.Background(), RuntimeConfig{DatabaseEnabled: true, DatabaseRepository: repo}); err != nil {
 		t.Fatalf("InitDefaultStore() error = %v", err)
 	}
-	user, err := DefaultStore().Register("db-backed@example.test", "DB Backed", "correct horse battery staple")
+	document, err := DefaultStore().CreateDocument(actorID, projectID, "Runtime Doc", DocumentTypeOpenAPI, "docs/runtime.yaml", "")
 	if err != nil {
-		t.Fatalf("Register() error = %v", err)
+		t.Fatalf("CreateDocument() error = %v", err)
 	}
 	if repo.saves == 0 {
-		t.Fatal("database-backed store did not persist through repository")
+		t.Fatal("database-backed store did not persist document workflow records through repository")
 	}
 
 	store := DefaultStore()
 	store.mu.Lock()
-	store.users = map[string]*User{}
+	store.apiServices = map[string]*APIService{}
 	store.mu.Unlock()
 
-	loaded, err := store.User(user.ID)
+	loaded, err := store.Service(actorID, projectID, document.ID)
 	if err != nil {
-		t.Fatalf("User() after in-memory tamper error = %v", err)
+		t.Fatalf("Service() after in-memory tamper error = %v", err)
 	}
-	if loaded.Email != user.Email {
-		t.Fatalf("User() loaded email = %q, want repository value %q", loaded.Email, user.Email)
+	if loaded.RelativePath != document.RelativePath {
+		t.Fatalf("Service() loaded relative path = %q, want repository value %q", loaded.RelativePath, document.RelativePath)
+	}
+}
+
+func TestDatabaseEnabledMCPTokenLifecyclePersistsThroughReload(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	seed, actorID, _, _, _ := newObjectStorageTestStore(t)
+	repo := newRecordingRepository(seed.stateLocked())
+	if err := InitDefaultStore(context.Background(), RuntimeConfig{DatabaseEnabled: true, DatabaseRepository: repo}); err != nil {
+		t.Fatalf("InitDefaultStore() error = %v", err)
+	}
+
+	token, err := DefaultStore().CreateMCPToken(actorID, "db-token", []int{ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("CreateMCPToken() error = %v", err)
+	}
+	persisted := repo.state.Tokens[token.ID]
+	if persisted == nil {
+		t.Fatalf("repository missing token %q after create", token.ID)
+	}
+	if persisted.Token != "" || persisted.TokenHash == "" || len(persisted.TokenCiphertext) == 0 {
+		t.Fatalf("persisted token secret fields = token %q hash %q ciphertext %d", persisted.Token, persisted.TokenHash, len(persisted.TokenCiphertext))
+	}
+
+	store := DefaultStore()
+	store.mu.Lock()
+	store.tokens = map[string]*MCPToken{}
+	store.mu.Unlock()
+	authenticated, user, err := store.AuthenticateMCPToken(token.Token)
+	if err != nil {
+		t.Fatalf("AuthenticateMCPToken() after reload error = %v", err)
+	}
+	if authenticated.Token != "" || user.ID != actorID {
+		t.Fatalf("AuthenticateMCPToken() returned token=%q user=%q, want redacted token and actor user", authenticated.Token, user.ID)
+	}
+	persisted = repo.state.Tokens[token.ID]
+	if persisted == nil || persisted.LastUsedAt == nil {
+		t.Fatalf("repository token last_used_at not persisted after auth: %+v", persisted)
+	}
+
+	store.mu.Lock()
+	store.tokens = map[string]*MCPToken{}
+	store.mu.Unlock()
+	revoked, err := store.RevokeMCPToken(actorID, token.ID)
+	if err != nil {
+		t.Fatalf("RevokeMCPToken() after reload error = %v", err)
+	}
+	if revoked.Token != "" || revoked.Status != MCPTokenStatusRevoked {
+		t.Fatalf("RevokeMCPToken() returned token=%q status=%d", revoked.Token, revoked.Status)
+	}
+	persisted = repo.state.Tokens[token.ID]
+	if persisted == nil || persisted.Status != MCPTokenStatusRevoked || persisted.RevokedBy == nil || *persisted.RevokedBy != actorID {
+		t.Fatalf("repository token revoke state = %+v", persisted)
+	}
+
+	store.mu.Lock()
+	store.tokens = map[string]*MCPToken{}
+	store.mu.Unlock()
+	if _, _, err := store.AuthenticateMCPToken(token.Token); !Is(err, ErrUnauthenticated) {
+		t.Fatalf("AuthenticateMCPToken(revoked) error = %v, want unauthenticated", err)
 	}
 }

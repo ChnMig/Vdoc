@@ -21,16 +21,22 @@ var requiredSkillFiles = []string{
 
 var v01ToolSchemas = map[string]toolSchema{
 	"list_projects":            {required: nil, optional: nil},
-	"list_services":            {required: []string{"project_id"}, optional: nil},
-	"list_api_versions":        {required: []string{"project_id", "service_id"}, optional: nil},
-	"get_latest_schema":        {required: []string{"project_id", "service_id"}, optional: []string{"branch_id"}},
-	"get_endpoint_detail":      {required: []string{"project_id", "service_id", "version_id", "endpoint_id"}, optional: nil},
-	"compare_api_versions":     {required: []string{"project_id", "service_id", "from_version_id", "to_version_id"}, optional: nil},
-	"get_change_summary":       {required: []string{"project_id", "service_id", "diff_id"}, optional: nil},
-	"create_api_version_draft": {required: []string{"project_id", "service_id", "branch_id", "version_name", "schema_content"}, optional: []string{"changelog", "source_git_commit_id"}},
-	"update_api_version_draft": {required: []string{"project_id", "service_id", "draft_id", "branch_id", "version_name", "schema_content"}, optional: []string{"changelog", "source_git_commit_id"}},
-	"submit_api_version_draft": {required: []string{"project_id", "service_id", "draft_id"}, optional: nil},
-	"get_api_version_draft":    {required: []string{"project_id", "service_id", "draft_id"}, optional: nil},
+	"list_documents":           {required: []string{"project_id"}, optional: nil},
+	"list_api_versions":        {required: []string{"project_id", "document_id"}, optional: nil},
+	"get_latest_schema":        {required: []string{"project_id", "document_id"}, optional: []string{"branch_id"}},
+	"get_endpoint_detail":      {required: []string{"project_id", "document_id", "version_id", "endpoint_id"}, optional: nil},
+	"compare_api_versions":     {required: []string{"project_id", "document_id", "from_version_id", "to_version_id"}, optional: nil},
+	"get_change_summary":       {required: []string{"project_id", "document_id", "diff_id"}, optional: nil},
+	"create_api_version_draft": {required: []string{"project_id", "document_id", "branch_id", "version_name", "schema_content"}, optional: []string{"changelog", "source_git_commit_id"}},
+	"update_api_version_draft": {required: []string{"project_id", "document_id", "draft_id", "branch_id", "version_name", "schema_content"}, optional: []string{"changelog", "source_git_commit_id"}},
+	"submit_api_version_draft": {required: []string{"project_id", "document_id", "draft_id"}, optional: nil},
+	"get_api_version_draft":    {required: []string{"project_id", "document_id", "draft_id"}, optional: nil},
+	"get_latest_doc":           {required: []string{"project_id", "document_id"}, optional: []string{"branch_id"}},
+	"compare_doc_versions":     {required: []string{"project_id", "document_id", "from_version_id", "to_version_id"}, optional: nil},
+	"create_doc_draft":         {required: []string{"project_id", "document_id", "branch_id", "version_name", "markdown_content"}, optional: []string{"changelog", "source_git_commit_id"}},
+	"update_doc_draft":         {required: []string{"project_id", "document_id", "draft_id", "branch_id", "version_name", "markdown_content"}, optional: []string{"changelog", "source_git_commit_id"}},
+	"submit_doc_draft":         {required: []string{"project_id", "document_id", "draft_id"}, optional: nil},
+	"get_doc_draft":            {required: []string{"project_id", "document_id", "draft_id"}, optional: nil},
 }
 
 type toolSchema struct {
@@ -52,16 +58,18 @@ func TestVdocSkillCompleteness(t *testing.T) {
 	skill := readRootFile(t, "skills/vdoc/SKILL.md")
 	requiredPhrases := []string{
 		"Vdoc MCP is the source of truth for API contract facts",
-		"Do not infer or hallucinate endpoint fields, parameters, response properties, enum values, auth schemes, servers, or breaking-change claims",
+		"Do not infer or hallucinate endpoint fields, parameters, response properties, enum values, auth schemes, servers, breaking-change claims, or Markdown text",
 		"Always call JSON-RPC `tools/list` if unsure",
+		"Use `document_id` for API and Markdown document tools",
 		"You must call `get_endpoint_detail` before generating endpoint integration code or client types",
 		"You must call `compare_api_versions` before migration advice or frontend impact analysis",
 		"draft tools only",
 		"Human Admin/SuperAdmin review publishes versions",
+		"Direct publish tools are unavailable in v0.1",
+		"Use `markdown_content` for Markdown draft content",
 		"Output must distinguish `must_handle` / breaking changes from optional/non-breaking changes",
 		"Never print, copy, or log MCP tokens or JWTs",
 		"Never include Authorization headers in final output",
-		"Forbidden/unavailable v0.1 tools: `publish_api_schema`, `publish_api_version`",
 	}
 	for _, phrase := range requiredPhrases {
 		if !strings.Contains(skill, phrase) {
@@ -76,7 +84,8 @@ func TestVdocSkillCompleteness(t *testing.T) {
 		}
 	}
 
-	assertPublishToolsOnlyForbidden(t, allDocs)
+	assertNoDirectPublishToolNames(t, allDocs)
+	assertNoRemovedDocumentTerms(t, allDocs)
 	assertTemplateTerms(t, "skills/vdoc/templates/frontend-change-summary.md", []string{"must_handle", "is_breaking", "breaking", "optional", "non-breaking", "location", "message", "old_value", "new_value", "frontend_impact"})
 	assertTemplateTerms(t, "skills/vdoc/templates/endpoint-integration.md", []string{"get_endpoint_detail", "method", "path", "operationId", "parameters", "request body", "responses", "security", "servers", "required fields", "enum values"})
 
@@ -85,7 +94,7 @@ func TestVdocSkillCompleteness(t *testing.T) {
 		fmt.Sprintf("files_checked=%d", len(requiredSkillFiles)),
 		fmt.Sprintf("required_phrases_checked=%d", len(requiredPhrases)),
 		fmt.Sprintf("v01_tools_checked=%d", len(v01ToolSchemas)),
-		"publish_tools_status=forbidden_unavailable_only",
+		"direct_publish_tools_status=absent",
 	}
 	writeEvidence(t, "task-15-skill-completeness.txt", strings.Join(evidence, "\n")+"\n")
 }
@@ -113,7 +122,7 @@ func TestVdocSkillExampleConsistency(t *testing.T) {
 		}
 	}
 
-	requiredExampleTools := []string{"compare_api_versions", "get_change_summary", "get_endpoint_detail", "create_api_version_draft", "update_api_version_draft", "submit_api_version_draft"}
+	requiredExampleTools := []string{"compare_api_versions", "get_change_summary", "get_endpoint_detail", "create_api_version_draft", "update_api_version_draft", "submit_api_version_draft", "get_latest_doc", "compare_doc_versions", "create_doc_draft", "update_doc_draft", "submit_doc_draft", "get_doc_draft"}
 	for _, toolName := range requiredExampleTools {
 		if seenTools[toolName] == 0 {
 			t.Fatalf("examples missing tools/call payload for %s", toolName)
@@ -151,15 +160,21 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join("..", ".."))
 }
 
-func assertPublishToolsOnlyForbidden(t *testing.T, body string) {
+func assertNoDirectPublishToolNames(t *testing.T, body string) {
 	t.Helper()
-	for lineNumber, line := range strings.Split(body, "\n") {
-		if !strings.Contains(line, "publish_api_schema") && !strings.Contains(line, "publish_api_version") {
-			continue
+	for _, toolName := range []string{strings.Join([]string{"publish", "api", "schema"}, "_"), strings.Join([]string{"publish", "api", "version"}, "_"), strings.Join([]string{"publish", "doc"}, "_")} {
+		if strings.Contains(body, toolName) {
+			t.Fatalf("skill docs must not name direct publish MCP tool %q", toolName)
 		}
-		lower := strings.ToLower(line)
-		if !strings.Contains(lower, "forbidden/unavailable") && !strings.Contains(lower, "not available") && !strings.Contains(lower, "do not call") && !strings.Contains(lower, "no direct publish") {
-			t.Fatalf("publish tool mention on combined line %d is not explicitly forbidden/unavailable: %s", lineNumber+1, line)
+	}
+}
+
+func assertNoRemovedDocumentTerms(t *testing.T, body string) {
+	t.Helper()
+	removedTerms := []string{"list_" + "services", "service_" + "id", "Service" + " ID"}
+	for _, term := range removedTerms {
+		if strings.Contains(body, term) {
+			t.Fatalf("skill docs contain removed document term %q", term)
 		}
 	}
 }
@@ -250,13 +265,13 @@ func validateJSONRPCPayload(t *testing.T, path string, index int, payload map[st
 	return name
 }
 
-func writeEvidence(t *testing.T, filename string, body string) {
+func writeEvidence(t *testing.T, evidenceName string, body string) {
 	t.Helper()
-	path := filepath.Join(repoRoot(t), ".sisyphus", "evidence", filename)
+	path := filepath.Join(repoRoot(t), ".sisyphus", "evidence", evidenceName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create evidence dir: %v", err)
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write evidence %s: %v", filename, err)
+		t.Fatalf("write evidence %s: %v", evidenceName, err)
 	}
 }

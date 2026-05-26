@@ -3,24 +3,24 @@ package vdoc
 import "context"
 
 type State struct {
-	Users     map[string]*User
-	Teams     map[string]*Team
-	Projects  map[string]*Project
-	Members   map[string]*ProjectMember
-	Services  map[string]*APIService
-	Branches  map[string]*ContractBranch
-	Drafts    map[string]*ContractDraft
-	Versions  map[string]*ContractVersion
-	Endpoints map[string]*Endpoint
-	Diffs     map[string]*Diff
-	Tokens    map[string]*MCPToken
-	AuditLogs map[string]*AuditLog
+	Users       map[string]*User
+	Teams       map[string]*Team
+	Projects    map[string]*Project
+	Members     map[string]*ProjectMember
+	APIServices map[string]*APIService
+	Branches    map[string]*ContractBranch
+	Drafts      map[string]*ContractDraft
+	Versions    map[string]*ContractVersion
+	Endpoints   map[string]*Endpoint
+	Diffs       map[string]*Diff
+	Tokens      map[string]*MCPToken
+	AuditLogs   map[string]*AuditLog
 }
 
 func NewState() *State {
 	return &State{
 		Users: map[string]*User{}, Teams: map[string]*Team{}, Projects: map[string]*Project{}, Members: map[string]*ProjectMember{},
-		Services: map[string]*APIService{}, Branches: map[string]*ContractBranch{}, Drafts: map[string]*ContractDraft{},
+		APIServices: map[string]*APIService{}, Branches: map[string]*ContractBranch{}, Drafts: map[string]*ContractDraft{},
 		Versions: map[string]*ContractVersion{}, Endpoints: map[string]*Endpoint{}, Diffs: map[string]*Diff{}, Tokens: map[string]*MCPToken{},
 		AuditLogs: map[string]*AuditLog{},
 	}
@@ -52,8 +52,8 @@ type PublishStateInput struct {
 
 type Repository interface {
 	LoadState(ctx context.Context) (*State, error)
-	SaveState(ctx context.Context, state *State) error
 	RecordObject(ctx context.Context, ref ObjectRef) error
 	RecordAudit(ctx context.Context, audit *AuditLog) error
+	UpsertMCPToken(ctx context.Context, token *MCPToken) error
 	PublishState(ctx context.Context, input PublishStateInput) error
 }

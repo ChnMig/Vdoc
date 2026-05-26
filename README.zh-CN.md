@@ -2,24 +2,24 @@
 
 语言: [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 AI 协作开发的 API 契约协作平台，支持 OpenAPI 版本管理、语义 Diff 和 MCP。
+面向 AI 协作开发的文档协作中心，支持 OpenAPI API 文档、Markdown 纯文档、语义 Diff 和 MCP。
 
-Vdoc 帮助使用 AI/Vibe Coding 的团队同步后端接口变更、前端对接代码和 AI Agent 上下文。
+Vdoc 帮助使用 AI/Vibe Coding 的团队同步接口变更、Markdown 项目知识、前端对接代码和 AI Agent 上下文。
 
 ## Vdoc 是什么？
 
-Vdoc 是一个面向快速迭代团队的 API 契约协作平台。它以 OpenAPI 作为接口协作的事实来源，把每次发布的接口文档保存为不可变版本，计算版本之间的语义差异，并把接口知识同时暴露给人和 AI Agent。
+Vdoc 是一个面向快速迭代团队的文档协作平台。Project 直接管理多类型 Document，包括 OpenAPI API 文档和 Markdown 纯文档。Vdoc 把每次发布的文档保存为不可变版本，对 OpenAPI 做语义 Diff，对 Markdown 做文本 Diff，并把已审核的文档知识同时暴露给人和 AI Agent。
 
-Vdoc 的目标不是再做一个 Swagger UI，而是解决 AI 辅助开发里经常断掉的接口同步链路：
+Vdoc 的目标不是再做一个 Swagger UI，而是解决 AI 辅助开发里经常断掉的文档同步链路：
 
 ```text
-后端上传或 AI 通过 MCP 提交 OpenAPI 草稿
+后端上传或 AI 通过 MCP 提交 OpenAPI 或 Markdown 草稿
         -> 人工审核后 Vdoc 创建不可变版本
-        -> Vdoc 解析接口契约
-        -> Vdoc 与上一版本做语义 Diff
-        -> Vdoc 标记 breaking changes
-        -> 前端或 AI 查询变更和接口详情
-        -> 前端带着上下文更新对接代码
+        -> Vdoc 在适用时解析 OpenAPI Endpoint
+        -> Vdoc 计算 OpenAPI 语义 Diff 或 Markdown 文本 Diff
+        -> Vdoc 在适用时标记 breaking changes
+        -> 前端或 AI 查询变更、接口详情或 Markdown 内容
+        -> 前端带着上下文更新对接代码和项目知识
 ```
 
 ## 当前状态
@@ -35,10 +35,10 @@ v0.1 已经实现：
 
 - `/api/v1` 版本化路由树
 - 公开注册、登录和私有 JWT 路由
-- SuperAdmin 用户生命周期、Team、Project、Member、Service 和 Branch
-- OpenAPI 草稿上传、审核和不可变版本发布
-- 草稿和已发布版本的 raw、normalized schema 查询
-- Endpoint 索引查询和语义 API Diff 摘要
+- SuperAdmin 用户生命周期、Team、Project、Member、Document 和 Document Branch
+- OpenAPI 和 Markdown 草稿上传、审核和不可变版本发布
+- 草稿和已发布版本的 raw、normalized、stable 内容查询
+- Endpoint 索引查询、OpenAPI 语义 Diff 摘要和 Markdown 文件 Diff
 - MCP Token 生命周期和 JSON-RPC MCP 查询、草稿 tools
 - 带 `trace_id` 和 `timestamp` 的统一 JSON 响应包裹
 - 请求追踪、结构化访问日志、panic recovery、CORS、安全响应头、请求体大小限制、限流中间件
@@ -47,7 +47,7 @@ v0.1 已经实现：
 
 v0.1 不包含：
 
-- 直接发布类 MCP tools，包括 `publish_api_schema` 和 `publish_api_version`
+- 直接发布类 MCP tools
 - 代码生成和前端对接辅助
 
 ## 产品概念
@@ -56,42 +56,44 @@ v0.1 不包含：
 |---|---|
 | Team | 团队协作边界。 |
 | Project | 团队下的产品或应用。 |
-| Service | 项目内的后端服务，例如 `user-service` 或 `order-service`。 |
-| Contract Branch / Environment | Service 下的契约发布轨道，例如 `dev`、`test`、`prod` 或 `feature/*`，其中 `prod` 默认受保护。 |
-| Contract Version | 某个服务的一次不可变 OpenAPI 快照。 |
+| Document | Project 下的多类型文档。v0.1 支持 OpenAPI API 文档和 Markdown 纯文档。 |
+| Document Type | `1` 表示 OpenAPI，`2` 表示 Markdown。 |
+| Relative Path | 文档在 Project 内的路径身份，例如 `apis/petstore.yaml` 或 `docs/runbook.md`。 |
+| Document Branch / Environment | 文档发布轨道，例如 `dev`、`test`、`prod` 或 `feature/*`，其中 `prod` 默认受保护。 |
+| Document Version | 某个多类型文档的一次不可变快照。 |
 | Endpoint Index | 从 OpenAPI 解析出的结构化索引，包括路径、方法、参数、请求体、响应、标签和 operationId。 |
 | Semantic Diff | 面向接口契约的版本比较，而不是原始文本 diff。 |
 | Breaking Change | 可能破坏前端消费方的变更，例如字段删除、类型变化、新增必填参数、接口删除。 |
-| MCP Token | 用户绑定的 AI 工具访问 token；后台可查看、复制、生成和废弃，权限由 token scopes 与用户在目标 Project 的角色共同决定。 |
+| MCP Token | 用户绑定的 AI 工具访问 token。创建时返回一次性可复制 token 值，后续列表和详情响应会脱敏；权限由 token scopes 与用户在目标 Project 的角色共同决定。 |
 
 ## MVP 使用流程
 
 1. SuperAdmin 创建系统成员、Team 和 Project。
 2. SuperAdmin 指定 Project Admin。
 3. Project Admin 从现有系统用户中手动添加成员并分配项目级角色。
-4. Project Admin 创建 Service。
-5. Writer 上传，或 AI 通过 MCP 向目标分支提交 OpenAPI 3.x 草稿。
-6. Vdoc 校验并保存 Raw Schema。
-7. Project Admin 人工审核通过后，Vdoc 创建不可变 Contract Version。
-8. Vdoc 解析 Endpoint Index，用于快速查询和展示。
-9. Vdoc 将新版本与上一版本做语义 Diff。
-10. Vdoc 保存变更摘要和 breaking-change 列表。
-11. 前端开发和 AI Agent 查询接口详情、版本差异和摘要。
+4. Project Admin 创建 OpenAPI 或 Markdown Document，并填写 `relative_path`。
+5. Writer 通过 Web API 上传，或 AI 通过 MCP 向目标文档分支提交草稿。
+6. Vdoc 校验并保存 raw 内容，以及 normalized 或 stable 快照。
+7. Project Admin 人工审核通过后，Vdoc 创建不可变 Document Version。
+8. Vdoc 为 OpenAPI 文档解析 Endpoint Index，用于快速查询和展示。
+9. Vdoc 将新版本与上一版本做 OpenAPI 语义 Diff 或 Markdown 文本 Diff。
+10. Vdoc 保存变更摘要和适用的 breaking-change 列表。
+11. 前端开发和 AI Agent 查询接口详情、Markdown 内容、版本差异和摘要。
 
 ## v0.1 范围
 
 当前 v0.1 后端已经实现：
 
 - 系统级 `SuperAdmin`；项目级角色：`Reader`、`Writer`、`Admin`，其中 Writer 只能提交草稿，Admin 负责审核发布
-- 通过 Web API 上传 OpenAPI 3.x，AI 可通过 MCP 提交和更新草稿
+- 通过 Web API 上传 OpenAPI 3.x 和 Markdown，AI 可通过 MCP 提交和更新草稿
 - MVP 不做邀请流程，项目成员从现有系统用户手动添加
-- Service 契约分支和环境，支持 `dev`、`test`、受保护 `prod`、可选 `feature/*`，以及 promote 到目标分支草稿
-- 每个 Service 下的不可变接口契约版本
-- OpenAPI 草稿人工审核后发布
+- 文档分支和环境，支持 `dev`、`test`、受保护 `prod`、可选 `feature/*`，以及 promote 到目标分支草稿
+- 每个多类型文档下的不可变版本
+- OpenAPI 和 Markdown 草稿人工审核后发布
 - 接口列表和接口详情查询
-- 版本比较和语义 Diff
+- 版本比较、OpenAPI 语义 Diff 和 Markdown 文件 Diff
 - Breaking-change 摘要
-- 先做 MCP 查询和草稿 tools，直接发布 tools 后续再做
+- 仅提供 MCP 查询和草稿 tools；版本发布必须走人工审核
 
 第一版暂不做：
 
@@ -107,12 +109,14 @@ v0.1 不包含：
 
 ```text
 list_projects
-list_services
+list_documents
 list_api_versions
 get_latest_schema
 get_endpoint_detail
 compare_api_versions
 get_change_summary
+get_latest_doc
+compare_doc_versions
 ```
 
 草稿工具（v0.1）：
@@ -122,14 +126,13 @@ create_api_version_draft
 update_api_version_draft
 submit_api_version_draft
 get_api_version_draft
+create_doc_draft
+update_doc_draft
+submit_doc_draft
+get_doc_draft
 ```
 
-v0.1 不提供直接发布工具：
-
-```text
-publish_api_schema
-publish_api_version
-```
+v0.1 不提供直接发布工具。版本发布必须由 Admin 或 SuperAdmin 人工审核触发。
 
 ## 后端架构
 
@@ -143,18 +146,18 @@ Web App
 
 API Server
   - 项目管理
-  - Service 分支 / 环境管理
-  - OpenAPI 上传
+  - 文档和文档分支管理
+  - OpenAPI 和 Markdown 上传
   - 草稿审核和发布
-  - 接口契约版本生成
+  - Document Version 生成
   - 权限校验
   - Diff 查询
   - MCP token 管理
 
 MCP Server
-  - AI 查询接口契约
+  - AI 查询 OpenAPI 和 Markdown 文档
   - AI 查询版本 Diff
-  - AI 提交/更新 OpenAPI 草稿
+  - AI 提交/更新 OpenAPI 和 Markdown 草稿
   - AI 获取前端变更摘要
 
 Diff Engine
@@ -165,8 +168,8 @@ Diff Engine
   - Breaking-change rules
 
 Storage
-  - PostgreSQL 保存用户、团队、项目、服务、分支、草稿、版本、Endpoint 索引、Diff 摘要、审计日志和 token 安全元数据
-  - `storage.enabled=true` 时，RustFS 或任意 S3-compatible 对象存储保存 Raw / Normalized OpenAPI 快照和大 Diff 快照
+  - PostgreSQL 保存用户、团队、项目、文档、分支、草稿、版本、Endpoint 索引、Diff 摘要、审计日志和 token 安全元数据
+  - `storage.enabled=true` 时，RustFS 或任意 S3-compatible 对象存储保存 raw、normalized、stable 和大 Diff 快照
   - `database.enabled=false` 时，本地开发和测试使用内存兼容 store
 ```
 
@@ -176,14 +179,14 @@ Storage
 vdoc/
 ├── main.go                  # 服务生命周期、CLI 参数、配置、日志、优雅关闭
 ├── Makefile                 # 构建、运行、测试、格式化、检查、验证
-├── api/                     # Gin 初始化、中间件、响应包裹、版本化路由
-├── common/                  # 共享 DTO 和通用类型
+├── api/                     # 传输层：Gin 路由、中间件、请求/响应 DTO、领域错误映射
+├── common/                  # 跨模块共享业务语义：枚举、常量、跨模块 DTO、事件定义
 ├── config/                  # Viper 配置加载、默认值、热重载、安全校验
-├── db/                      # GORM PostgreSQL 客户端、迁移和 Vdoc repository
-├── domain/                  # 领域模型、repository 接口和健康状态
-├── services/                # Vdoc 服务 facade、对象存储接入、OpenAPI 解析和 Diff 逻辑
+├── db/                      # 持久化适配层：GORM/PostgreSQL 模型、查询、迁移、RustFS/S3 适配
+├── domain/                  # 业务规则层：领域模型、状态流转、领域错误、repository/storage ports
+├── services/                # 长驻服务和后台任务层，只放 cron、worker、consumer 生命周期管理
 ├── static/                  # 静态资源占位
-└── utils/                   # JWT、日志、context key、PID 文件、ID、加密工具
+└── utils/                   # JWT、日志、context key、PID 文件、ID、加密等业务无关基础设施
 ```
 
 ## 快速开始
@@ -236,7 +239,7 @@ make build CROSS=1
 
 ## 当前 API
 
-完整 v0.1 路由列表维护在 [docs/api/API.md](docs/api/API.md) 和 [docs/api/openapi.yaml](docs/api/openapi.yaml)。当前已经实现公开 health/auth/docs/MCP 路由，以及私有 identity、user、team、project、member、service、branch、draft、contract、endpoint、diff 和 MCP token 路由。
+完整 v0.1 路由列表维护在 [docs/api/API.md](docs/api/API.md) 和 [docs/api/openapi.yaml](docs/api/openapi.yaml)。当前已经实现公开 health/auth/docs/MCP 路由，以及私有 identity、user、team、project、member、document、branch、draft、version、endpoint、diff 和 MCP token 路由。
 
 当前响应使用统一包裹。HTTP status 固定为 `200`，业务成功或失败由 JSON 中的 `code` 和 `status` 表达。
 
@@ -275,7 +278,7 @@ export VDOC_STORAGE_SECRET_KEY="rustfs-secret-key"
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。项目仍在早期阶段，请优先围绕 MVP 范围贡献：OpenAPI 契约、不可变版本、Endpoint 索引、语义 Diff 和 MCP 集成。
+欢迎提交 Issue 和 Pull Request。项目仍在早期阶段，请优先围绕 MVP 范围贡献：OpenAPI 和 Markdown 文档、不可变版本、Endpoint 索引、语义 Diff、Markdown Diff 和 MCP 集成。
 
 ## 许可证
 

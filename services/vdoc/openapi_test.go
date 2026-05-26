@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,27 @@ func TestParseOpenAPIDoesNotFabricateAbsentDetailFields(t *testing.T) {
 	responses := endpoint.Responses.(map[string]any)
 	if responses["204"].(map[string]any)["schema"] != nil {
 		t.Fatalf("fabricated response schema: %#v", responses["204"])
+	}
+}
+
+func TestParseOpenAPIRejectsMissingRequiredDocumentFields(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing info", content: `{"openapi":"3.1.0","paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok"}}}}}}`, want: "info is required"},
+		{name: "path without slash", content: `{"openapi":"3.1.0","info":{"title":"API","version":"1.0.0"},"paths":{"widgets":{"get":{"responses":{"200":{"description":"ok"}}}}}}`, want: "path must start with /"},
+		{name: "missing responses", content: `{"openapi":"3.1.0","info":{"title":"API","version":"1.0.0"},"paths":{"/widgets":{"get":{"operationId":"listWidgets"}}}}`, want: "operation responses are required"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseOpenAPI(tc.content)
+			if !Is(err, ErrInvalidArgument) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ParseOpenAPI() error = %v, want invalid argument containing %q", err, tc.want)
+			}
+		})
 	}
 }
 

@@ -5,7 +5,7 @@ Use this template only after calling `get_endpoint_detail`. Do not generate endp
 ## MCP Requirement
 
 - Required call: `get_endpoint_detail`
-- Required arguments: `project_id`, `service_id`, `version_id`, `endpoint_id`
+- Required arguments: `project_id`, `document_id`, `version_id`, `endpoint_id`
 - Source of truth: the returned endpoint method, path, operationId, parameters, request body, responses, security, servers, required fields, and enum values
 
 ## Contract Inputs From `get_endpoint_detail`

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"vdoc/api/middleware"
+	app "vdoc/appstore"
 	"vdoc/config"
-	app "vdoc/services/vdoc"
 	"vdoc/utils/authentication"
 
 	"github.com/gin-gonic/gin"
@@ -224,21 +224,21 @@ func TestWriterCannotPublishDraftThroughPrivateRoute(t *testing.T) {
 	if _, err := store.AddProjectMember(superUser.ID, project.ID, writerUser.ID, app.MemberRoleWriter); err != nil {
 		t.Fatalf("add writer member: %v", err)
 	}
-	service, err := store.CreateService(superUser.ID, project.ID, "service", "", "", "")
+	document, err := store.CreateDocument(superUser.ID, project.ID, "writer-api", app.DocumentTypeOpenAPI, "apis/writer.yaml", "")
 	if err != nil {
-		t.Fatalf("create service: %v", err)
+		t.Fatalf("create document: %v", err)
 	}
-	branches, err := store.ListBranches(superUser.ID, project.ID, service.ID)
+	branches, err := store.ListBranches(superUser.ID, project.ID, document.ID)
 	if err != nil {
 		t.Fatalf("list branches: %v", err)
 	}
-	draft, err := store.CreateDraft(writerUser.ID, project.ID, service.ID, app.DraftInput{BranchID: branches[0].ID, VersionName: "1.0.0", SchemaContent: privateTestOpenAPI("writerDraft")})
+	draft, err := store.CreateDocumentDraft(writerUser.ID, project.ID, document.ID, app.DraftInput{BranchID: branches[0].ID, VersionName: "1.0.0", SchemaContent: privateTestOpenAPI("writerDraft")})
 	if err != nil {
 		t.Fatalf("create writer draft: %v", err)
 	}
 	writerToken := issuePrivateTestToken(t, writerUser.ID)
 
-	recorder := performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID+"/approve", writerToken, "")
+	recorder := performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/approve", writerToken, "")
 	envelope := decodePrivateEnvelope(t, recorder)
 	if envelope.Code != 403 || envelope.Status != "PERMISSION_DENIED" {
 		t.Fatalf("writer approve response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
@@ -271,22 +271,22 @@ func TestCrossProjectChildBindingReturnsNotFoundThroughPrivateRoute(t *testing.T
 	if _, err := store.AddProjectMember(superUser.ID, projectA.ID, readerUser.ID, app.MemberRoleReader); err != nil {
 		t.Fatalf("add reader member: %v", err)
 	}
-	serviceB, err := store.CreateService(superUser.ID, projectB.ID, "service-b", "", "", "")
+	documentB, err := store.CreateDocument(superUser.ID, projectB.ID, "document-b", app.DocumentTypeOpenAPI, "apis/document-b.yaml", "")
 	if err != nil {
-		t.Fatalf("create service B: %v", err)
+		t.Fatalf("create document B: %v", err)
 	}
-	branches, err := store.ListBranches(superUser.ID, projectB.ID, serviceB.ID)
+	branches, err := store.ListBranches(superUser.ID, projectB.ID, documentB.ID)
 	if err != nil {
 		t.Fatalf("list branches: %v", err)
 	}
-	draft, err := store.CreateDraft(superUser.ID, projectB.ID, serviceB.ID, app.DraftInput{BranchID: branches[0].ID, VersionName: "1.0.0", SchemaContent: privateTestOpenAPI("crossProject")})
+	draft, err := store.CreateDocumentDraft(superUser.ID, projectB.ID, documentB.ID, app.DraftInput{BranchID: branches[0].ID, VersionName: "1.0.0", SchemaContent: privateTestOpenAPI("crossProject")})
 	if err != nil {
 		t.Fatalf("create draft: %v", err)
 	}
-	if _, err := store.SubmitDraft(superUser.ID, projectB.ID, serviceB.ID, draft.ID); err != nil {
+	if _, err := store.SubmitDocumentDraft(superUser.ID, projectB.ID, documentB.ID, draft.ID); err != nil {
 		t.Fatalf("submit draft: %v", err)
 	}
-	published, err := store.ReviewDraft(superUser.ID, projectB.ID, serviceB.ID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft(superUser.ID, projectB.ID, documentB.ID, draft.ID, "approve")
 	if err != nil {
 		t.Fatalf("publish draft: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestCrossProjectChildBindingReturnsNotFoundThroughPrivateRoute(t *testing.T
 	}
 	readerToken := issuePrivateTestToken(t, readerUser.ID)
 
-	recorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+projectA.ID+"/services/"+serviceB.ID+"/contracts/"+version.ID+"/endpoints", readerToken, "")
+	recorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+projectA.ID+"/documents/"+documentB.ID+"/versions/"+version.ID+"/endpoints", readerToken, "")
 	envelope := decodePrivateEnvelope(t, recorder)
 	if envelope.Code != 404 || envelope.Status != "NOT_FOUND" {
 		t.Fatalf("cross-project endpoints response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
@@ -306,28 +306,28 @@ func TestCrossProjectChildBindingReturnsNotFoundThroughPrivateRoute(t *testing.T
 func TestEndpointListAndDetailReturnParsedContractData(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
 	store := app.DefaultStore()
-	service, err := store.CreateService(fixture.adminUser.ID, fixture.project.ID, "pets", "Pets", "", "/pets")
+	document, err := store.CreateDocument(fixture.adminUser.ID, fixture.project.ID, "pets", app.DocumentTypeOpenAPI, "apis/pets.yaml", "")
 	if err != nil {
-		t.Fatalf("create service: %v", err)
+		t.Fatalf("create document: %v", err)
 	}
-	branches, err := store.ListBranches(fixture.adminUser.ID, fixture.project.ID, service.ID)
+	branches, err := store.ListBranches(fixture.adminUser.ID, fixture.project.ID, document.ID)
 	if err != nil {
 		t.Fatalf("list branches: %v", err)
 	}
-	draft, err := store.CreateDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, app.DraftInput{BranchID: branches[0].ID, VersionName: "1.0.0", SchemaContent: privateEndpointDetailOpenAPI()})
+	draft, err := store.CreateDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, app.DraftInput{BranchID: branches[0].ID, VersionName: "1.0.0", SchemaContent: privateEndpointDetailOpenAPI()})
 	if err != nil {
 		t.Fatalf("create draft: %v", err)
 	}
-	if _, err := store.SubmitDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, draft.ID); err != nil {
+	if _, err := store.SubmitDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, draft.ID); err != nil {
 		t.Fatalf("submit draft: %v", err)
 	}
-	published, err := store.ReviewDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, draft.ID, "approve")
 	if err != nil {
 		t.Fatalf("publish draft: %v", err)
 	}
 	version := published.(*app.ContractVersion)
 
-	listRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contracts/"+version.ID+"/endpoints", fixture.adminToken, "")
+	listRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/versions/"+version.ID+"/endpoints", fixture.adminToken, "")
 	listEnvelope := decodePrivateEnvelope(t, listRecorder)
 	if listEnvelope.Code != 200 || listEnvelope.Status != "OK" {
 		t.Fatalf("list endpoints response = code %d status %q body %s", listEnvelope.Code, listEnvelope.Status, listRecorder.Body.String())
@@ -344,7 +344,7 @@ func TestEndpointListAndDetailReturnParsedContractData(t *testing.T) {
 	}
 	endpointID := listed[0]["id"].(string)
 
-	detailRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contracts/"+version.ID+"/endpoints/"+endpointID, fixture.adminToken, "")
+	detailRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/versions/"+version.ID+"/endpoints/"+endpointID, fixture.adminToken, "")
 	detailEnvelope := decodePrivateEnvelope(t, detailRecorder)
 	if detailEnvelope.Code != 200 || detailEnvelope.Status != "OK" {
 		t.Fatalf("endpoint detail response = code %d status %q body %s", detailEnvelope.Code, detailEnvelope.Status, detailRecorder.Body.String())
@@ -368,7 +368,7 @@ func TestEndpointListAndDetailReturnParsedContractData(t *testing.T) {
 		t.Fatalf("detail missing schema_refs: %#v", detail)
 	}
 
-	missingRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contracts/"+version.ID+"/endpoints/missing-endpoint", fixture.adminToken, "")
+	missingRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/versions/"+version.ID+"/endpoints/missing-endpoint", fixture.adminToken, "")
 	missingEnvelope := decodePrivateEnvelope(t, missingRecorder)
 	if missingEnvelope.Code != 404 || missingEnvelope.Status != "NOT_FOUND" || strings.Contains(missingRecorder.Body.String(), "properties") {
 		t.Fatalf("missing endpoint response = code %d status %q body %s", missingEnvelope.Code, missingEnvelope.Status, missingRecorder.Body.String())
@@ -378,8 +378,8 @@ func TestEndpointListAndDetailReturnParsedContractData(t *testing.T) {
 func TestPrivateMutationAuditCapturesTraceContext(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
 	recorder := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"name":"audit-service","display_name":"Audit Service","description":"","base_path":"/audit"}`)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services", body)
+	body := bytes.NewBufferString(`{"name":"audit-document","document_type":1,"relative_path":"apis/audit.yaml","description":""}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(middleware.AuthorizationHeader, fixture.adminToken)
 	request.Header.Set(middleware.TraceIDHeaderKey, "trace-private-audit")
@@ -387,47 +387,47 @@ func TestPrivateMutationAuditCapturesTraceContext(t *testing.T) {
 	fixture.router.ServeHTTP(recorder, request)
 	envelope := decodePrivateEnvelope(t, recorder)
 	if envelope.Code != 200 || envelope.Status != "OK" {
-		t.Fatalf("create service response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
+		t.Fatalf("create document response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
 	}
-	var service app.APIService
-	if err := json.Unmarshal(envelope.Detail, &service); err != nil {
-		t.Fatalf("decode service: %v", err)
+	var document app.APIService
+	if err := json.Unmarshal(envelope.Detail, &document); err != nil {
+		t.Fatalf("decode document: %v", err)
 	}
 
 	var audit *app.AuditLog
 	for _, candidate := range app.DefaultStore().AuditLogsForTest() {
-		if candidate.Action == "api_service.create" && candidate.ResourceID == service.ID {
+		if candidate.Action == "document.create" && candidate.ResourceID == document.ID {
 			audit = candidate
 			break
 		}
 	}
 	if audit == nil {
-		t.Fatalf("missing api_service.create audit logs=%+v", app.DefaultStore().AuditLogsForTest())
+		t.Fatalf("missing document.create audit logs=%+v", app.DefaultStore().AuditLogsForTest())
 	}
-	if audit.RequestID != "trace-private-audit" || audit.UserAgent != "private-audit-test" || audit.ProjectID != fixture.project.ID || audit.ServiceID != service.ID {
-		t.Fatalf("service audit = %+v, want trace/user-agent/project/service", audit)
+	if audit.RequestID != "trace-private-audit" || audit.UserAgent != "private-audit-test" || audit.ProjectID != fixture.project.ID || audit.ResourceID != document.ID {
+		t.Fatalf("document audit = %+v, want trace/user-agent/project/document", audit)
 	}
 	for key, value := range audit.Metadata {
 		if strings.Contains(key, "password") || strings.Contains(value, "correct horse battery staple") {
-			t.Fatalf("service audit leaked secret metadata: %+v", audit.Metadata)
+			t.Fatalf("document audit leaked secret metadata: %+v", audit.Metadata)
 		}
 	}
 }
 
-func TestServiceDefaultBranchesThroughPrivateRoutes(t *testing.T) {
+func TestDocumentDefaultBranchesThroughPrivateRoutes(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
 
-	createRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services", fixture.adminToken, `{"name":"checkout","display_name":"Checkout","base_path":"/checkout"}`)
+	createRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents", fixture.adminToken, `{"name":"checkout","document_type":1,"relative_path":"apis/checkout.yaml","description":"Checkout"}`)
 	createEnvelope := decodePrivateEnvelope(t, createRecorder)
 	if createEnvelope.Code != 200 || createEnvelope.Status != "OK" {
-		t.Fatalf("create service response = code %d status %q body %s", createEnvelope.Code, createEnvelope.Status, createRecorder.Body.String())
+		t.Fatalf("create document response = code %d status %q body %s", createEnvelope.Code, createEnvelope.Status, createRecorder.Body.String())
 	}
-	var service app.APIService
-	if err := json.Unmarshal(createEnvelope.Detail, &service); err != nil {
-		t.Fatalf("decode service: %v", err)
+	var document app.APIService
+	if err := json.Unmarshal(createEnvelope.Detail, &document); err != nil {
+		t.Fatalf("decode document: %v", err)
 	}
 
-	branchesRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches", fixture.adminToken, "")
+	branchesRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, "")
 	branchesEnvelope := decodePrivateEnvelope(t, branchesRecorder)
 	if branchesEnvelope.Code != 200 || branchesEnvelope.Total == nil || *branchesEnvelope.Total != 3 {
 		t.Fatalf("branches response = code %d total %v body %s", branchesEnvelope.Code, branchesEnvelope.Total, branchesRecorder.Body.String())
@@ -456,19 +456,19 @@ func TestServiceDefaultBranchesThroughPrivateRoutes(t *testing.T) {
 
 func TestFeatureBranchValidationThroughPrivateRoutes(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
-	service, err := app.DefaultStore().CreateService(fixture.adminUser.ID, fixture.project.ID, "checkout", "", "", "")
+	document, err := app.DefaultStore().CreateDocument(fixture.adminUser.ID, fixture.project.ID, "checkout", app.DocumentTypeOpenAPI, "apis/feature-checkout.yaml", "")
 	if err != nil {
-		t.Fatalf("create service: %v", err)
+		t.Fatalf("create document: %v", err)
 	}
 
-	invalidRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches", fixture.adminToken, `{"name":"checkout-v2"}`)
+	invalidRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"checkout-v2"}`)
 	invalidEnvelope := decodePrivateEnvelope(t, invalidRecorder)
 	if invalidEnvelope.Code != 400 || invalidEnvelope.Status != "INVALID_ARGUMENT" {
 		t.Fatalf("invalid branch response = code %d status %q body %s", invalidEnvelope.Code, invalidEnvelope.Status, invalidRecorder.Body.String())
 	}
 	t.Logf("invalid branch response: code=%d status=%s body=%s", invalidEnvelope.Code, invalidEnvelope.Status, strings.TrimSpace(invalidRecorder.Body.String()))
 
-	featureRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches", fixture.adminToken, `{"name":"feature/checkout-v2","description":"Checkout V2"}`)
+	featureRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"feature/checkout-v2","description":"Checkout V2"}`)
 	featureEnvelope := decodePrivateEnvelope(t, featureRecorder)
 	if featureEnvelope.Code != 200 || featureEnvelope.Status != "OK" {
 		t.Fatalf("feature branch response = code %d status %q body %s", featureEnvelope.Code, featureEnvelope.Status, featureRecorder.Body.String())
@@ -486,7 +486,7 @@ func TestFeatureBranchValidationThroughPrivateRoutes(t *testing.T) {
 	}
 	t.Logf("feature branch response: %s", string(branchEvidence))
 
-	duplicateRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches", fixture.adminToken, `{"name":"feature/checkout-v2"}`)
+	duplicateRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"feature/checkout-v2"}`)
 	duplicateEnvelope := decodePrivateEnvelope(t, duplicateRecorder)
 	if duplicateEnvelope.Code != 409 || duplicateEnvelope.Status != "ALREADY_EXISTS" {
 		t.Fatalf("duplicate branch response = code %d status %q body %s", duplicateEnvelope.Code, duplicateEnvelope.Status, duplicateRecorder.Body.String())
@@ -495,11 +495,11 @@ func TestFeatureBranchValidationThroughPrivateRoutes(t *testing.T) {
 
 func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
-	service, err := app.DefaultStore().CreateService(fixture.adminUser.ID, fixture.project.ID, "checkout", "", "", "")
+	document, err := app.DefaultStore().CreateDocument(fixture.adminUser.ID, fixture.project.ID, "checkout", app.DocumentTypeOpenAPI, "apis/update-checkout.yaml", "")
 	if err != nil {
-		t.Fatalf("create service: %v", err)
+		t.Fatalf("create document: %v", err)
 	}
-	branches, err := app.DefaultStore().ListBranches(fixture.adminUser.ID, fixture.project.ID, service.ID)
+	branches, err := app.DefaultStore().ListBranches(fixture.adminUser.ID, fixture.project.ID, document.ID)
 	if err != nil {
 		t.Fatalf("list branches: %v", err)
 	}
@@ -519,10 +519,10 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 		t.Fatalf("team archive response = code %d status %q body %s", teamArchiveEnvelope.Code, teamArchiveEnvelope.Status, teamArchiveRecorder.Body.String())
 	}
 
-	deniedRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID, fixture.writerToken, `{"display_name":"Writer"}`)
+	deniedRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID, fixture.writerToken, `{"name":"writer-document"}`)
 	deniedEnvelope := decodePrivateEnvelope(t, deniedRecorder)
 	if deniedEnvelope.Code != 403 || deniedEnvelope.Status != "PERMISSION_DENIED" {
-		t.Fatalf("writer service patch response = code %d status %q body %s", deniedEnvelope.Code, deniedEnvelope.Status, deniedRecorder.Body.String())
+		t.Fatalf("writer document patch response = code %d status %q body %s", deniedEnvelope.Code, deniedEnvelope.Status, deniedRecorder.Body.String())
 	}
 
 	projectRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID, fixture.adminToken, `{"name":"Project Updated","description":"project description"}`)
@@ -531,25 +531,25 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 		t.Fatalf("project patch response = code %d status %q body %s", projectEnvelope.Code, projectEnvelope.Status, projectRecorder.Body.String())
 	}
 
-	serviceRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID, fixture.adminToken, `{"name":"checkout-api","display_name":"Checkout API","description":"service description","base_path":"/api/checkout"}`)
-	serviceEnvelope := decodePrivateEnvelope(t, serviceRecorder)
-	if serviceEnvelope.Code != 200 || serviceEnvelope.Status != "OK" {
-		t.Fatalf("service patch response = code %d status %q body %s", serviceEnvelope.Code, serviceEnvelope.Status, serviceRecorder.Body.String())
+	documentRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID, fixture.adminToken, `{"name":"checkout-api","document_type":1,"relative_path":"apis/checkout-api.yaml","description":"document description"}`)
+	documentEnvelope := decodePrivateEnvelope(t, documentRecorder)
+	if documentEnvelope.Code != 200 || documentEnvelope.Status != "OK" {
+		t.Fatalf("document patch response = code %d status %q body %s", documentEnvelope.Code, documentEnvelope.Status, documentRecorder.Body.String())
 	}
 
-	branchDetailRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches/"+devBranch.ID, fixture.adminToken, "")
+	branchDetailRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID, fixture.adminToken, "")
 	branchDetailEnvelope := decodePrivateEnvelope(t, branchDetailRecorder)
 	if branchDetailEnvelope.Code != 200 || branchDetailEnvelope.Status != "OK" {
 		t.Fatalf("branch detail response = code %d status %q body %s", branchDetailEnvelope.Code, branchDetailEnvelope.Status, branchDetailRecorder.Body.String())
 	}
 
-	branchRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches/"+devBranch.ID, fixture.adminToken, `{"description":"development","is_protected":true}`)
+	branchRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID, fixture.adminToken, `{"description":"development","is_protected":true}`)
 	branchEnvelope := decodePrivateEnvelope(t, branchRecorder)
 	if branchEnvelope.Code != 200 || branchEnvelope.Status != "OK" {
 		t.Fatalf("branch patch response = code %d status %q body %s", branchEnvelope.Code, branchEnvelope.Status, branchRecorder.Body.String())
 	}
 
-	archiveBranchRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/branches/"+devBranch.ID+"/archive", fixture.adminToken, "")
+	archiveBranchRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID+"/archive", fixture.adminToken, "")
 	archiveBranchEnvelope := decodePrivateEnvelope(t, archiveBranchRecorder)
 	if archiveBranchEnvelope.Code != 200 || archiveBranchEnvelope.Status != "OK" {
 		t.Fatalf("branch archive response = code %d status %q body %s", archiveBranchEnvelope.Code, archiveBranchEnvelope.Status, archiveBranchRecorder.Body.String())
@@ -562,17 +562,17 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 		t.Fatalf("archived branch status = %d, want %d", archivedBranch.Status, app.BranchStatusArchived)
 	}
 
-	archiveServiceRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/archive", fixture.adminToken, "")
-	archiveServiceEnvelope := decodePrivateEnvelope(t, archiveServiceRecorder)
-	if archiveServiceEnvelope.Code != 200 || archiveServiceEnvelope.Status != "OK" {
-		t.Fatalf("service archive response = code %d status %q body %s", archiveServiceEnvelope.Code, archiveServiceEnvelope.Status, archiveServiceRecorder.Body.String())
+	archiveDocumentRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/archive", fixture.adminToken, "")
+	archiveDocumentEnvelope := decodePrivateEnvelope(t, archiveDocumentRecorder)
+	if archiveDocumentEnvelope.Code != 200 || archiveDocumentEnvelope.Status != "OK" {
+		t.Fatalf("document archive response = code %d status %q body %s", archiveDocumentEnvelope.Code, archiveDocumentEnvelope.Status, archiveDocumentRecorder.Body.String())
 	}
-	var archivedService app.APIService
-	if err := json.Unmarshal(archiveServiceEnvelope.Detail, &archivedService); err != nil {
-		t.Fatalf("decode archived service: %v", err)
+	var archivedDocument app.APIService
+	if err := json.Unmarshal(archiveDocumentEnvelope.Detail, &archivedDocument); err != nil {
+		t.Fatalf("decode archived document: %v", err)
 	}
-	if archivedService.Status != app.ServiceStatusArchived {
-		t.Fatalf("archived service status = %d, want %d", archivedService.Status, app.ServiceStatusArchived)
+	if archivedDocument.Status != app.DocumentStatusArchived {
+		t.Fatalf("archived document status = %d, want %d", archivedDocument.Status, app.DocumentStatusArchived)
 	}
 
 	archiveProjectRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/archive", fixture.adminToken, "")
@@ -589,25 +589,25 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 	}
 }
 
-func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
+func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
-	service, err := app.DefaultStore().CreateService(fixture.adminUser.ID, fixture.project.ID, "checkout", "", "", "")
+	document, err := app.DefaultStore().CreateDocument(fixture.adminUser.ID, fixture.project.ID, "checkout", app.DocumentTypeOpenAPI, "apis/draft-checkout.yaml", "")
 	if err != nil {
-		t.Fatalf("create service: %v", err)
+		t.Fatalf("create document: %v", err)
 	}
-	branches, err := app.DefaultStore().ListBranches(fixture.adminUser.ID, fixture.project.ID, service.ID)
+	branches, err := app.DefaultStore().ListBranches(fixture.adminUser.ID, fixture.project.ID, document.ID)
 	if err != nil {
 		t.Fatalf("list branches: %v", err)
 	}
 	devBranch := branchesByName(branches)["dev"]
 
-	invalidRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts", fixture.writerToken, `{"branch_id":"`+devBranch.ID+`","version_name":"invalid","schema_content":"{\"openapi\":\"2.0\",\"paths\":{}}"}`)
+	invalidRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts", fixture.writerToken, `{"branch_id":"`+devBranch.ID+`","version_name":"invalid","schema_content":"{\"openapi\":\"2.0\",\"paths\":{}}"}`)
 	invalidEnvelope := decodePrivateEnvelope(t, invalidRecorder)
 	if invalidEnvelope.Code != 400 || invalidEnvelope.Status != "INVALID_ARGUMENT" || !strings.Contains(invalidEnvelope.Message, "openapi") {
 		t.Fatalf("invalid OpenAPI response = code %d status %q message %q body %s", invalidEnvelope.Code, invalidEnvelope.Status, invalidEnvelope.Message, invalidRecorder.Body.String())
 	}
 
-	createRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts", fixture.writerToken, `{"branch_id":"`+devBranch.ID+`","version_name":"1.0.0","source_git_commit_id":"abc123","schema_content":`+jsonString(privateTestOpenAPI("created"))+`}`)
+	createRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts", fixture.writerToken, `{"branch_id":"`+devBranch.ID+`","version_name":"1.0.0","source_git_commit_id":"abc123","schema_content":`+jsonString(privateTestOpenAPI("created"))+`}`)
 	createEnvelope := decodePrivateEnvelope(t, createRecorder)
 	if createEnvelope.Code != 200 || createEnvelope.Status != "OK" {
 		t.Fatalf("create draft response = code %d status %q body %s", createEnvelope.Code, createEnvelope.Status, createRecorder.Body.String())
@@ -622,7 +622,7 @@ func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	originalNormalizedHash := draft.NormalizedSchemaHash
 
 	for _, kind := range []string{"raw", "normalized"} {
-		recorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID+"/schemas/"+kind, fixture.writerToken, "")
+		recorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/content/"+kind, fixture.writerToken, "")
 		envelope := decodePrivateEnvelope(t, recorder)
 		if envelope.Code != 200 || envelope.Status != "OK" {
 			t.Fatalf("draft %s schema response = code %d status %q body %s", kind, envelope.Code, envelope.Status, recorder.Body.String())
@@ -636,7 +636,7 @@ func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
 		}
 	}
 
-	updateRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID, fixture.writerToken, `{"version_name":"1.0.0-updated","changelog":"updated schema","source_git_commit_id":"def456","schema_content":`+jsonString(privateTestOpenAPI("updated"))+`}`)
+	updateRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID, fixture.writerToken, `{"version_name":"1.0.0-updated","changelog":"updated schema","source_git_commit_id":"def456","schema_content":`+jsonString(privateTestOpenAPI("updated"))+`}`)
 	updateEnvelope := decodePrivateEnvelope(t, updateRecorder)
 	if updateEnvelope.Code != 200 || updateEnvelope.Status != "OK" {
 		t.Fatalf("update draft response = code %d status %q body %s", updateEnvelope.Code, updateEnvelope.Status, updateRecorder.Body.String())
@@ -649,10 +649,10 @@ func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
 		t.Fatalf("updated draft = %+v", updatedDraft)
 	}
 
-	if submitEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID+"/submit", fixture.writerToken, "")); submitEnvelope.Code != 200 {
+	if submitEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/submit", fixture.writerToken, "")); submitEnvelope.Code != 200 {
 		t.Fatalf("submit response = code %d body %s", submitEnvelope.Code, string(submitEnvelope.Detail))
 	}
-	changesEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID+"/request-changes", fixture.adminToken, ""))
+	changesEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/request-changes", fixture.adminToken, ""))
 	if changesEnvelope.Code != 200 || changesEnvelope.Status != "OK" {
 		t.Fatalf("request changes response = code %d status %q body %s", changesEnvelope.Code, changesEnvelope.Status, changesEnvelope.Message)
 	}
@@ -663,10 +663,10 @@ func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if changesDraft.Status != app.DraftStatusChangesRequested {
 		t.Fatalf("changes draft status = %d, want changes requested", changesDraft.Status)
 	}
-	if resubmitEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID+"/submit", fixture.writerToken, "")); resubmitEnvelope.Code != 200 {
+	if resubmitEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/submit", fixture.writerToken, "")); resubmitEnvelope.Code != 200 {
 		t.Fatalf("resubmit response = code %d body %s", resubmitEnvelope.Code, string(resubmitEnvelope.Detail))
 	}
-	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+draft.ID+"/reject", fixture.adminToken, ""))
+	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/reject", fixture.adminToken, ""))
 	if rejectEnvelope.Code != 200 || rejectEnvelope.Status != "OK" {
 		t.Fatalf("reject response = code %d status %q body %s", rejectEnvelope.Code, rejectEnvelope.Status, rejectEnvelope.Message)
 	}
@@ -678,14 +678,14 @@ func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
 		t.Fatalf("rejected draft status = %d, want rejected", rejectedDraft.Status)
 	}
 
-	publishDraft, err := app.DefaultStore().CreateDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, app.DraftInput{BranchID: devBranch.ID, VersionName: "1.0.0", SchemaContent: privateTestOpenAPI("published")})
+	publishDraft, err := app.DefaultStore().CreateDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, app.DraftInput{BranchID: devBranch.ID, VersionName: "1.0.0", SchemaContent: privateTestOpenAPI("published")})
 	if err != nil {
 		t.Fatalf("create publish draft: %v", err)
 	}
-	if _, err := app.DefaultStore().SubmitDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, publishDraft.ID); err != nil {
+	if _, err := app.DefaultStore().SubmitDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, publishDraft.ID); err != nil {
 		t.Fatalf("submit publish draft: %v", err)
 	}
-	approveEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/"+publishDraft.ID+"/approve", fixture.adminToken, ""))
+	approveEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+publishDraft.ID+"/approve", fixture.adminToken, ""))
 	if approveEnvelope.Code != 200 || approveEnvelope.Status != "OK" {
 		t.Fatalf("approve response = code %d status %q body %s", approveEnvelope.Code, approveEnvelope.Status, approveEnvelope.Message)
 	}
@@ -693,32 +693,32 @@ func TestContractDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if err := json.Unmarshal(approveEnvelope.Detail, &version); err != nil {
 		t.Fatalf("decode version: %v", err)
 	}
-	versionSchemaRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contracts/"+version.ID+"/schemas/normalized", fixture.writerToken, "")
+	versionSchemaRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/versions/"+version.ID+"/content/normalized", fixture.writerToken, "")
 	versionSchemaEnvelope := decodePrivateEnvelope(t, versionSchemaRecorder)
 	if versionSchemaEnvelope.Code != 200 || versionSchemaEnvelope.Status != "OK" {
 		t.Fatalf("version schema response = code %d status %q body %s", versionSchemaEnvelope.Code, versionSchemaEnvelope.Status, versionSchemaRecorder.Body.String())
 	}
 
-	duplicateRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts", fixture.writerToken, `{"branch_id":"`+devBranch.ID+`","version_name":"1.0.1","schema_content":`+jsonString(privateTestOpenAPI("published"))+`}`)
+	duplicateRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts", fixture.writerToken, `{"branch_id":"`+devBranch.ID+`","version_name":"1.0.1","schema_content":`+jsonString(privateTestOpenAPI("published"))+`}`)
 	duplicateEnvelope := decodePrivateEnvelope(t, duplicateRecorder)
 	if duplicateEnvelope.Code != 400 || duplicateEnvelope.Status != "FAILED_PRECONDITION" {
 		t.Fatalf("duplicate schema response = code %d status %q body %s", duplicateEnvelope.Code, duplicateEnvelope.Status, duplicateRecorder.Body.String())
 	}
 
 	testBranch := branchesByName(branches)["test"]
-	targetBaseline, err := app.DefaultStore().CreateDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, app.DraftInput{BranchID: testBranch.ID, VersionName: "0.9.0", SchemaContent: privateTestOpenAPI("targetBaseline")})
+	targetBaseline, err := app.DefaultStore().CreateDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, app.DraftInput{BranchID: testBranch.ID, VersionName: "0.9.0", SchemaContent: privateTestOpenAPI("targetBaseline")})
 	if err != nil {
 		t.Fatalf("create target baseline: %v", err)
 	}
-	if _, err := app.DefaultStore().SubmitDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, targetBaseline.ID); err != nil {
+	if _, err := app.DefaultStore().SubmitDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, targetBaseline.ID); err != nil {
 		t.Fatalf("submit target baseline: %v", err)
 	}
-	baselineAny, err := app.DefaultStore().ReviewDraft(fixture.adminUser.ID, fixture.project.ID, service.ID, targetBaseline.ID, "approve")
+	baselineAny, err := app.DefaultStore().ReviewDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, targetBaseline.ID, "approve")
 	if err != nil {
 		t.Fatalf("publish target baseline: %v", err)
 	}
 	baselineVersion := baselineAny.(*app.ContractVersion)
-	promoteRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/contract-drafts/promote", fixture.adminToken, `{"source_branch_id":"`+devBranch.ID+`","target_branch_id":"`+testBranch.ID+`","version_name":"1.0.0-test","changelog":"promote to test"}`)
+	promoteRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/promote", fixture.adminToken, `{"source_branch_id":"`+devBranch.ID+`","target_branch_id":"`+testBranch.ID+`","version_name":"1.0.0-test","changelog":"promote to test"}`)
 	promoteEnvelope := decodePrivateEnvelope(t, promoteRecorder)
 	if promoteEnvelope.Code != 200 || promoteEnvelope.Status != "OK" {
 		t.Fatalf("promote response = code %d status %q body %s", promoteEnvelope.Code, promoteEnvelope.Status, promoteRecorder.Body.String())
@@ -775,19 +775,19 @@ func setupPrivateTask5Project(t *testing.T) privateTask5Fixture {
 func TestDiffRoutesExposeSemanticSummaryAndItems(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
 	store := app.DefaultStore()
-	service, err := store.CreateService(fixture.adminUser.ID, fixture.project.ID, "semantic", "Semantic", "", "/semantic")
+	document, err := store.CreateDocument(fixture.adminUser.ID, fixture.project.ID, "semantic", app.DocumentTypeOpenAPI, "apis/semantic.yaml", "")
 	if err != nil {
-		t.Fatalf("create service: %v", err)
+		t.Fatalf("create document: %v", err)
 	}
-	branches, err := store.ListBranches(fixture.adminUser.ID, fixture.project.ID, service.ID)
+	branches, err := store.ListBranches(fixture.adminUser.ID, fixture.project.ID, document.ID)
 	if err != nil {
 		t.Fatalf("list branches: %v", err)
 	}
 	branchID := branchesByName(branches)["dev"].ID
-	from := privatePublishContractVersion(t, fixture.adminUser.ID, fixture.project.ID, service.ID, branchID, "1.0.0", privateDiffRouteOpenAPI(true))
-	to := privatePublishContractVersion(t, fixture.adminUser.ID, fixture.project.ID, service.ID, branchID, "1.1.0", privateDiffRouteOpenAPI(false))
+	from := privatePublishContractVersion(t, fixture.adminUser.ID, fixture.project.ID, document.ID, branchID, "1.0.0", privateDiffRouteOpenAPI(true))
+	to := privatePublishContractVersion(t, fixture.adminUser.ID, fixture.project.ID, document.ID, branchID, "1.1.0", privateDiffRouteOpenAPI(false))
 
-	createRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/diffs", fixture.adminToken, `{"from_version_id":"`+from.ID+`","to_version_id":"`+to.ID+`"}`)
+	createRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/diffs", fixture.adminToken, `{"from_version_id":"`+from.ID+`","to_version_id":"`+to.ID+`"}`)
 	createEnvelope := decodePrivateEnvelope(t, createRecorder)
 	if createEnvelope.Code != 200 {
 		t.Fatalf("create diff response = code %d body %s", createEnvelope.Code, createRecorder.Body.String())
@@ -801,14 +801,14 @@ func TestDiffRoutesExposeSemanticSummaryAndItems(t *testing.T) {
 	}
 	assertPrivateDiffItem(t, created.Items, app.ChangeResponseChanged, "responses.200.application/json.properties.name", app.SeverityBreaking, true)
 
-	getEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/diffs/"+created.ID, fixture.adminToken, ""))
+	getEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/diffs/"+created.ID, fixture.adminToken, ""))
 	var fetched app.Diff
 	if err := json.Unmarshal(getEnvelope.Detail, &fetched); err != nil {
 		t.Fatalf("decode fetched diff: %v", err)
 	}
 	assertPrivateDiffItem(t, fetched.Items, app.ChangeResponseChanged, "responses.200.application/json.properties.name", app.SeverityBreaking, true)
 
-	summaryEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/services/"+service.ID+"/diffs/"+created.ID+"/summary", fixture.adminToken, ""))
+	summaryEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/diffs/"+created.ID+"/summary", fixture.adminToken, ""))
 	var summary app.DiffSummary
 	if err := json.Unmarshal(summaryEnvelope.Detail, &summary); err != nil {
 		t.Fatalf("decode summary: %v", err)
@@ -840,8 +840,8 @@ func TestPrivateMCPTokenCreateListGetAndRevokeRedaction(t *testing.T) {
 	if err := json.Unmarshal(createEnvelope.Detail, &created); err != nil {
 		t.Fatalf("decode created token: %v", err)
 	}
-	if created.Token == "" || created.CipherKID == "" || len(created.Scopes) != 1 || created.Scopes[0] != app.ScopeAPIRead {
-		t.Fatalf("created token = %+v, want secret, cipher kid, default read scope", created)
+	if created.Token == "" || created.CipherKID != "" || created.TokenHash != "" || len(created.TokenCiphertext) != 0 || len(created.Scopes) != 1 || created.Scopes[0] != app.ScopeAPIRead {
+		t.Fatalf("created token = %+v, want copyable secret with redacted storage fields and default read scope", created)
 	}
 
 	listEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-tokens", ownerJWT, ""))
@@ -858,8 +858,8 @@ func TestPrivateMCPTokenCreateListGetAndRevokeRedaction(t *testing.T) {
 	if err := json.Unmarshal(ownerGetEnvelope.Detail, &ownerFetched); err != nil {
 		t.Fatalf("decode owner token: %v", err)
 	}
-	if ownerFetched.Token != created.Token {
-		t.Fatalf("owner fetched token = %q, want created secret", ownerFetched.Token)
+	if ownerFetched.Token != "" || ownerFetched.CipherKID != "" || ownerFetched.TokenHash != "" || len(ownerFetched.TokenCiphertext) != 0 {
+		t.Fatalf("owner fetched token = %+v, want redacted storage fields", ownerFetched)
 	}
 
 	superGetRecorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-tokens/"+created.ID, superJWT, "")

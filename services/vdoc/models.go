@@ -16,6 +16,12 @@ const (
 	MemberStatusActive   = domainvdoc.MemberStatusActive
 	MemberStatusDisabled = domainvdoc.MemberStatusDisabled
 
+	DocumentTypeOpenAPI  = domainvdoc.DocumentTypeOpenAPI
+	DocumentTypeMarkdown = domainvdoc.DocumentTypeMarkdown
+
+	DocumentStatusActive   = domainvdoc.DocumentStatusActive
+	DocumentStatusArchived = domainvdoc.DocumentStatusArchived
+
 	ServiceStatusActive   = domainvdoc.ServiceStatusActive
 	ServiceStatusArchived = domainvdoc.ServiceStatusArchived
 
@@ -36,11 +42,19 @@ const (
 	SchemaFormatOpenAPI30 = domainvdoc.SchemaFormatOpenAPI30
 	SchemaFormatOpenAPI31 = domainvdoc.SchemaFormatOpenAPI31
 
+	DocumentFormatOpenAPI30 = domainvdoc.DocumentFormatOpenAPI30
+	DocumentFormatOpenAPI31 = domainvdoc.DocumentFormatOpenAPI31
+	DocumentFormatMarkdown  = domainvdoc.DocumentFormatMarkdown
+
 	SourceTypeWebUpload = domainvdoc.SourceTypeWebUpload
 	SourceTypeMCPUpload = domainvdoc.SourceTypeMCPUpload
 	SourceTypePromote   = domainvdoc.SourceTypePromote
+	SourceTypeWebEdit   = domainvdoc.SourceTypeWebEdit
 
+	DiffStatusPending   = domainvdoc.DiffStatusPending
+	DiffStatusRunning   = domainvdoc.DiffStatusRunning
 	DiffStatusSucceeded = domainvdoc.DiffStatusSucceeded
+	DiffStatusFailed    = domainvdoc.DiffStatusFailed
 
 	SeverityInfo     = domainvdoc.SeverityInfo
 	SeverityWarning  = domainvdoc.SeverityWarning
@@ -63,6 +77,8 @@ const (
 
 	ScopeAPIRead  = domainvdoc.ScopeAPIRead
 	ScopeAPIDraft = domainvdoc.ScopeAPIDraft
+	ScopeDocRead  = domainvdoc.ScopeDocRead
+	ScopeDocDraft = domainvdoc.ScopeDocDraft
 
 	AuditActorUser     = domainvdoc.AuditActorUser
 	AuditActorMCPToken = domainvdoc.AuditActorMCPToken

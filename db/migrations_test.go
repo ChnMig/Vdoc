@@ -2,9 +2,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+
+	commonvdoc "vdoc/common/vdoc"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -27,14 +30,14 @@ func TestEmbeddedMigrationsCoverV01Schema(t *testing.T) {
 		"teams",
 		"projects",
 		"project_members",
-		"api_services",
-		"api_contract_branches",
-		"api_contract_drafts",
-		"api_contract_versions",
+		"documents",
+		"document_branches",
+		"document_drafts",
+		"document_versions",
 		"api_endpoints",
 		"api_endpoint_details",
-		"api_version_diffs",
-		"api_diff_items",
+		"document_version_diffs",
+		"document_diff_items",
 		"mcp_tokens",
 		"audit_logs",
 		"vdoc_schema_objects",
@@ -64,18 +67,18 @@ func TestEmbeddedMigrationsIncludeImportantConstraintsAndIndexes(t *testing.T) {
 		"project_members_role_check",
 		"project_members_status_check",
 		"project_members_project_user_active_uidx",
-		"api_services_project_name_active_uidx",
-		"api_contract_branches_service_name_uidx",
-		"api_contract_branches_default_uidx",
-		"api_contract_branches_feature_name_check",
-		"api_contract_drafts_active_version_uidx",
-		"api_contract_drafts_promote_fields_check",
-		"api_contract_versions_branch_version_name_uidx",
-		"api_contract_versions_branch_version_no_uidx",
+		"documents_project_name_active_uidx",
+		"document_branches_document_name_uidx",
+		"document_branches_default_uidx",
+		"document_branches_feature_name_check",
+		"document_drafts_active_version_uidx",
+		"document_drafts_promote_fields_check",
+		"document_versions_document_branch_version_name_uidx",
+		"document_versions_document_branch_version_no_uidx",
 		"api_endpoints_version_method_path_uidx",
 		"api_endpoint_details_endpoint_uidx",
-		"api_version_diffs_versions_uidx",
-		"api_diff_items_breaking_consistency_check",
+		"document_version_diffs_versions_uidx",
+		"document_diff_items_breaking_consistency_check",
 		"mcp_tokens_hash_uidx",
 		"mcp_tokens_revoked_fields_check",
 		"mcp_tokens_scopes_check",
@@ -86,6 +89,21 @@ func TestEmbeddedMigrationsIncludeImportantConstraintsAndIndexes(t *testing.T) {
 		if !strings.Contains(joined, check) {
 			t.Fatalf("migration missing %s", check)
 		}
+	}
+}
+
+func TestEmbeddedMigrationsAllowAllCurrentMCPScopeCodes(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	joined := strings.ToLower(strings.Join(migrationBodies(migrations), "\n"))
+	expected := fmt.Sprintf("array[%d,%d,%d,%d]::smallint[]", commonvdoc.ScopeAPIRead, commonvdoc.ScopeAPIDraft, commonvdoc.ScopeDocRead, commonvdoc.ScopeDocDraft)
+	if !strings.Contains(joined, expected) {
+		t.Fatalf("mcp token scope check must allow all current scopes with %s", expected)
+	}
+	if strings.Contains(joined, "array[1,2]::smallint[]") {
+		t.Fatal("mcp token scope check only allows legacy API scopes")
 	}
 }
 
@@ -105,7 +123,7 @@ func TestRunMigrationsCreatesSchemaAndIsIdempotent(t *testing.T) {
 		t.Fatalf("second RunMigrations: %v", err)
 	}
 
-	for _, table := range []string{"users", "teams", "projects", "project_members", "api_services", "api_contract_branches", "api_contract_drafts", "api_contract_versions", "api_endpoints", "api_endpoint_details", "api_version_diffs", "api_diff_items", "mcp_tokens", "audit_logs", "vdoc_schema_objects"} {
+	for _, table := range []string{"users", "teams", "projects", "project_members", "documents", "document_branches", "document_drafts", "document_versions", "api_endpoints", "api_endpoint_details", "document_version_diffs", "document_diff_items", "mcp_tokens", "audit_logs", "vdoc_schema_objects"} {
 		if !tableExists(t, database, table) {
 			t.Fatalf("expected table %s", table)
 		}
@@ -134,22 +152,22 @@ func TestRunMigrationsEnforcesKeyConstraints(t *testing.T) {
 
 	teamID := "22222222-2222-2222-2222-222222222222"
 	projectID := "33333333-3333-3333-3333-333333333333"
-	serviceID := "44444444-4444-4444-4444-444444444444"
+	documentID := "44444444-4444-4444-4444-444444444444"
 	branchID := "55555555-5555-5555-5555-555555555555"
 	draftID := "66666666-6666-6666-6666-666666666666"
 	secondDraftID := "66666666-6666-6666-6666-666666666667"
 	versionID := "77777777-7777-7777-7777-777777777777"
 	endpointID := "88888888-8888-8888-8888-888888888888"
 	toVersionID := "99999999-9999-9999-9999-999999999999"
-	insertGraph(t, database, userID, teamID, projectID, serviceID, branchID, draftID, secondDraftID, versionID, endpointID, toVersionID)
+	insertGraph(t, database, userID, teamID, projectID, documentID, branchID, draftID, secondDraftID, versionID, endpointID, toVersionID)
 
 	assertExecFails(t, database, `INSERT INTO project_members(project_id,user_id,role,status,added_by) VALUES('`+projectID+`','`+userID+`',9,1,'`+userID+`')`, "member role")
 	assertExecFails(t, database, `INSERT INTO project_members(project_id,user_id,role,status,added_by) VALUES('`+projectID+`','`+userID+`',1,9,'`+userID+`')`, "member status")
-	assertExecFails(t, database, `INSERT INTO api_contract_branches(service_id,name,kind,status,created_by) VALUES('`+serviceID+`','feature/nope',1,1,'`+userID+`')`, "branch name unique")
-	assertExecFails(t, database, `INSERT INTO api_contract_branches(service_id,name,kind,status,created_by) VALUES('`+serviceID+`','bugfix/nope',2,1,'`+userID+`')`, "feature name")
-	assertExecFails(t, database, `INSERT INTO api_contract_versions(service_id,branch_id,version_name,version_no,status,source_draft_id,source_type,schema_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('`+serviceID+`','`+branchID+`','1.0.0',3,1,'`+draftID+`',1,1,'raw2','norm2','r2','n2',10,'`+userID+`')`, "version uniqueness")
-	assertExecFails(t, database, `INSERT INTO api_endpoints(contract_version_id,service_id,branch_id,method,path,tags,deprecated,request_hash,response_hash,endpoint_hash,sort_order) VALUES('`+versionID+`','`+serviceID+`','`+branchID+`',9,'/bad','{}',false,'r','s','e',2)`, "endpoint method")
-	assertExecFails(t, database, `INSERT INTO api_diff_items(diff_id,severity,change_type,message,is_breaking,sort_order) SELECT id,3,1,'bad',false,2 FROM api_version_diffs LIMIT 1`, "breaking consistency")
+	assertExecFails(t, database, `INSERT INTO document_branches(document_id,name,kind,status,created_by) VALUES('`+documentID+`','feature/nope',1,1,'`+userID+`')`, "branch name unique")
+	assertExecFails(t, database, `INSERT INTO document_branches(document_id,name,kind,status,created_by) VALUES('`+documentID+`','bugfix/nope',2,1,'`+userID+`')`, "feature name")
+	assertExecFails(t, database, `INSERT INTO document_versions(project_id,document_id,branch_id,version_name,version_no,relative_path,status,source_draft_id,source_type,document_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('`+projectID+`','`+documentID+`','`+branchID+`','1.0.0',3,'openapi/pets.yaml',1,'`+draftID+`',1,1,'raw2','norm2','r2','n2',10,'`+userID+`')`, "version uniqueness")
+	assertExecFails(t, database, `INSERT INTO api_endpoints(document_version_id,document_id,branch_id,method,path,tags,deprecated,request_hash,response_hash,endpoint_hash,sort_order) VALUES('`+versionID+`','`+documentID+`','`+branchID+`',9,'/bad','{}',false,'r','s','e',2)`, "endpoint method")
+	assertExecFails(t, database, `INSERT INTO document_diff_items(diff_id,severity,change_type,message,is_breaking,sort_order) SELECT id,3,1,'bad',false,2 FROM document_version_diffs LIMIT 1`, "breaking consistency")
 }
 
 func migrationBodies(migrations []Migration) []string {
@@ -211,21 +229,21 @@ func insertUser(t *testing.T, database *gorm.DB, id, email string) {
 	}
 }
 
-func insertGraph(t *testing.T, database *gorm.DB, userID, teamID, projectID, serviceID, branchID, draftID, secondDraftID, versionID, endpointID, toVersionID string) {
+func insertGraph(t *testing.T, database *gorm.DB, userID, teamID, projectID, documentID, branchID, draftID, secondDraftID, versionID, endpointID, toVersionID string) {
 	t.Helper()
 	statements := []string{
 		`INSERT INTO teams(id,name,slug,created_by) VALUES('` + teamID + `','Team','team','` + userID + `')`,
 		`INSERT INTO projects(id,team_id,name,slug,status,created_by) VALUES('` + projectID + `','` + teamID + `','Project','project',1,'` + userID + `')`,
 		`INSERT INTO project_members(project_id,user_id,role,status,added_by) VALUES('` + projectID + `','` + userID + `',3,1,'` + userID + `')`,
-		`INSERT INTO api_services(id,project_id,name,status,created_by) VALUES('` + serviceID + `','` + projectID + `','svc',1,'` + userID + `')`,
-		`INSERT INTO api_contract_branches(id,service_id,name,kind,is_default,is_protected,status,created_by) VALUES('` + branchID + `','` + serviceID + `','feature/nope',2,true,false,1,'` + userID + `')`,
-		`INSERT INTO api_contract_drafts(id,service_id,branch_id,version_name,status,schema_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,schema_metadata,source_type,created_by_actor_type,created_by_user_id) VALUES('` + draftID + `','` + serviceID + `','` + branchID + `','1.0.0',5,1,'raw','norm','r','n',10,'{}',1,1,'` + userID + `')`,
-		`INSERT INTO api_contract_versions(id,service_id,branch_id,version_name,version_no,status,source_draft_id,source_type,schema_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('` + versionID + `','` + serviceID + `','` + branchID + `','1.0.0',1,1,'` + draftID + `',1,1,'raw','norm','r','n',10,'` + userID + `')`,
-		`INSERT INTO api_contract_drafts(id,service_id,branch_id,version_name,status,schema_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,schema_metadata,source_type,created_by_actor_type,created_by_user_id) VALUES('` + secondDraftID + `','` + serviceID + `','` + branchID + `','1.0.1',5,1,'raw3','norm3','r3','n3',10,'{}',1,1,'` + userID + `')`,
-		`INSERT INTO api_contract_versions(id,service_id,branch_id,version_name,version_no,status,source_draft_id,source_type,schema_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('` + toVersionID + `','` + serviceID + `','` + branchID + `','1.0.1',2,1,'` + secondDraftID + `',1,1,'raw3','norm3','r3','n3',10,'` + userID + `')`,
-		`INSERT INTO api_endpoints(id,contract_version_id,service_id,branch_id,method,path,tags,deprecated,request_hash,response_hash,endpoint_hash,sort_order) VALUES('` + endpointID + `','` + versionID + `','` + serviceID + `','` + branchID + `',1,'/pets','{}',false,'r','s','e',1)`,
+		`INSERT INTO documents(id,project_id,name,document_type,relative_path,status,created_by) VALUES('` + documentID + `','` + projectID + `','svc',1,'openapi/pets.yaml',1,'` + userID + `')`,
+		`INSERT INTO document_branches(id,document_id,name,kind,is_default,is_protected,status,created_by) VALUES('` + branchID + `','` + documentID + `','feature/nope',2,true,false,1,'` + userID + `')`,
+		`INSERT INTO document_drafts(id,project_id,document_id,branch_id,version_name,relative_path,status,document_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,schema_metadata,source_type,created_by_actor_type,created_by_user_id) VALUES('` + draftID + `','` + projectID + `','` + documentID + `','` + branchID + `','1.0.0','openapi/pets.yaml',5,1,'raw','norm','r','n',10,'{}',1,1,'` + userID + `')`,
+		`INSERT INTO document_versions(id,project_id,document_id,branch_id,version_name,version_no,relative_path,status,source_draft_id,source_type,document_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('` + versionID + `','` + projectID + `','` + documentID + `','` + branchID + `','1.0.0',1,'openapi/pets.yaml',1,'` + draftID + `',1,1,'raw','norm','r','n',10,'` + userID + `')`,
+		`INSERT INTO document_drafts(id,project_id,document_id,branch_id,version_name,relative_path,status,document_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,schema_metadata,source_type,created_by_actor_type,created_by_user_id) VALUES('` + secondDraftID + `','` + projectID + `','` + documentID + `','` + branchID + `','1.0.1','openapi/pets.yaml',5,1,'raw3','norm3','r3','n3',10,'{}',1,1,'` + userID + `')`,
+		`INSERT INTO document_versions(id,project_id,document_id,branch_id,version_name,version_no,relative_path,status,source_draft_id,source_type,document_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('` + toVersionID + `','` + projectID + `','` + documentID + `','` + branchID + `','1.0.1',2,'openapi/pets.yaml',1,'` + secondDraftID + `',1,1,'raw3','norm3','r3','n3',10,'` + userID + `')`,
+		`INSERT INTO api_endpoints(id,document_version_id,document_id,branch_id,method,path,tags,deprecated,request_hash,response_hash,endpoint_hash,sort_order) VALUES('` + endpointID + `','` + versionID + `','` + documentID + `','` + branchID + `',1,'/pets','{}',false,'r','s','e',1)`,
 		`INSERT INTO api_endpoint_details(endpoint_id,parameters_json,responses_json,normalized_operation_json) VALUES('` + endpointID + `','[]','{}','{}')`,
-		`INSERT INTO api_version_diffs(service_id,from_branch_id,to_branch_id,from_version_id,to_version_id,diff_status,diff_summary_json,breaking_changes_json,added_count,modified_count,removed_count,breaking_count) VALUES('` + serviceID + `','` + branchID + `','` + branchID + `','` + versionID + `','` + toVersionID + `',3,'{}','{}',0,0,0,0)`,
+		`INSERT INTO document_version_diffs(document_id,from_branch_id,to_branch_id,from_version_id,to_version_id,diff_status,diff_summary_json,breaking_changes_json,added_count,modified_count,removed_count,breaking_count) VALUES('` + documentID + `','` + branchID + `','` + branchID + `','` + versionID + `','` + toVersionID + `',3,'{}','{}',0,0,0,0)`,
 	}
 	for _, statement := range statements {
 		if err := database.Exec(statement).Error; err != nil {

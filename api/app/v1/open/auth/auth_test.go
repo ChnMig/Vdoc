@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"vdoc/api/middleware"
+	app "vdoc/appstore"
 	"vdoc/config"
-	app "vdoc/services/vdoc"
 
 	"github.com/gin-gonic/gin"
 )

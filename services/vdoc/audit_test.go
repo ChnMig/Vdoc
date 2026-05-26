@@ -30,7 +30,7 @@ func TestPublishFlowRecordsSanitizedAuditTrail(t *testing.T) {
 	if submit.ActorUserID != "writer" || submit.ProjectID != projectID || submit.ServiceID != serviceID || submit.RequestID != ctx.RequestID {
 		t.Fatalf("submit audit = %+v, want writer/project/service/request", submit)
 	}
-	publish := requireAudit(t, store.AuditLogsForTest(), "api_contract_version.publish", version.ID)
+	publish := requireAudit(t, store.AuditLogsForTest(), "document_version.publish", version.ID)
 	if publish.ActorUserID != "admin" || publish.ProjectID != projectID || publish.ServiceID != serviceID || publish.Metadata["draft_id"] != draft.ID || publish.Metadata["result"] != "success" {
 		t.Fatalf("publish audit = %+v, want actor/project/service/draft/result", publish)
 	}
