@@ -155,7 +155,7 @@ type e2eWorkspace struct {
 	WriterToken string
 	TeamID      string
 	ProjectID   string
-	ServiceID   string
+	DocumentID  string
 	BranchID    string
 	Branches    []e2eBranch
 }
@@ -505,13 +505,13 @@ func createWorkspace(t *testing.T, f *e2eFixture, runID string) e2eWorkspace {
 	f.requireOK(t, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/members", adminToken, map[string]any{"user_id": reader.ID, "role": app.MemberRoleReader})
 	f.requireOK(t, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/members", adminToken, map[string]any{"user_id": writer.ID, "role": app.MemberRoleWriter})
 
-	service := decodeDetail[e2eResourceID](t, f.requireOK(t, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/services", adminToken, map[string]any{
-		"name":         "e2e-service-" + runID,
-		"display_name": "Task 17 E2E Service",
-		"description":  "Task 17 service fixture",
-		"base_path":    "/e2e",
+	document := decodeDetail[e2eResourceID](t, f.requireOK(t, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents", adminToken, map[string]any{
+		"name":          "e2e-openapi-" + runID,
+		"document_type": app.DocumentTypeOpenAPI,
+		"relative_path": "apis/e2e-" + runID + ".yaml",
+		"description":   "Task 17 OpenAPI document fixture",
 	}))
-	branches := decodeDetail[[]e2eBranch](t, f.requireOK(t, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/services/"+service.ID+"/branches", adminToken, nil))
+	branches := decodeDetail[[]e2eBranch](t, f.requireOK(t, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/branches", adminToken, nil))
 	branchID := branchIDByName(t, branches, "dev")
 	for _, required := range []string{"dev", "test", "prod"} {
 		_ = branchIDByName(t, branches, required)
@@ -527,7 +527,7 @@ func createWorkspace(t *testing.T, f *e2eFixture, runID string) e2eWorkspace {
 		WriterToken: writerLogin.Token,
 		TeamID:      team.ID,
 		ProjectID:   project.ID,
-		ServiceID:   service.ID,
+		DocumentID:  document.ID,
 		BranchID:    branchID,
 		Branches:    branches,
 	}
@@ -547,7 +547,7 @@ func publishVersion(t *testing.T, f *e2eFixture, workspace e2eWorkspace, version
 }
 
 func draftCollectionPath(workspace e2eWorkspace) string {
-	return "/api/v1/private/projects/" + workspace.ProjectID + "/services/" + workspace.ServiceID + "/contract-drafts"
+	return "/api/v1/private/projects/" + workspace.ProjectID + "/documents/" + workspace.DocumentID + "/drafts"
 }
 
 func draftItemPath(workspace e2eWorkspace, draftID string) string {
@@ -555,7 +555,7 @@ func draftItemPath(workspace e2eWorkspace, draftID string) string {
 }
 
 func versionPath(workspace e2eWorkspace, versionID string) string {
-	return "/api/v1/private/projects/" + workspace.ProjectID + "/services/" + workspace.ServiceID + "/contracts/" + versionID
+	return "/api/v1/private/projects/" + workspace.ProjectID + "/documents/" + workspace.DocumentID + "/versions/" + versionID
 }
 
 func endpointsPath(workspace e2eWorkspace, versionID string) string {
@@ -563,7 +563,7 @@ func endpointsPath(workspace e2eWorkspace, versionID string) string {
 }
 
 func diffsPath(workspace e2eWorkspace) string {
-	return "/api/v1/private/projects/" + workspace.ProjectID + "/services/" + workspace.ServiceID + "/diffs"
+	return "/api/v1/private/projects/" + workspace.ProjectID + "/documents/" + workspace.DocumentID + "/diffs"
 }
 
 func branchIDByName(t *testing.T, branches []e2eBranch, name string) string {

@@ -190,7 +190,7 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 
 	mcpEndpoint := requireRPCResult[e2eEndpoint](t, fixture.callTool(t, mcpToken.Token, "get_endpoint_detail", map[string]any{
 		"project_id":  workspace.ProjectID,
-		"service_id":  workspace.ServiceID,
+		"document_id": workspace.DocumentID,
 		"version_id":  versionOne.ID,
 		"endpoint_id": endpointDetail.ID,
 	}), "get_endpoint_detail")
@@ -199,7 +199,7 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 	}
 	mcpDiff := requireRPCResult[e2eDiff](t, fixture.callTool(t, mcpToken.Token, "compare_api_versions", map[string]any{
 		"project_id":      workspace.ProjectID,
-		"service_id":      workspace.ServiceID,
+		"document_id":     workspace.DocumentID,
 		"from_version_id": versionOne.ID,
 		"to_version_id":   versionTwo.ID,
 	}), "compare_api_versions")
@@ -207,9 +207,9 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 		t.Fatalf("MCP diff = %+v, want id, added endpoint, and breaking change", mcpDiff)
 	}
 	mcpSummary := requireRPCResult[e2eChangeSummary](t, fixture.callTool(t, mcpToken.Token, "get_change_summary", map[string]any{
-		"project_id": workspace.ProjectID,
-		"service_id": workspace.ServiceID,
-		"diff_id":    mcpDiff.ID,
+		"project_id":  workspace.ProjectID,
+		"document_id": workspace.DocumentID,
+		"diff_id":     mcpDiff.ID,
 	}), "get_change_summary")
 	if len(mcpSummary.MustHandle) == 0 || len(mcpSummary.Optional) == 0 {
 		t.Fatalf("MCP change summary = must_handle %d optional %d, want both categories", len(mcpSummary.MustHandle), len(mcpSummary.Optional))
@@ -220,7 +220,7 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 		t.Fatalf("list audit logs: %v", err)
 	}
 	auditCounts := auditActionCounts(audits)
-	requireAuditActions(t, auditCounts, "user.register", "auth.login", "team.create", "project.create", "api_service.create", "contract_draft.submit", "api_contract_version.publish", "api_version_diff.compare", "mcp_token.create", "mcp_token.authenticate", "mcp.tool_call")
+	requireAuditActions(t, auditCounts, "user.register", "auth.login", "team.create", "project.create", "document.create", "contract_draft.submit", "document_version.publish", "api_version_diff.compare", "mcp_token.create", "mcp_token.authenticate", "mcp.tool_call")
 	requireAuditDoesNotContain(t, audits, workspace.AdminToken, workspace.ReaderToken, workspace.WriterToken, mcpToken.Token, e2eOpenAPI("1.0.0", false, false), e2eOpenAPI("1.1.0", true, true))
 
 	evidence := happyPathEvidence{
@@ -234,7 +234,7 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 			"writer_user_id":      workspace.WriterID,
 			"team_id":             workspace.TeamID,
 			"project_id":          workspace.ProjectID,
-			"service_id":          workspace.ServiceID,
+			"document_id":         workspace.DocumentID,
 			"branch_id":           workspace.BranchID,
 			"version_one_id":      versionOne.ID,
 			"version_two_id":      versionTwo.ID,

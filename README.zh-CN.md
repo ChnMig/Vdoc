@@ -134,6 +134,8 @@ get_doc_draft
 
 v0.1 不提供直接发布工具。版本发布必须由 Admin 或 SuperAdmin 人工审核触发。
 
+安装到用户 Agent 的分发物不放在后端仓库内：MCP stdio adapter 在 `../Vdoc-mcp/`，工作流 Skill 在 `../Vdoc-skill/`。
+
 ## 后端架构
 
 ```text

@@ -165,10 +165,10 @@ func TestAPIDocsUseProjectDocumentLanguage(t *testing.T) {
 		"openapi.yaml",
 		"../../README.md",
 		"../../README.zh-CN.md",
-		"../../IMPROVEMENTS.md",
-		"../../IMPROVEMENTS.zh-CN.md",
-		"../../DATABASE_SCHEMA.md",
-		"../../IMPLEMENTATION_PLAN.md",
+		"../../../IMPROVEMENTS.md",
+		"../../../IMPROVEMENTS.zh-CN.md",
+		"../../../DATABASE_SCHEMA.md",
+		"../../../IMPLEMENTATION_PLAN.md",
 	}
 	staleTerms := []string{
 		"list_" + "services",
