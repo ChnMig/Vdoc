@@ -272,9 +272,12 @@ Config file lookup order:
 
 ## Documentation
 
-- [Roadmap and improvements](IMPROVEMENTS.md)
+- [Product PRD](../PRD.md)
+- [Implementation plan](../IMPLEMENTATION_PLAN.md)
+- [Database schema design](../DATABASE_SCHEMA.md)
+- [Roadmap and improvements](../IMPROVEMENTS.md)
 - [中文 README](README.zh-CN.md)
-- [中文路线图](IMPROVEMENTS.zh-CN.md)
+- [中文路线图](../IMPROVEMENTS.zh-CN.md)
 
 ## Contributing
 

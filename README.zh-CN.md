@@ -272,9 +272,12 @@ export VDOC_STORAGE_SECRET_KEY="rustfs-secret-key"
 
 ## 文档
 
-- [Roadmap and improvements](IMPROVEMENTS.md)
+- [Product PRD](../PRD.md)
+- [Implementation plan](../IMPLEMENTATION_PLAN.md)
+- [Database schema design](../DATABASE_SCHEMA.md)
+- [Roadmap and improvements](../IMPROVEMENTS.md)
 - [English README](README.md)
-- [中文路线图](IMPROVEMENTS.zh-CN.md)
+- [中文路线图](../IMPROVEMENTS.zh-CN.md)
 
 ## 贡献
 
