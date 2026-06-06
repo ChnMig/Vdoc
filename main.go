@@ -17,6 +17,7 @@ import (
 	domainhealth "vdoc/domain/health"
 	domainvdoc "vdoc/domain/vdoc"
 	vdocsvc "vdoc/services/vdoc"
+	"vdoc/utils/encryption"
 	"vdoc/utils/log"
 	"vdoc/utils/pathtool"
 	"vdoc/utils/pidfile"
@@ -38,6 +39,22 @@ var (
 )
 
 func main() {
+	if email, password, ok, err := parseResetAdminArgs(os.Args[1:]); err != nil {
+		fmt.Printf("Failed to parse reset admin command: %v\n", err)
+		os.Exit(1)
+	} else if ok {
+		if err := config.LoadConfig(); err != nil {
+			fmt.Printf("Failed to load configuration: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runResetAdmin(context.Background(), email, password); err != nil {
+			fmt.Printf("Failed to reset admin password: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Admin password reset successfully for %s\n", email)
+		return
+	}
+
 	// 解析命令行参数
 	ctx := kong.Parse(&CLI,
 		kong.Name("vdoc"),
@@ -221,6 +238,35 @@ func main() {
 
 	zap.L().Info("Server exited", zap.Int("exit_code", exitCode))
 	ctx.Exit(exitCode)
+}
+
+func parseResetAdminArgs(args []string) (email, password string, ok bool, err error) {
+	if len(args) == 0 || args[0] != "--resetadmin" {
+		return "", "", false, nil
+	}
+	if len(args) != 3 {
+		return "", "", false, fmt.Errorf("usage: vdoc --resetadmin <email> <password>")
+	}
+	return args[1], args[2], true, nil
+}
+
+func runResetAdmin(ctx context.Context, email, password string) error {
+	if err := config.ValidateInitialAdminPassword(password); err != nil {
+		return err
+	}
+	if !config.DatabaseEnabled {
+		return fmt.Errorf("database.enabled must be true for --resetadmin")
+	}
+	client, err := pgdb.Open(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	hash, err := encryption.HashPasswordWithBcrypt(password)
+	if err != nil {
+		return err
+	}
+	return pgdbvdoc.NewRepository(client.DB()).ResetSuperAdminPassword(ctx, email, hash)
 }
 
 func configureDependencyHealth(databaseClient *pgdb.Client) {

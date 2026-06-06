@@ -102,6 +102,26 @@ func (r *Repository) UpsertUser(ctx context.Context, user *domainvdoc.User) erro
 	return r.upsertByID(ctx, model)
 }
 
+func (r *Repository) ResetSuperAdminPassword(ctx context.Context, email, passwordHash string) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || strings.TrimSpace(passwordHash) == "" {
+		return fmt.Errorf("%w: admin email and password hash are required", domainvdoc.ErrInvalidArgument)
+	}
+	result := r.database.WithContext(ctx).Model(&User{}).
+		Where("LOWER(email) = ? AND is_super_admin = ? AND status = ?", email, true, domainvdoc.UserStatusActive).
+		Update("password_hash", passwordHash)
+	if result.Error != nil {
+		return mapPostgresError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return domainvdoc.ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repository) UpsertTeam(ctx context.Context, team *domainvdoc.Team) error {
 	if r == nil || r.database == nil {
 		return fmt.Errorf("postgres repository is not initialized")

@@ -312,6 +312,26 @@ func TestEndpointDetailPersistenceIncludesParsedV01Columns(t *testing.T) {
 	}
 }
 
+func TestResetSuperAdminPasswordOnlyTargetsActiveSuperAdmins(t *testing.T) {
+	source, err := os.ReadFile("repo.go")
+	if err != nil {
+		t.Fatalf("read repo.go: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"func (r *Repository) ResetSuperAdminPassword",
+		"LOWER(email) = ? AND is_super_admin = ? AND status = ?",
+		"domainvdoc.UserStatusActive",
+		"Update(\"password_hash\", passwordHash)",
+		"result.RowsAffected != 1",
+		"domainvdoc.ErrNotFound",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("repo.go missing reset super admin password marker %q", want)
+		}
+	}
+}
+
 func TestDiffItemPersistenceIncludesSemanticFields(t *testing.T) {
 	source, err := os.ReadFile("repo.go")
 	if err != nil {

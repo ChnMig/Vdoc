@@ -143,6 +143,10 @@ func validateInitialAdminConfig(cfg loadedConfig) error {
 	if password == "" {
 		return fmt.Errorf("initial_admin.password is required when initial_admin is configured")
 	}
+	return ValidateInitialAdminPassword(password)
+}
+
+func ValidateInitialAdminPassword(password string) error {
 	if strings.TrimSpace(password) != password {
 		return fmt.Errorf("initial_admin.password must not have leading or trailing whitespace")
 	}

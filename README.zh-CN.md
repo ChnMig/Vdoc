@@ -269,6 +269,14 @@ export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 
 配置 `initial_admin.email` 和 `initial_admin.password` 后，Vdoc 仅在已加载用户表为空时创建该 SuperAdmin 账号，密码入库前会使用 bcrypt 哈希。配置 `database.enabled=true` 后，服务启动时会连接 PostgreSQL、自动创建 Vdoc 运行表并加载已有状态；连接失败会直接启动失败，避免静默退回本地内存模式。配置 `storage.enabled=true` 后，OpenAPI raw / normalized schema 会写入 RustFS 或任意 S3-compatible 对象存储；bucket 不存在时会自动创建。
 
+如果忘记 SuperAdmin 密码，可以直接用已打包二进制连接配置中的 PostgreSQL，并在不启动 HTTP 服务的情况下重置：
+
+```bash
+./vdoc --resetadmin admin@example.com "<new-admin-password>"
+```
+
+目标用户必须已经存在、处于启用状态，并且是 SuperAdmin。新密码强度规则与 `initial_admin.password` 保持一致。
+
 配置文件查找顺序：
 
 1. 程序目录

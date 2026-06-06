@@ -269,6 +269,14 @@ export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 
 When `initial_admin.email` and `initial_admin.password` are configured, Vdoc creates that SuperAdmin account only if the loaded user table is empty. The password is bcrypt-hashed before persistence. When `database.enabled=true`, Vdoc connects to PostgreSQL during startup, creates its runtime tables, and loads existing state. Connection or migration failure aborts startup instead of silently falling back to memory. When `storage.enabled=true`, raw and normalized OpenAPI schemas are written to RustFS or any S3-compatible object storage; the bucket is created automatically when missing.
 
+If a SuperAdmin password is lost, run the built binary against the configured PostgreSQL database without starting the HTTP server:
+
+```bash
+./vdoc --resetadmin admin@example.com "<new-admin-password>"
+```
+
+The target user must already exist, be active, and be a SuperAdmin. The new password follows the same strength rule as `initial_admin.password`.
+
 Config file lookup order:
 
 1. Program directory
