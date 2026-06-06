@@ -1811,7 +1811,23 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 	if !ok || to.ProjectID != projectID || to.ServiceID != serviceID {
 		return nil, ErrNotFound
 	}
+	if existing := s.diffForVersionsLocked(serviceID, fromID, toID); existing != nil {
+		s.auditLocked(ctx, AuditActorUser, actorID, "api_version_diff.compare", "api_version_diff", existing.ID, projectID, serviceID, auditMetadata("result", "success", "from_version_id", fromID, "to_version_id", toID))
+		if err := s.persistLocked(); err != nil {
+			return nil, err
+		}
+		return cloneDiff(existing), nil
+	}
 	diff := s.diffVersionsLocked(serviceID, from, to)
+	if s.persistence != nil {
+		ref, err := s.persistDiffSnapshotLocked(projectID, serviceID, to.BranchID, diff)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.recordObjectRefsLocked(ref); err != nil {
+			return nil, err
+		}
+	}
 	s.diffs[diff.ID] = diff
 	s.auditLocked(ctx, AuditActorUser, actorID, "api_version_diff.compare", "api_version_diff", diff.ID, projectID, serviceID, auditMetadata("result", "success", "from_version_id", fromID, "to_version_id", toID))
 	if err := s.persistLocked(); err != nil {
@@ -1819,6 +1835,16 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 	}
 	return cloneDiff(diff), nil
 }
+
+func (s *Store) diffForVersionsLocked(serviceID, fromID, toID string) *Diff {
+	for _, diff := range s.diffs {
+		if diff.ServiceID == serviceID && diff.FromVersionID == fromID && diff.ToVersionID == toID {
+			return diff
+		}
+	}
+	return nil
+}
+
 func (s *Store) Diff(actorID, projectID, serviceID, diffID string) (*Diff, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

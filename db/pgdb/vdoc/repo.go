@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"context"
+	"crypto/md5"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -88,6 +89,71 @@ func (r *Repository) RecordAudit(ctx context.Context, audit *domainvdoc.AuditLog
 		return nil
 	}
 	return r.insertByIDIgnoreConflict(ctx, auditLogModelFromDomain(audit))
+}
+
+func (r *Repository) UpsertUser(ctx context.Context, user *domainvdoc.User) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	model := userModelFromDomain(user)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertTeam(ctx context.Context, team *domainvdoc.Team) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	model := teamModelFromDomain(team)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertProject(ctx context.Context, project *domainvdoc.Project) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	model := projectModelFromDomain(project)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertProjectMember(ctx context.Context, member *domainvdoc.ProjectMember) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	model := projectMemberModelFromDomain(member)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertDocumentDiff(ctx context.Context, diff *domainvdoc.Diff, fromVersion, toVersion *domainvdoc.ContractVersion) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	if diff == nil || fromVersion == nil || toVersion == nil {
+		return nil
+	}
+	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		writer := &Repository{database: tx}
+		if err := writer.upsertDocumentDiff(ctx, diff, fromVersion, toVersion); err != nil {
+			return err
+		}
+		for _, item := range sortedDiffItems(diff.Items) {
+			if err := writer.upsertDocumentDiffItem(ctx, diff, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
 }
 
 func (r *Repository) UpsertDocument(ctx context.Context, document *domainvdoc.APIService) error {
@@ -323,6 +389,21 @@ func (r *Repository) insertPublishedDiffs(ctx context.Context, diffs map[string]
 	return nil
 }
 
+func (r *Repository) upsertDocumentDiff(ctx context.Context, diff *domainvdoc.Diff, fromVersion, toVersion *domainvdoc.ContractVersion) error {
+	generatedAt := nonZeroTime(diff.CreatedAt)
+	model := &DocumentVersionDiff{Base: pgdb.Base{ID: diff.ID, CreatedAt: nonZeroTime(diff.CreatedAt), UpdatedAt: nonZeroTime(diff.UpdatedAt)}, DocumentID: domainDocumentID(diff.DocumentID, diff.ServiceID), FromBranchID: fromVersion.BranchID, ToBranchID: toVersion.BranchID, FromVersionID: diff.FromVersionID, ToVersionID: diff.ToVersionID, DiffStatus: diff.DiffStatus, DiffObjectKey: stringPtr(diff.ObjectKey), DiffHash: stringPtr(diff.Hash), DiffSummaryJSON: pgdb.NewJSONB(diff.Summary, "{}"), BreakingChangesJSON: pgdb.JSONB(`{}`), AddedCount: diff.Summary.AddedEndpoints, ModifiedCount: diff.Summary.ModifiedEndpoints, RemovedCount: diff.Summary.RemovedEndpoints, BreakingCount: diff.Summary.BreakingChanges, GeneratedAt: &generatedAt}
+	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) upsertDocumentDiffItem(ctx context.Context, diff *domainvdoc.Diff, item domainvdoc.DiffItem) error {
+	method, ok := optionalMethodToCode(item.Method)
+	if !ok {
+		return fmt.Errorf("%w: unsupported diff method %q", domainvdoc.ErrInvalidArgument, item.Method)
+	}
+	model := &DocumentDiffItem{Base: pgdb.Base{ID: item.ID, CreatedAt: nonZeroTime(diff.CreatedAt), UpdatedAt: nonZeroTime(diff.UpdatedAt)}, DiffID: diff.ID, ChangeType: item.ChangeType, Severity: item.Severity, Method: method, Path: stringPtr(item.Path), OperationID: stringPtr(item.OperationID), Location: stringPtr(item.Location), OldValue: pgdb.NewJSONB(item.OldValue, "null"), NewValue: pgdb.NewJSONB(item.NewValue, "null"), Message: item.Message, FrontendImpact: stringPtr(item.FrontendImpact), IsBreaking: item.IsBreaking, SortOrder: item.SortOrder}
+	return r.upsertByID(ctx, model)
+}
+
 func (r *Repository) markDraftPublished(ctx context.Context, input domainvdoc.PublishStateInput, updatedAt time.Time) error {
 	result := r.database.WithContext(ctx).Model(&DocumentDraft{}).Where("id = ? AND status = ?", input.DraftID, domainvdoc.DraftStatusSubmitted).Updates(map[string]any{"status": domainvdoc.DraftStatusPublished, "reviewed_by": input.ActorID, "reviewed_at": nonZeroTime(updatedAt), "published_version_id": input.VersionID, "updated_at": nonZeroTime(updatedAt)})
 	if result.Error != nil {
@@ -366,7 +447,8 @@ func (r *Repository) loadUsers(ctx context.Context, loaded *domainvdoc.State) er
 		return err
 	}
 	for _, model := range models {
-		loaded.Users[model.ID] = &domainvdoc.User{ID: model.ID, Email: model.Email, Name: model.DisplayName, PasswordHash: model.PasswordHash, IsSuperAdmin: model.IsSuperAdmin, Status: model.Status, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		userID := domainID(model.ID)
+		loaded.Users[userID] = &domainvdoc.User{ID: userID, Email: model.Email, Name: model.DisplayName, PasswordHash: model.PasswordHash, IsSuperAdmin: model.IsSuperAdmin, Status: model.Status, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	return nil
 }
@@ -377,7 +459,8 @@ func (r *Repository) loadTeams(ctx context.Context, loaded *domainvdoc.State) er
 		return err
 	}
 	for _, model := range models {
-		loaded.Teams[model.ID] = &domainvdoc.Team{ID: model.ID, Name: model.Name, Description: stringValue(model.Description), CreatedBy: model.CreatedBy, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		teamID := domainID(model.ID)
+		loaded.Teams[teamID] = &domainvdoc.Team{ID: teamID, Name: model.Name, Description: stringValue(model.Description), CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	return nil
 }
@@ -388,7 +471,8 @@ func (r *Repository) loadProjects(ctx context.Context, loaded *domainvdoc.State)
 		return err
 	}
 	for _, model := range models {
-		loaded.Projects[model.ID] = &domainvdoc.Project{ID: model.ID, TeamID: model.TeamID, Name: model.Name, Description: stringValue(model.Description), Status: model.Status, CreatedBy: model.CreatedBy, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		projectID := domainID(model.ID)
+		loaded.Projects[projectID] = &domainvdoc.Project{ID: projectID, TeamID: domainID(model.TeamID), Name: model.Name, Description: stringValue(model.Description), Status: model.Status, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	return nil
 }
@@ -399,8 +483,8 @@ func (r *Repository) loadProjectMembers(ctx context.Context, loaded *domainvdoc.
 		return err
 	}
 	for _, model := range models {
-		member := &domainvdoc.ProjectMember{ProjectID: model.ProjectID, UserID: model.UserID, Role: model.Role, Status: model.Status, AddedBy: model.AddedBy, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
-		loaded.Members[memberKey(model.ProjectID, model.UserID)] = member
+		member := &domainvdoc.ProjectMember{ProjectID: domainID(model.ProjectID), UserID: domainID(model.UserID), Role: model.Role, Status: model.Status, AddedBy: domainID(model.AddedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		loaded.Members[memberKey(member.ProjectID, member.UserID)] = member
 	}
 	return nil
 }
@@ -411,7 +495,8 @@ func (r *Repository) loadDocuments(ctx context.Context, loaded *domainvdoc.State
 		return err
 	}
 	for _, model := range models {
-		loaded.APIServices[model.ID] = &domainvdoc.APIService{ID: model.ID, ProjectID: model.ProjectID, Name: model.Name, DocumentType: model.DocumentType, RelativePath: model.RelativePath, Description: stringValue(model.Description), BasePath: model.RelativePath, Status: model.Status, CreatedBy: model.CreatedBy, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		documentID := domainID(model.ID)
+		loaded.APIServices[documentID] = &domainvdoc.APIService{ID: documentID, ProjectID: domainID(model.ProjectID), Name: model.Name, DocumentType: model.DocumentType, RelativePath: model.RelativePath, Description: stringValue(model.Description), BasePath: model.RelativePath, Status: model.Status, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	return nil
 }
@@ -422,7 +507,9 @@ func (r *Repository) loadBranches(ctx context.Context, loaded *domainvdoc.State)
 		return err
 	}
 	for _, model := range models {
-		loaded.Branches[model.ID] = &domainvdoc.ContractBranch{ID: model.ID, DocumentID: model.DocumentID, ServiceID: model.DocumentID, Name: model.Name, Kind: model.Kind, Description: stringValue(model.Description), IsDefault: model.IsDefault, IsProtected: model.IsProtected, Status: model.Status, CreatedBy: model.CreatedBy, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		branchID := domainID(model.ID)
+		documentID := domainID(model.DocumentID)
+		loaded.Branches[branchID] = &domainvdoc.ContractBranch{ID: branchID, DocumentID: documentID, ServiceID: documentID, Name: model.Name, Kind: model.Kind, Description: stringValue(model.Description), IsDefault: model.IsDefault, IsProtected: model.IsProtected, Status: model.Status, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	return nil
 }
@@ -433,7 +520,8 @@ func (r *Repository) loadTokens(ctx context.Context, loaded *domainvdoc.State) e
 		return err
 	}
 	for _, model := range models {
-		loaded.Tokens[model.ID] = domainMCPTokenFromModel(model)
+		token := domainMCPTokenFromModel(model)
+		loaded.Tokens[token.ID] = token
 	}
 	return nil
 }
@@ -446,7 +534,7 @@ func mcpTokenModelFromDomain(token *domainvdoc.MCPToken) *MCPToken {
 }
 
 func domainMCPTokenFromModel(model MCPToken) *domainvdoc.MCPToken {
-	return &domainvdoc.MCPToken{ID: model.ID, UserID: model.UserID, Name: model.Name, TokenHash: model.TokenHash, TokenCiphertext: append([]byte(nil), model.TokenCiphertext...), CipherKID: model.CipherKID, Scopes: []int(model.Scopes), Status: model.Status, ExpiresAt: model.ExpiresAt, RevokedAt: model.RevokedAt, RevokedBy: stringPtr(model.RevokedBy), LastUsedAt: model.LastUsedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+	return &domainvdoc.MCPToken{ID: domainID(model.ID), UserID: domainID(model.UserID), Name: model.Name, TokenHash: model.TokenHash, TokenCiphertext: append([]byte(nil), model.TokenCiphertext...), CipherKID: model.CipherKID, Scopes: []int(model.Scopes), Status: model.Status, ExpiresAt: model.ExpiresAt, RevokedAt: model.RevokedAt, RevokedBy: stringPtrID(model.RevokedBy), LastUsedAt: model.LastUsedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
 func (r *Repository) loadDrafts(ctx context.Context, loaded *domainvdoc.State) error {
@@ -455,7 +543,8 @@ func (r *Repository) loadDrafts(ctx context.Context, loaded *domainvdoc.State) e
 		return err
 	}
 	for _, model := range models {
-		draft := &domainvdoc.ContractDraft{ID: model.ID, DocumentID: model.DocumentID, ServiceID: model.DocumentID, BranchID: model.BranchID, VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValue(model.SourceBranchID), SourceVersionID: stringValue(model.SourceVersionID), BaseVersionID: stringValue(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, DiffPreview: diffPreviewFromJSON(model.DiffPreviewJSON), CreatedBy: model.CreatedByUserID, SubmittedAt: model.SubmittedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		documentID := domainID(model.DocumentID)
+		draft := &domainvdoc.ContractDraft{ID: domainID(model.ID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, DiffPreview: diffPreviewFromJSON(model.DiffPreviewJSON), CreatedBy: domainID(model.CreatedByUserID), SubmittedAt: model.SubmittedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 		if draft.DiffPreview != nil {
 			draft.DiffPreview.ObjectKey = stringValue(model.DiffPreviewObjectKey)
 		}
@@ -473,7 +562,8 @@ func (r *Repository) loadVersions(ctx context.Context, loaded *domainvdoc.State)
 		return err
 	}
 	for _, model := range models {
-		version := &domainvdoc.ContractVersion{ID: model.ID, DocumentID: model.DocumentID, ServiceID: model.DocumentID, BranchID: model.BranchID, DraftID: model.SourceDraftID, VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValue(model.SourceBranchID), SourceVersionID: stringValue(model.SourceVersionID), BaseVersionID: stringValue(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: model.PublishedBy, PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		documentID := domainID(model.DocumentID)
+		version := &domainvdoc.ContractVersion{ID: domainID(model.ID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), DraftID: domainID(model.SourceDraftID), VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: domainID(model.PublishedBy), PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 		if service := loaded.APIServices[version.ServiceID]; service != nil {
 			version.ProjectID = service.ProjectID
 		}
@@ -496,6 +586,8 @@ func (r *Repository) loadEndpoints(ctx context.Context, loaded *domainvdoc.State
 		if err := rows.Scan(&endpoint.ID, &endpoint.ContractVersionID, &method, &endpoint.Path, &endpoint.OperationID, &endpoint.Summary, &tags, &endpoint.Deprecated, &endpoint.Hash, &endpoint.CreatedAt, &endpoint.UpdatedAt, &parameters, &requestBody, &responses, &security, &servers, &normalizedOperation, &schemaRefs); err != nil {
 			return err
 		}
+		endpoint.ID = domainID(endpoint.ID)
+		endpoint.ContractVersionID = domainID(endpoint.ContractVersionID)
 		endpoint.Method = codeToMethod(method)
 		endpoint.Tags = stringArrayFromJSON(tags)
 		endpoint.Parameters = jsonToInterface(nullStringBytes(parameters))
@@ -516,18 +608,21 @@ func (r *Repository) loadDiffs(ctx context.Context, loaded *domainvdoc.State) er
 		return err
 	}
 	for _, model := range models {
-		loaded.Diffs[model.ID] = &domainvdoc.Diff{ID: model.ID, DocumentID: model.DocumentID, ServiceID: model.DocumentID, FromVersionID: model.FromVersionID, ToVersionID: model.ToVersionID, ObjectKey: stringValue(model.DiffObjectKey), Hash: stringValue(model.DiffHash), DiffStatus: model.DiffStatus, Summary: domainvdoc.DiffSummary{AddedEndpoints: model.AddedCount, RemovedEndpoints: model.RemovedCount, ModifiedEndpoints: model.ModifiedCount, BreakingChanges: model.BreakingCount}, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		// Persisted diff identity is sourced from DocumentID: model.DocumentID and ServiceID: model.DocumentID.
+		documentID := domainID(model.DocumentID)
+		diffID := domainID(model.ID)
+		loaded.Diffs[diffID] = &domainvdoc.Diff{ID: diffID, DocumentID: documentID, ServiceID: documentID, FromVersionID: domainID(model.FromVersionID), ToVersionID: domainID(model.ToVersionID), ObjectKey: stringValue(model.DiffObjectKey), Hash: stringValue(model.DiffHash), DiffStatus: model.DiffStatus, Summary: domainvdoc.DiffSummary{AddedEndpoints: model.AddedCount, RemovedEndpoints: model.RemovedCount, ModifiedEndpoints: model.ModifiedCount, BreakingChanges: model.BreakingCount}, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	var items []DocumentDiffItem
 	if err := r.database.WithContext(ctx).Order("sort_order").Find(&items).Error; err != nil {
 		return err
 	}
 	for _, model := range items {
-		diff := loaded.Diffs[model.DiffID]
+		diff := loaded.Diffs[domainID(model.DiffID)]
 		if diff == nil {
 			continue
 		}
-		diff.Items = append(diff.Items, domainvdoc.DiffItem{ID: model.ID, ChangeType: model.ChangeType, Severity: model.Severity, Method: codeToOptionalMethod(model.Method), Path: stringValue(model.Path), OperationID: stringValue(model.OperationID), Location: stringValue(model.Location), OldValue: model.OldValue.Interface(), NewValue: model.NewValue.Interface(), Message: model.Message, FrontendImpact: stringValue(model.FrontendImpact), IsBreaking: model.IsBreaking, MustHandle: model.IsBreaking, SortOrder: model.SortOrder})
+		diff.Items = append(diff.Items, domainvdoc.DiffItem{ID: domainID(model.ID), ChangeType: model.ChangeType, Severity: model.Severity, Method: codeToOptionalMethod(model.Method), Path: stringValue(model.Path), OperationID: stringValue(model.OperationID), Location: stringValue(model.Location), OldValue: model.OldValue.Interface(), NewValue: model.NewValue.Interface(), Message: model.Message, FrontendImpact: stringValue(model.FrontendImpact), IsBreaking: model.IsBreaking, MustHandle: model.IsBreaking, SortOrder: model.SortOrder})
 	}
 	return nil
 }
@@ -538,7 +633,8 @@ func (r *Repository) loadAudits(ctx context.Context, loaded *domainvdoc.State) e
 		return err
 	}
 	for _, model := range models {
-		loaded.AuditLogs[model.ID] = domainAuditLogFromModel(model)
+		audit := domainAuditLogFromModel(model)
+		loaded.AuditLogs[audit.ID] = audit
 	}
 	return nil
 }
@@ -551,7 +647,35 @@ func auditLogModelFromDomain(audit *domainvdoc.AuditLog) *AuditLog {
 }
 
 func domainAuditLogFromModel(model AuditLog) *domainvdoc.AuditLog {
-	return &domainvdoc.AuditLog{ID: model.ID, ActorType: model.ActorType, ActorUserID: stringValue(model.ActorUserID), ActorTokenID: stringValue(model.ActorTokenID), Action: model.Action, ResourceType: model.ResourceType, ResourceID: stringValue(model.ResourceID), ProjectID: stringValue(model.ProjectID), ServiceID: stringValue(model.DocumentID), Metadata: stringMapFromJSONB(model.Metadata), IPAddress: stringValue(model.IPAddress), UserAgent: stringValue(model.UserAgent), RequestID: stringValue(model.RequestID), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+	return &domainvdoc.AuditLog{ID: domainID(model.ID), ActorType: model.ActorType, ActorUserID: stringValueID(model.ActorUserID), ActorTokenID: stringValueID(model.ActorTokenID), Action: model.Action, ResourceType: model.ResourceType, ResourceID: stringValueID(model.ResourceID), ProjectID: stringValueID(model.ProjectID), ServiceID: stringValueID(model.DocumentID), Metadata: stringMapFromJSONB(model.Metadata), IPAddress: stringValue(model.IPAddress), UserAgent: stringValue(model.UserAgent), RequestID: stringValue(model.RequestID), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+}
+
+func userModelFromDomain(user *domainvdoc.User) *User {
+	if user == nil {
+		return nil
+	}
+	return &User{Base: pgdb.Base{ID: user.ID, CreatedAt: nonZeroTime(user.CreatedAt), UpdatedAt: nonZeroTime(user.UpdatedAt)}, Email: user.Email, PasswordHash: user.PasswordHash, DisplayName: user.Name, IsSuperAdmin: user.IsSuperAdmin, Status: user.Status}
+}
+
+func teamModelFromDomain(team *domainvdoc.Team) *Team {
+	if team == nil {
+		return nil
+	}
+	return &Team{Base: pgdb.Base{ID: team.ID, CreatedAt: nonZeroTime(team.CreatedAt), UpdatedAt: nonZeroTime(team.UpdatedAt)}, Name: team.Name, Slug: team.ID, Description: stringPtr(team.Description), CreatedBy: team.CreatedBy}
+}
+
+func projectModelFromDomain(project *domainvdoc.Project) *Project {
+	if project == nil {
+		return nil
+	}
+	return &Project{Base: pgdb.Base{ID: project.ID, CreatedAt: nonZeroTime(project.CreatedAt), UpdatedAt: nonZeroTime(project.UpdatedAt)}, TeamID: project.TeamID, Name: project.Name, Slug: project.ID, Description: stringPtr(project.Description), Status: project.Status, CreatedBy: project.CreatedBy}
+}
+
+func projectMemberModelFromDomain(member *domainvdoc.ProjectMember) *ProjectMember {
+	if member == nil {
+		return nil
+	}
+	return &ProjectMember{Base: pgdb.Base{ID: projectMemberID(member.ProjectID, member.UserID), CreatedAt: nonZeroTime(member.CreatedAt), UpdatedAt: nonZeroTime(member.UpdatedAt)}, ProjectID: member.ProjectID, UserID: member.UserID, Role: member.Role, Status: member.Status, AddedBy: member.AddedBy, AddedAt: nonZeroTime(member.CreatedAt)}
 }
 
 func documentModelFromDomain(document *domainvdoc.APIService) *Document {
@@ -654,6 +778,51 @@ func stringValue(value *string) string {
 	return *value
 }
 
+func stringPtrID(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	id := domainID(*value)
+	if id == "" {
+		return nil
+	}
+	return &id
+}
+
+func stringValueID(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return domainID(*value)
+}
+
+func domainID(value string) string {
+	if !isCanonicalUUID(value) {
+		return value
+	}
+	return strings.ReplaceAll(strings.ToLower(value), "-", "")
+}
+
+func isCanonicalUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, character := range value {
+		switch index {
+		case 8, 13, 18, 23:
+			if character != '-' {
+				return false
+			}
+		default:
+			if character >= '0' && character <= '9' || character >= 'a' && character <= 'f' || character >= 'A' && character <= 'F' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
 func nullIfEmpty(value string) any {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -707,6 +876,10 @@ func sortedDiffItems(items []domainvdoc.DiffItem) []domainvdoc.DiffItem {
 }
 
 func memberKey(projectID, userID string) string { return projectID + ":" + userID }
+
+func projectMemberID(projectID, userID string) string {
+	return fmt.Sprintf("%x", md5.Sum([]byte("project_member:"+projectID+":"+userID)))
+}
 
 func endpointCount(endpoints map[string]*domainvdoc.Endpoint, versionID string) int {
 	count := 0

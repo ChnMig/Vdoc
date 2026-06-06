@@ -142,8 +142,8 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 	fixture.requireOK(t, http.MethodGet, "/api/v1/private/identity/me", workspace.AdminToken, nil)
 
 	versionOne := publishVersion(t, fixture, workspace, "1.0.0", e2eOpenAPI("1.0.0", false, false))
-	assertSchemaDocument(t, decodeDetail[e2eSchemaDocument](t, fixture.requireOK(t, http.MethodGet, versionPath(workspace, versionOne.ID)+"/schemas/raw", workspace.ReaderToken, nil)), false)
-	assertSchemaDocument(t, decodeDetail[e2eSchemaDocument](t, fixture.requireOK(t, http.MethodGet, versionPath(workspace, versionOne.ID)+"/schemas/normalized", workspace.ReaderToken, nil)), true)
+	assertSchemaDocument(t, decodeDetail[e2eSchemaDocument](t, fixture.requireOK(t, http.MethodGet, versionPath(workspace, versionOne.ID)+"/content/raw", workspace.ReaderToken, nil)), false)
+	assertSchemaDocument(t, decodeDetail[e2eSchemaDocument](t, fixture.requireOK(t, http.MethodGet, versionPath(workspace, versionOne.ID)+"/content/normalized", workspace.ReaderToken, nil)), true)
 
 	endpointList := decodeDetail[[]e2eEndpoint](t, fixture.requireOK(t, http.MethodGet, endpointsPath(workspace, versionOne.ID)+"?path=/pets", workspace.ReaderToken, nil))
 	if len(endpointList) != 1 || endpointList[0].Path != "/pets" || endpointList[0].OperationID != "listPets" {

@@ -22,7 +22,23 @@ type documentMutationRepository interface {
 	UpsertDocumentDraft(ctx context.Context, draft *domainvdoc.ContractDraft, document *domainvdoc.APIService) error
 }
 
+type collaborationMutationRepository interface {
+	UpsertUser(ctx context.Context, user *domainvdoc.User) error
+	UpsertTeam(ctx context.Context, team *domainvdoc.Team) error
+	UpsertProject(ctx context.Context, project *domainvdoc.Project) error
+	UpsertProjectMember(ctx context.Context, member *domainvdoc.ProjectMember) error
+}
+
+type diffMutationRepository interface {
+	UpsertDocumentDiff(ctx context.Context, diff *domainvdoc.Diff, fromVersion, toVersion *domainvdoc.ContractVersion) error
+}
+
 func (p *postgresPersistence) saveLocked(ctx context.Context, store *Store) error {
+	if repo, ok := p.repo.(collaborationMutationRepository); ok {
+		if err := p.saveCollaborationLocked(ctx, store, repo); err != nil {
+			return err
+		}
+	}
 	if repo, ok := p.repo.(documentMutationRepository); ok {
 		if err := p.saveDocumentWorkflowLocked(ctx, store, repo); err != nil {
 			return err
@@ -33,10 +49,55 @@ func (p *postgresPersistence) saveLocked(ctx context.Context, store *Store) erro
 			return err
 		}
 	}
+	if repo, ok := p.repo.(diffMutationRepository); ok {
+		if err := p.saveDiffsLocked(ctx, store, repo); err != nil {
+			return err
+		}
+	}
 	for _, audit := range sortedStoreValues(store.audits, func(value *domainvdoc.AuditLog) string {
 		return value.CreatedAt.Format(sortableTimeLayout) + ":" + value.ID
 	}) {
 		if err := p.repo.RecordAudit(ctx, audit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *postgresPersistence) saveDiffsLocked(ctx context.Context, store *Store, repo diffMutationRepository) error {
+	for _, diff := range sortedStoreValues(store.diffs, func(value *domainvdoc.Diff) string { return value.ID }) {
+		fromVersion := store.versions[diff.FromVersionID]
+		toVersion := store.versions[diff.ToVersionID]
+		if fromVersion == nil || toVersion == nil {
+			continue
+		}
+		if err := repo.UpsertDocumentDiff(ctx, diff, fromVersion, toVersion); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *postgresPersistence) saveCollaborationLocked(ctx context.Context, store *Store, repo collaborationMutationRepository) error {
+	for _, user := range sortedStoreValues(store.users, func(value *domainvdoc.User) string { return value.ID }) {
+		if err := repo.UpsertUser(ctx, user); err != nil {
+			return err
+		}
+	}
+	for _, team := range sortedStoreValues(store.teams, func(value *domainvdoc.Team) string { return value.ID }) {
+		if err := repo.UpsertTeam(ctx, team); err != nil {
+			return err
+		}
+	}
+	for _, project := range sortedStoreValues(store.projects, func(value *domainvdoc.Project) string { return value.ID }) {
+		if err := repo.UpsertProject(ctx, project); err != nil {
+			return err
+		}
+	}
+	for _, member := range sortedStoreValues(store.members, func(value *domainvdoc.ProjectMember) string {
+		return value.ProjectID + ":" + value.UserID
+	}) {
+		if err := repo.UpsertProjectMember(ctx, member); err != nil {
 			return err
 		}
 	}
