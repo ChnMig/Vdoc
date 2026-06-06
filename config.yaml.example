@@ -38,6 +38,13 @@ jwt:
   key: ""  # 必须设置为至少32字符的强密钥，可用 openssl rand -base64 32 生成
   expiration: "12h"  # JWT token 过期时间，格式: 12h, 24h, 30m 等
 
+# 初始管理员账号。仅用户表为空时自动创建；email/password 留空则不创建。
+# 环境变量：VDOC_INITIAL_ADMIN_EMAIL、VDOC_INITIAL_ADMIN_NAME、VDOC_INITIAL_ADMIN_PASSWORD
+initial_admin:
+  email: ""
+  name: ""
+  password: ""  # 明文密码仅用于首次启动创建账号；至少 8 位，入库前会 bcrypt 哈希
+
 log:
   max_size: 50      # 单个日志文件最大大小（MB）
   max_age: 30       # 保留旧日志文件的最大天数

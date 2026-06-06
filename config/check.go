@@ -17,6 +17,8 @@ const (
 	unsafeDefaultKey = "YOUR_SECRET_KEY_HERE"
 	// MCP token 加密密钥最小长度
 	minMCPTokenCipherKeyLength = 32
+	// 初始管理员密码最小长度，需与 Vdoc 用户密码规则保持一致
+	minInitialAdminPasswordLength = 12
 )
 
 // CheckConfig 校验关键配置项，缺失或不安全则 fatal 并记录日志
@@ -25,19 +27,22 @@ func CheckConfig(
 	JWTExpiration int64,
 ) {
 	cfg := loadedConfig{
-		JWTKey:              JWTKey,
-		JWTExpiration:       time.Duration(JWTExpiration),
-		DatabaseEnabled:     DatabaseEnabled,
-		DatabaseDSN:         DatabaseDSN,
-		DatabaseMaxOpenConn: DatabaseMaxOpenConn,
-		DatabaseMaxIdleConn: DatabaseMaxIdleConn,
-		StorageEnabled:      StorageEnabled,
-		StorageEndpoint:     StorageEndpoint,
-		StorageBucket:       StorageBucket,
-		StorageAccessKey:    StorageAccessKey,
-		StorageSecretKey:    StorageSecretKey,
-		MCPTokenCipherKey:   MCPTokenCipherKey,
-		MCPTokenCipherKID:   MCPTokenCipherKID,
+		JWTKey:               JWTKey,
+		JWTExpiration:        time.Duration(JWTExpiration),
+		DatabaseEnabled:      DatabaseEnabled,
+		DatabaseDSN:          DatabaseDSN,
+		DatabaseMaxOpenConn:  DatabaseMaxOpenConn,
+		DatabaseMaxIdleConn:  DatabaseMaxIdleConn,
+		StorageEnabled:       StorageEnabled,
+		StorageEndpoint:      StorageEndpoint,
+		StorageBucket:        StorageBucket,
+		StorageAccessKey:     StorageAccessKey,
+		StorageSecretKey:     StorageSecretKey,
+		InitialAdminEmail:    InitialAdminEmail,
+		InitialAdminName:     InitialAdminName,
+		InitialAdminPassword: InitialAdminPassword,
+		MCPTokenCipherKey:    MCPTokenCipherKey,
+		MCPTokenCipherKID:    MCPTokenCipherKID,
 	}
 	if err := validateConfig(cfg); err != nil {
 		zap.L().Fatal("配置安全校验失败", zap.Error(err))
@@ -52,6 +57,9 @@ func validateConfig(cfg loadedConfig) error {
 		return err
 	}
 	if err := validateStorageConfig(cfg); err != nil {
+		return err
+	}
+	if err := validateInitialAdminConfig(cfg); err != nil {
 		return err
 	}
 	return validateMCPTokenCipherConfig(cfg)
@@ -118,6 +126,28 @@ func validateStorageConfig(cfg loadedConfig) error {
 	}
 	if strings.ContainsAny(bucket, " \t\r\n/") {
 		return fmt.Errorf("storage.bucket contains invalid whitespace or path separator")
+	}
+	return nil
+}
+
+func validateInitialAdminConfig(cfg loadedConfig) error {
+	email := strings.TrimSpace(cfg.InitialAdminEmail)
+	password := cfg.InitialAdminPassword
+	name := strings.TrimSpace(cfg.InitialAdminName)
+	if email == "" && password == "" && name == "" {
+		return nil
+	}
+	if email == "" {
+		return fmt.Errorf("initial_admin.email is required when initial_admin is configured")
+	}
+	if password == "" {
+		return fmt.Errorf("initial_admin.password is required when initial_admin is configured")
+	}
+	if strings.TrimSpace(password) != password {
+		return fmt.Errorf("initial_admin.password must not have leading or trailing whitespace")
+	}
+	if len(password) < minInitialAdminPasswordLength {
+		return fmt.Errorf("initial_admin.password must be at least %d characters", minInitialAdminPasswordLength)
 	}
 	return nil
 }

@@ -68,6 +68,11 @@ var (
 	StorageUseSSL    bool
 	StoragePathStyle bool
 
+	// Initial administrator account. Empty email/password disables seeding.
+	InitialAdminEmail    string
+	InitialAdminName     string
+	InitialAdminPassword string
+
 	// MCP token encryption
 	MCPTokenCipherKey string
 	MCPTokenCipherKID string

@@ -58,6 +58,9 @@ func TestSetDefaults(t *testing.T) {
 		{"database max open conns", "database.max_open_conns", 20},
 		{"storage bucket", "storage.bucket", "vdoc"},
 		{"storage path style", "storage.path_style", true},
+		{"initial admin email", "initial_admin.email", ""},
+		{"initial admin name", "initial_admin.name", ""},
+		{"initial admin password", "initial_admin.password", ""},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +116,9 @@ func TestLoadConfigWithEnv(t *testing.T) {
 	t.Setenv("VDOC_STORAGE_BUCKET", "vdoc-test")
 	t.Setenv("VDOC_STORAGE_ACCESS_KEY", "test-access")
 	t.Setenv("VDOC_STORAGE_SECRET_KEY", "test-secret")
+	t.Setenv("VDOC_INITIAL_ADMIN_EMAIL", "admin@example.com")
+	t.Setenv("VDOC_INITIAL_ADMIN_NAME", "Root Admin")
+	t.Setenv("VDOC_INITIAL_ADMIN_PASSWORD", "Password123456")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KID", "local-aes-gcm-v1")
 
@@ -145,6 +151,10 @@ func TestLoadConfigWithEnv(t *testing.T) {
 
 	if MCPTokenCipherKey != "0123456789abcdef0123456789abcdef" || MCPTokenCipherKID != "local-aes-gcm-v1" {
 		t.Errorf("mcp token cipher env override failed")
+	}
+
+	if InitialAdminEmail != "admin@example.com" || InitialAdminName != "Root Admin" || InitialAdminPassword != "Password123456" {
+		t.Errorf("initial admin env override failed")
 	}
 
 }

@@ -360,6 +360,31 @@ func (s *Store) Register(email, name, password string, auditCtx ...AuditContext)
 	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
+	return s.registerLocked(ctx, email, name, password)
+}
+
+func (s *Store) SeedInitialAdmin(email, name, password string) error {
+	email = strings.TrimSpace(email)
+	name = strings.TrimSpace(name)
+	if email == "" && name == "" && password == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return err
+	}
+	if len(s.users) > 0 {
+		return nil
+	}
+	if name == "" {
+		name = "Vdoc Admin"
+	}
+	_, err := s.registerLocked(AuditContext{}, email, name, password)
+	return err
+}
+
+func (s *Store) registerLocked(ctx AuditContext, email, name, password string) (*User, error) {
 	email = normalizeUserEmail(email)
 	name = strings.TrimSpace(name)
 	if email == "" {

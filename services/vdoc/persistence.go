@@ -13,21 +13,24 @@ import (
 )
 
 type RuntimeConfig struct {
-	DatabaseEnabled     bool
-	DatabaseDSN         string
-	DatabaseMaxOpenConn int
-	DatabaseMaxIdleConn int
-	DatabaseRepository  domainvdoc.Repository
-	DatabaseClose       func() error
-	StorageEnabled      bool
-	StorageEndpoint     string
-	StorageBucket       string
-	StorageAccessKey    string
-	StorageSecretKey    string
-	StorageRegion       string
-	StorageUseSSL       bool
-	StoragePathStyle    bool
-	ObjectStorage       ObjectStorage
+	DatabaseEnabled      bool
+	DatabaseDSN          string
+	DatabaseMaxOpenConn  int
+	DatabaseMaxIdleConn  int
+	DatabaseRepository   domainvdoc.Repository
+	DatabaseClose        func() error
+	StorageEnabled       bool
+	StorageEndpoint      string
+	StorageBucket        string
+	StorageAccessKey     string
+	StorageSecretKey     string
+	StorageRegion        string
+	StorageUseSSL        bool
+	StoragePathStyle     bool
+	ObjectStorage        ObjectStorage
+	InitialAdminEmail    string
+	InitialAdminName     string
+	InitialAdminPassword string
 }
 
 type postgresPersistence struct {
@@ -82,6 +85,12 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 			}
 			return fmt.Errorf("load database-backed Vdoc state: %w", err)
 		}
+	}
+	if err := store.SeedInitialAdmin(cfg.InitialAdminEmail, cfg.InitialAdminName, cfg.InitialAdminPassword); err != nil {
+		if cfg.DatabaseClose != nil {
+			_ = cfg.DatabaseClose()
+		}
+		return fmt.Errorf("seed initial admin: %w", err)
 	}
 	defaultStore = store
 	return nil

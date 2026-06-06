@@ -255,6 +255,9 @@ make build CROSS=1
 export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
+export VDOC_INITIAL_ADMIN_EMAIL="admin@example.com"
+export VDOC_INITIAL_ADMIN_NAME="Vdoc Admin"
+export VDOC_INITIAL_ADMIN_PASSWORD="<initial-admin-password>"
 export VDOC_DATABASE_ENABLED=true
 export VDOC_DATABASE_DSN="postgres://vdoc:<password>@127.0.0.1:5432/vdoc?sslmode=disable"
 export VDOC_STORAGE_ENABLED=true
@@ -264,7 +267,7 @@ export VDOC_STORAGE_ACCESS_KEY="<access-key>"
 export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 ```
 
-配置 `database.enabled=true` 后，服务启动时会连接 PostgreSQL、自动创建 Vdoc 运行表并加载已有状态；连接失败会直接启动失败，避免静默退回本地内存模式。配置 `storage.enabled=true` 后，OpenAPI raw / normalized schema 会写入 RustFS 或任意 S3-compatible 对象存储；bucket 不存在时会自动创建。
+配置 `initial_admin.email` 和 `initial_admin.password` 后，Vdoc 仅在已加载用户表为空时创建该 SuperAdmin 账号，密码入库前会使用 bcrypt 哈希。配置 `database.enabled=true` 后，服务启动时会连接 PostgreSQL、自动创建 Vdoc 运行表并加载已有状态；连接失败会直接启动失败，避免静默退回本地内存模式。配置 `storage.enabled=true` 后，OpenAPI raw / normalized schema 会写入 RustFS 或任意 S3-compatible 对象存储；bucket 不存在时会自动创建。
 
 配置文件查找顺序：
 

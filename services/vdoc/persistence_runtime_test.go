@@ -57,6 +57,69 @@ func TestInitDefaultStoreRequiresRepositoryWhenDatabaseEnabled(t *testing.T) {
 	}
 }
 
+func TestInitDefaultStoreSeedsInitialAdminWhenUsersEmpty(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	repo := newRecordingRepository(nil)
+	if err := InitDefaultStore(context.Background(), RuntimeConfig{DatabaseEnabled: true, DatabaseRepository: repo, InitialAdminEmail: "Admin@Example.COM", InitialAdminName: "Root Admin", InitialAdminPassword: "Password123456"}); err != nil {
+		t.Fatalf("InitDefaultStore() error = %v", err)
+	}
+	if len(repo.state.Users) != 1 {
+		t.Fatalf("persisted users = %d, want 1", len(repo.state.Users))
+	}
+	var persisted *User
+	for _, user := range repo.state.Users {
+		persisted = user
+	}
+	if persisted.Email != "admin@example.com" || persisted.Name != "Root Admin" || !persisted.IsSuperAdmin {
+		t.Fatalf("persisted initial admin = %+v, want normalized super admin", persisted)
+	}
+	if persisted.PasswordHash == "" || persisted.PasswordHash == "Password123456" {
+		t.Fatalf("persisted password hash = %q, want bcrypt hash", persisted.PasswordHash)
+	}
+	loggedIn, err := DefaultStore().Login("admin@example.com", "Password123456")
+	if err != nil {
+		t.Fatalf("Login(initial admin) error = %v", err)
+	}
+	if !loggedIn.IsSuperAdmin || loggedIn.PasswordHash != "" {
+		t.Fatalf("Login(initial admin) = %+v, want redacted super admin", loggedIn)
+	}
+}
+
+func TestInitDefaultStoreDoesNotSeedInitialAdminWhenUsersExist(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	seed, _, _, _, _ := newObjectStorageTestStore(t)
+	seedUserCount := len(seed.users)
+	repo := newRecordingRepository(seed.stateLocked())
+	if err := InitDefaultStore(context.Background(), RuntimeConfig{DatabaseEnabled: true, DatabaseRepository: repo, InitialAdminEmail: "bootstrap@example.com", InitialAdminName: "Root Admin", InitialAdminPassword: "Password123456"}); err != nil {
+		t.Fatalf("InitDefaultStore() error = %v", err)
+	}
+	if len(DefaultStore().users) != seedUserCount {
+		t.Fatalf("users after init = %d, want existing count %d", len(DefaultStore().users), seedUserCount)
+	}
+	for _, user := range DefaultStore().users {
+		if user.Email == "bootstrap@example.com" {
+			t.Fatalf("initial admin was created despite existing users: %+v", user)
+		}
+	}
+}
+
+func TestInitDefaultStoreRejectsInvalidInitialAdminPassword(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	err := InitDefaultStore(context.Background(), RuntimeConfig{InitialAdminEmail: "admin@example.com", InitialAdminPassword: "short"})
+	if err == nil {
+		t.Fatal("InitDefaultStore() error = nil, want invalid initial admin password")
+	}
+	if !strings.Contains(err.Error(), "initial admin") && !strings.Contains(err.Error(), "password") {
+		t.Fatalf("InitDefaultStore() error = %v, want initial admin password error", err)
+	}
+}
+
 func TestDatabaseEnabledDefaultStoreRefreshesFromRepository(t *testing.T) {
 	ResetDefaultStoreForTest()
 	t.Cleanup(ResetDefaultStoreForTest)

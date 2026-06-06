@@ -102,6 +102,36 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "initial admin configured",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminEmail = "admin@example.com"
+				cfg.InitialAdminName = "Root Admin"
+				cfg.InitialAdminPassword = "Password123456"
+			},
+		},
+		{
+			name: "initial admin missing email",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminPassword = "Password123456"
+			},
+			wantErr: true,
+		},
+		{
+			name: "initial admin missing password",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminEmail = "admin@example.com"
+			},
+			wantErr: true,
+		},
+		{
+			name: "initial admin short password",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminEmail = "admin@example.com"
+				cfg.InitialAdminPassword = "short"
+			},
+			wantErr: true,
+		},
+		{
 			name: "unsupported mcp cipher kid",
 			mutate: func(cfg *loadedConfig) {
 				cfg.MCPTokenCipherKID = "local-aes-gcm-v0"

@@ -110,14 +110,17 @@ func main() {
 			}
 			return databaseClient.Close()
 		},
-		StorageEnabled:   config.StorageEnabled,
-		StorageEndpoint:  config.StorageEndpoint,
-		StorageBucket:    config.StorageBucket,
-		StorageAccessKey: config.StorageAccessKey,
-		StorageSecretKey: config.StorageSecretKey,
-		StorageRegion:    config.StorageRegion,
-		StorageUseSSL:    config.StorageUseSSL,
-		StoragePathStyle: config.StoragePathStyle,
+		StorageEnabled:       config.StorageEnabled,
+		StorageEndpoint:      config.StorageEndpoint,
+		StorageBucket:        config.StorageBucket,
+		StorageAccessKey:     config.StorageAccessKey,
+		StorageSecretKey:     config.StorageSecretKey,
+		StorageRegion:        config.StorageRegion,
+		StorageUseSSL:        config.StorageUseSSL,
+		StoragePathStyle:     config.StoragePathStyle,
+		InitialAdminEmail:    config.InitialAdminEmail,
+		InitialAdminName:     config.InitialAdminName,
+		InitialAdminPassword: config.InitialAdminPassword,
 	}); err != nil {
 		if databaseClient != nil {
 			_ = databaseClient.Close()

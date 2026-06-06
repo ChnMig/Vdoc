@@ -16,37 +16,40 @@ var (
 )
 
 type loadedConfig struct {
-	ListenPort          int
-	MaxBodySize         int64
-	MaxHeaderBytes      int
-	ShutdownTimeout     time.Duration
-	ReadTimeout         time.Duration
-	WriteTimeout        time.Duration
-	IdleTimeout         time.Duration
-	EnableRateLimit     bool
-	GlobalRateLimit     int
-	GlobalRateBurst     int
-	PidFile             string
-	JWTKey              string
-	JWTExpiration       time.Duration
-	LogMaxSize          int
-	LogMaxAge           int
-	LogLevel            string
-	GinLogLevel         string
-	DatabaseEnabled     bool
-	DatabaseDSN         string
-	DatabaseMaxOpenConn int
-	DatabaseMaxIdleConn int
-	StorageEnabled      bool
-	StorageEndpoint     string
-	StorageBucket       string
-	StorageAccessKey    string
-	StorageSecretKey    string
-	StorageRegion       string
-	StorageUseSSL       bool
-	StoragePathStyle    bool
-	MCPTokenCipherKey   string
-	MCPTokenCipherKID   string
+	ListenPort           int
+	MaxBodySize          int64
+	MaxHeaderBytes       int
+	ShutdownTimeout      time.Duration
+	ReadTimeout          time.Duration
+	WriteTimeout         time.Duration
+	IdleTimeout          time.Duration
+	EnableRateLimit      bool
+	GlobalRateLimit      int
+	GlobalRateBurst      int
+	PidFile              string
+	JWTKey               string
+	JWTExpiration        time.Duration
+	LogMaxSize           int
+	LogMaxAge            int
+	LogLevel             string
+	GinLogLevel          string
+	DatabaseEnabled      bool
+	DatabaseDSN          string
+	DatabaseMaxOpenConn  int
+	DatabaseMaxIdleConn  int
+	StorageEnabled       bool
+	StorageEndpoint      string
+	StorageBucket        string
+	StorageAccessKey     string
+	StorageSecretKey     string
+	StorageRegion        string
+	StorageUseSSL        bool
+	StoragePathStyle     bool
+	InitialAdminEmail    string
+	InitialAdminName     string
+	InitialAdminPassword string
+	MCPTokenCipherKey    string
+	MCPTokenCipherKID    string
 }
 
 // LoadConfig 使用 Viper 加载配置
@@ -122,6 +125,9 @@ func setDefaults() {
 	v.SetDefault("storage.region", "us-east-1")
 	v.SetDefault("storage.use_ssl", false)
 	v.SetDefault("storage.path_style", true)
+	v.SetDefault("initial_admin.email", "")
+	v.SetDefault("initial_admin.name", "")
+	v.SetDefault("initial_admin.password", "")
 
 	v.SetDefault("mcp_token.cipher_key", "")
 	v.SetDefault("mcp_token.cipher_kid", "local-aes-gcm-v1")
@@ -205,6 +211,9 @@ func readConfig() (loadedConfig, error) {
 	cfg.StorageRegion = v.GetString("storage.region")
 	cfg.StorageUseSSL = v.GetBool("storage.use_ssl")
 	cfg.StoragePathStyle = v.GetBool("storage.path_style")
+	cfg.InitialAdminEmail = v.GetString("initial_admin.email")
+	cfg.InitialAdminName = v.GetString("initial_admin.name")
+	cfg.InitialAdminPassword = v.GetString("initial_admin.password")
 	cfg.MCPTokenCipherKey = v.GetString("mcp_token.cipher_key")
 	cfg.MCPTokenCipherKID = v.GetString("mcp_token.cipher_kid")
 
@@ -241,6 +250,9 @@ func applyLoadedConfig(cfg loadedConfig) {
 	StorageRegion = cfg.StorageRegion
 	StorageUseSSL = cfg.StorageUseSSL
 	StoragePathStyle = cfg.StoragePathStyle
+	InitialAdminEmail = cfg.InitialAdminEmail
+	InitialAdminName = cfg.InitialAdminName
+	InitialAdminPassword = cfg.InitialAdminPassword
 	MCPTokenCipherKey = cfg.MCPTokenCipherKey
 	MCPTokenCipherKID = cfg.MCPTokenCipherKID
 }

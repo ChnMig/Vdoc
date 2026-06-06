@@ -635,6 +635,54 @@ func (r *recordingRepository) UpsertMCPToken(ctx context.Context, token *domainv
 	return nil
 }
 
+func (r *recordingRepository) UpsertUser(ctx context.Context, user *domainvdoc.User) error {
+	_ = ctx
+	if user == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *user
+	r.state.Users[user.ID] = &copied
+	return nil
+}
+
+func (r *recordingRepository) UpsertTeam(ctx context.Context, team *domainvdoc.Team) error {
+	_ = ctx
+	if team == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *team
+	r.state.Teams[team.ID] = &copied
+	return nil
+}
+
+func (r *recordingRepository) UpsertProject(ctx context.Context, project *domainvdoc.Project) error {
+	_ = ctx
+	if project == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *project
+	r.state.Projects[project.ID] = &copied
+	return nil
+}
+
+func (r *recordingRepository) UpsertProjectMember(ctx context.Context, member *domainvdoc.ProjectMember) error {
+	_ = ctx
+	if member == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *member
+	r.state.Members[memberKey(member.ProjectID, member.UserID)] = &copied
+	return nil
+}
+
 func (r *recordingRepository) RecordObject(ctx context.Context, ref domainvdoc.ObjectRef) error {
 	_ = ctx
 	r.objects = append(r.objects, ref)
