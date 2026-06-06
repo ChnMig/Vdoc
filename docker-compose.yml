@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: rCCKM3prq98j8ej9  # CHANGEME
       TZ: Asia/Shanghai
     volumes:
-      - ./data/docker/postgres:/var/lib/postgresql/data
+      - ./data/docker/postgres:/var/lib/postgresql
     ports:
       - 5432:5432
     healthcheck:
