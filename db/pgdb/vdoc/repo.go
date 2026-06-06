@@ -421,7 +421,7 @@ func (r *Repository) insertPublishAudit(ctx context.Context, input domainvdoc.Pu
 		for _, audit := range sortedValues(input.State.AuditLogs, func(value *domainvdoc.AuditLog) string {
 			return value.CreatedAt.Format(time.RFC3339Nano) + ":" + value.ID
 		}) {
-			matchesReview := audit.Action == "contract_draft.review" && audit.ResourceID == input.DraftID
+			matchesReview := (audit.Action == "contract_draft.review" || audit.Action == "markdown_draft.review") && audit.ResourceID == input.DraftID
 			matchesPublish := audit.Action == "document_version.publish" && audit.ResourceID == input.VersionID
 			if !matchesReview && !matchesPublish {
 				continue

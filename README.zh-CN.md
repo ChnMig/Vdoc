@@ -256,12 +256,12 @@ export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
 export VDOC_DATABASE_ENABLED=true
-export VDOC_DATABASE_DSN="postgres://vdoc:vdoc@127.0.0.1:5432/vdoc?sslmode=disable"
+export VDOC_DATABASE_DSN="postgres://vdoc:<password>@127.0.0.1:5432/vdoc?sslmode=disable"
 export VDOC_STORAGE_ENABLED=true
 export VDOC_STORAGE_ENDPOINT="127.0.0.1:9000"
 export VDOC_STORAGE_BUCKET="vdoc"
-export VDOC_STORAGE_ACCESS_KEY="rustfs-access-key"
-export VDOC_STORAGE_SECRET_KEY="rustfs-secret-key"
+export VDOC_STORAGE_ACCESS_KEY="<access-key>"
+export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 ```
 
 配置 `database.enabled=true` 后，服务启动时会连接 PostgreSQL、自动创建 Vdoc 运行表并加载已有状态；连接失败会直接启动失败，避免静默退回本地内存模式。配置 `storage.enabled=true` 后，OpenAPI raw / normalized schema 会写入 RustFS 或任意 S3-compatible 对象存储；bucket 不存在时会自动创建。

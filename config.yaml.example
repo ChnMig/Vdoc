@@ -46,7 +46,7 @@ log:
 
 database:
   enabled: false
-  dsn: "postgres://vdoc:vdoc@127.0.0.1:5432/vdoc?sslmode=disable"
+  dsn: "postgres://vdoc:<password>@127.0.0.1:5432/vdoc?sslmode=disable"
   max_open_conns: 20
   max_idle_conns: 5
 

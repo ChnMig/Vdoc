@@ -256,12 +256,12 @@ export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
 export VDOC_DATABASE_ENABLED=true
-export VDOC_DATABASE_DSN="postgres://vdoc:vdoc@127.0.0.1:5432/vdoc?sslmode=disable"
+export VDOC_DATABASE_DSN="postgres://vdoc:<password>@127.0.0.1:5432/vdoc?sslmode=disable"
 export VDOC_STORAGE_ENABLED=true
 export VDOC_STORAGE_ENDPOINT="127.0.0.1:9000"
 export VDOC_STORAGE_BUCKET="vdoc"
-export VDOC_STORAGE_ACCESS_KEY="rustfs-access-key"
-export VDOC_STORAGE_SECRET_KEY="rustfs-secret-key"
+export VDOC_STORAGE_ACCESS_KEY="<access-key>"
+export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 ```
 
 When `database.enabled=true`, Vdoc connects to PostgreSQL during startup, creates its runtime tables, and loads existing state. Connection or migration failure aborts startup instead of silently falling back to memory. When `storage.enabled=true`, raw and normalized OpenAPI schemas are written to RustFS or any S3-compatible object storage; the bucket is created automatically when missing.

@@ -49,29 +49,10 @@ func (p *postgresPersistence) saveLocked(ctx context.Context, store *Store) erro
 			return err
 		}
 	}
-	if repo, ok := p.repo.(diffMutationRepository); ok {
-		if err := p.saveDiffsLocked(ctx, store, repo); err != nil {
-			return err
-		}
-	}
 	for _, audit := range sortedStoreValues(store.audits, func(value *domainvdoc.AuditLog) string {
 		return value.CreatedAt.Format(sortableTimeLayout) + ":" + value.ID
 	}) {
 		if err := p.repo.RecordAudit(ctx, audit); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (p *postgresPersistence) saveDiffsLocked(ctx context.Context, store *Store, repo diffMutationRepository) error {
-	for _, diff := range sortedStoreValues(store.diffs, func(value *domainvdoc.Diff) string { return value.ID }) {
-		fromVersion := store.versions[diff.FromVersionID]
-		toVersion := store.versions[diff.ToVersionID]
-		if fromVersion == nil || toVersion == nil {
-			continue
-		}
-		if err := repo.UpsertDocumentDiff(ctx, diff, fromVersion, toVersion); err != nil {
 			return err
 		}
 	}
@@ -122,6 +103,14 @@ func (p *postgresPersistence) saveDocumentWorkflowLocked(ctx context.Context, st
 		}
 	}
 	return nil
+}
+
+func (p *postgresPersistence) recordDiff(ctx context.Context, diff *domainvdoc.Diff, fromVersion, toVersion *domainvdoc.ContractVersion) error {
+	repo, ok := p.repo.(diffMutationRepository)
+	if !ok {
+		return nil
+	}
+	return repo.UpsertDocumentDiff(ctx, diff, fromVersion, toVersion)
 }
 
 func (p *postgresPersistence) publishLocked(ctx context.Context, input domainvdoc.PublishStateInput) error {

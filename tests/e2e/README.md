@@ -20,11 +20,11 @@ Required variables:
 
 ```sh
 export VDOC_E2E_LIVE=1
-export VDOC_TEST_DATABASE_DSN="postgres://vdoc:vdoc@127.0.0.1:5432/vdoc_e2e?sslmode=disable"
+export VDOC_TEST_DATABASE_DSN="postgres://vdoc:<password>@127.0.0.1:5432/vdoc_e2e?sslmode=disable"
 export VDOC_TEST_STORAGE_ENDPOINT="127.0.0.1:9000"
 export VDOC_TEST_STORAGE_BUCKET="vdoc-e2e"
-export VDOC_TEST_STORAGE_ACCESS_KEY="rustfs-access-key"
-export VDOC_TEST_STORAGE_SECRET_KEY="rustfs-secret-key"
+export VDOC_TEST_STORAGE_ACCESS_KEY="<access-key>"
+export VDOC_TEST_STORAGE_SECRET_KEY="<secret-key>"
 ```
 
 Optional variables:

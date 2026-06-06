@@ -1242,9 +1242,30 @@ func (s *Store) CompareMarkdownVersions(actorID, projectID, documentID, fromID, 
 	if !ok || to.ProjectID != projectID || to.ServiceID != documentID || to.SchemaFormat != DocumentFormatMarkdown {
 		return nil, ErrNotFound
 	}
+	if existing := s.diffForVersionsLocked(documentID, fromID, toID); existing != nil {
+		s.auditLocked(ctx, AuditActorUser, actorID, "markdown_version_diff.compare", "document_version_diff", existing.ID, projectID, documentID, auditMetadata("result", "success", "from_version_id", fromID, "to_version_id", toID))
+		if err := s.persistLocked(); err != nil {
+			return nil, err
+		}
+		return cloneDiff(existing), nil
+	}
 	diff := markdownDiff(documentID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
+	if s.persistence != nil {
+		ref, err := s.persistDiffSnapshotLocked(projectID, documentID, to.BranchID, diff)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.recordObjectRefsLocked(ref); err != nil {
+			return nil, err
+		}
+	}
 	s.diffs[diff.ID] = diff
 	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_version_diff.compare", "document_version_diff", diff.ID, projectID, documentID, auditMetadata("result", "success", "from_version_id", fromID, "to_version_id", toID))
+	if s.persistence != nil {
+		if err := s.persistence.recordDiff(context.Background(), diff, from, to); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -1830,6 +1851,11 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 	}
 	s.diffs[diff.ID] = diff
 	s.auditLocked(ctx, AuditActorUser, actorID, "api_version_diff.compare", "api_version_diff", diff.ID, projectID, serviceID, auditMetadata("result", "success", "from_version_id", fromID, "to_version_id", toID))
+	if s.persistence != nil {
+		if err := s.persistence.recordDiff(context.Background(), diff, from, to); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -2397,7 +2423,7 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 		pending.Diffs[diff.ID] = diff
 	}
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", d.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "review_action", "approve", "branch_id", d.BranchID, "version_name", d.VersionName, "version_id", v.ID))
-	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "markdown_version.publish", "document_version", v.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "draft_id", d.ID, "branch_id", d.BranchID, "version_name", d.VersionName))
+	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "document_version.publish", "document_version", v.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "draft_id", d.ID, "branch_id", d.BranchID, "version_name", d.VersionName))
 	if s.persistence != nil {
 		ctx := context.Background()
 		if err := s.persistence.publishLocked(ctx, domainvdoc.PublishStateInput{State: pending, ObjectRefs: objectRefs, ProjectID: d.ProjectID, ServiceID: d.ServiceID, BranchID: d.BranchID, DraftID: d.ID, VersionID: v.ID, VersionName: d.VersionName, ActorID: actorID}); err != nil {
