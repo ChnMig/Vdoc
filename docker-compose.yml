@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: rCCKM3prq98j8ej9  # CHANGEME
       TZ: Asia/Shanghai
     volumes:
-      - /data/docker/postgres:/var/lib/postgresql/data
+      - ./data/docker/postgres:/var/lib/postgresql/data
     ports:
       - 5432:5432
     healthcheck:
@@ -35,8 +35,8 @@ services:
       - RUSTFS_SECRET_KEY=Vi17M1OcD5Qj2KeR # CHANGEME
       - RUSTFS_OBS_LOGGER_LEVEL=info
     volumes:
-      - /data/docker/rustfs/data:/data
-      - /data/docker/rustfs/logs:/app/logs
+      - ./data/docker/rustfs/data:/data
+      - ./data/docker/rustfs/logs:/app/logs
     healthcheck:
       test:
         [

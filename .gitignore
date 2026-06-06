@@ -32,3 +32,5 @@ config.yaml
 AGENTS.md
 *.txt
 PRD.md
+
+data/
