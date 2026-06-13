@@ -80,13 +80,16 @@ type docsRPCError struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-var optionalWorkspaceDocumentPaths = map[string]struct{}{
-	filepath.Clean("../../../DATABASE_SCHEMA.md"):     {},
-	filepath.Clean("../../../IMPLEMENTATION_PLAN.md"): {},
-	filepath.Clean("../../../IMPROVEMENTS.md"):        {},
-	filepath.Clean("../../../IMPROVEMENTS.zh-CN.md"):  {},
-	filepath.Clean("../../../PILOT_RUNBOOK.md"):       {},
-	filepath.Clean("../../../RELEASE_DEPLOY.md"):      {},
+const workspaceRootPath = "../../.."
+
+var workspaceRootMarkerDocuments = []string{
+	"DATABASE_SCHEMA.md",
+	"IMPLEMENTATION_PLAN.md",
+	"IMPROVEMENTS.md",
+	"IMPROVEMENTS.zh-CN.md",
+	"PILOT_RUNBOOK.md",
+	"PRD.md",
+	"RELEASE_DEPLOY.md",
 }
 
 func TestAPIDocsRouteCoverage(t *testing.T) {
@@ -554,8 +557,23 @@ func missingOptionalWorkspaceDocument(t *testing.T, path string) bool {
 }
 
 func isOptionalWorkspaceDocument(path string) bool {
-	_, ok := optionalWorkspaceDocumentPaths[filepath.Clean(path)]
-	return ok
+	if workspaceRootDocumentsAvailable() {
+		return false
+	}
+	relativePath, err := filepath.Rel(filepath.Clean(workspaceRootPath), filepath.Clean(path))
+	if err != nil || strings.HasPrefix(relativePath, "..") || filepath.IsAbs(relativePath) {
+		return false
+	}
+	return filepath.Dir(relativePath) == "." && strings.HasSuffix(relativePath, ".md")
+}
+
+func workspaceRootDocumentsAvailable() bool {
+	for _, name := range workspaceRootMarkerDocuments {
+		if _, err := os.Stat(filepath.Join(workspaceRootPath, name)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func parseDocsOpenAPI(t *testing.T) map[string]any {
