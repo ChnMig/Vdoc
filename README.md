@@ -40,6 +40,7 @@ Implemented in v0.1:
 - Raw, normalized, and stable content retrieval for drafts and published versions
 - Endpoint index queries, semantic OpenAPI diff summaries, and Markdown file diffs
 - MCP token lifecycle and JSON-RPC MCP read and draft tools
+- Admin API support for product onboarding, workflow guidance, developer-portal endpoint browsing, document content, and diff review
 - Unified JSON response envelope with `trace_id` and `timestamp`
 - Request tracing, structured access logs, panic recovery, CORS, security headers, body-size limit, and rate-limit middleware
 - Viper-based configuration with `VDOC_` environment variables
@@ -49,6 +50,7 @@ Not in v0.1:
 
 - Direct MCP publish tools
 - Code generation and frontend integration helpers
+- Commercial operations features such as billing, notification center, integration marketplace, and organization-level tenant administration
 
 ## Product Concepts
 

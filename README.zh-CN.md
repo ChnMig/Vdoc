@@ -40,6 +40,7 @@ v0.1 已经实现：
 - 草稿和已发布版本的 raw、normalized、stable 内容查询
 - Endpoint 索引查询、OpenAPI 语义 Diff 摘要和 Markdown 文件 Diff
 - MCP Token 生命周期和 JSON-RPC MCP 查询、草稿 tools
+- 支撑产品 onboarding、工作流指引、开发者门户式 Endpoint 浏览、文档内容和 Diff 审核的 Admin API
 - 带 `trace_id` 和 `timestamp` 的统一 JSON 响应包裹
 - 请求追踪、结构化访问日志、panic recovery、CORS、安全响应头、请求体大小限制、限流中间件
 - 基于 Viper 的配置加载和 `VDOC_` 环境变量覆盖
@@ -49,6 +50,7 @@ v0.1 不包含：
 
 - 直接发布类 MCP tools
 - 代码生成和前端对接辅助
+- 计费、通知中心、集成市场和组织级租户管理等商业化运营能力
 
 ## 产品概念
 
