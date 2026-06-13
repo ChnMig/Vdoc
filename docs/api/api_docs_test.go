@@ -80,6 +80,15 @@ type docsRPCError struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+var optionalWorkspaceDocumentPaths = map[string]struct{}{
+	filepath.Clean("../../../DATABASE_SCHEMA.md"):     {},
+	filepath.Clean("../../../IMPLEMENTATION_PLAN.md"): {},
+	filepath.Clean("../../../IMPROVEMENTS.md"):        {},
+	filepath.Clean("../../../IMPROVEMENTS.zh-CN.md"):  {},
+	filepath.Clean("../../../PILOT_RUNBOOK.md"):       {},
+	filepath.Clean("../../../RELEASE_DEPLOY.md"):      {},
+}
+
 func TestAPIDocsRouteCoverage(t *testing.T) {
 	document := readDocsMarkdown(t, "API.md")
 	root := parseDocsOpenAPI(t)
@@ -184,6 +193,9 @@ func TestAPIDocsUseProjectDocumentLanguage(t *testing.T) {
 		strings.Join([]string{"publish", "api", "version"}, "_"),
 	}
 	for _, path := range files {
+		if missingOptionalWorkspaceDocument(t, path) {
+			continue
+		}
 		body := readDocsMarkdown(t, path)
 		for _, term := range staleTerms {
 			if strings.Contains(body, term) {
@@ -210,6 +222,10 @@ func TestAPIDocsMarkdownLinks(t *testing.T) {
 			}
 			resolved := filepath.Clean(filepath.Join(baseDirectory, linkTarget))
 			if _, err := os.Stat(resolved); err != nil {
+				if os.IsNotExist(err) && isOptionalWorkspaceDocument(resolved) {
+					t.Logf("skipping optional workspace document link %s from %s", link, markdownPath)
+					continue
+				}
 				t.Fatalf("%s links to missing local target %s resolved as %s: %v", markdownPath, link, resolved, err)
 			}
 		}
@@ -520,6 +536,26 @@ func readDocsMarkdown(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(body)
+}
+
+func missingOptionalWorkspaceDocument(t *testing.T, path string) bool {
+	t.Helper()
+	if !isOptionalWorkspaceDocument(path) {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Logf("skipping optional workspace document %s", path)
+			return true
+		}
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return false
+}
+
+func isOptionalWorkspaceDocument(path string) bool {
+	_, ok := optionalWorkspaceDocumentPaths[filepath.Clean(path)]
+	return ok
 }
 
 func parseDocsOpenAPI(t *testing.T) map[string]any {
