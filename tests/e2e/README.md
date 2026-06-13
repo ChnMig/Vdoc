@@ -41,4 +41,4 @@ Run the live path with:
 ./scripts/vdoc-e2e.sh live
 ```
 
-If `VDOC_E2E_LIVE=1` or any required `VDOC_TEST_*` variable is missing, the live test is skipped with a message naming the missing variables and how to enable it. `testing.Short()` also skips the live test explicitly.
+When invoked through `./scripts/vdoc-e2e.sh live` or `make test-e2e-live`, missing required `VDOC_TEST_*` variables fail fast before Go tests start. If the Go test is invoked directly without the script, missing live variables are reported as skipped tests. `testing.Short()` also skips the live test explicitly.

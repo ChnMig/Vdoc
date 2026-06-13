@@ -31,6 +31,11 @@ API 文档：
 - 人类可读指南：[docs/api/API.md](docs/api/API.md)
 - 机器可读 OpenAPI 规格：[docs/api/openapi.yaml](docs/api/openapi.yaml)
 
+试点和发布文档位于 workspace 根目录：
+
+- [../PILOT_RUNBOOK.md](../PILOT_RUNBOOK.md)
+- [../RELEASE_DEPLOY.md](../RELEASE_DEPLOY.md)
+
 v0.1 已经实现：
 
 - `/api/v1` 版本化路由树

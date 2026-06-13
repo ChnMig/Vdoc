@@ -1,4 +1,4 @@
-.PHONY: build build-local build-cross run dev clean clean-dist help test test-e2e fmt lint verify
+.PHONY: build build-local build-cross run dev clean clean-dist help test test-e2e test-e2e-live fmt lint verify
 
 # 版本信息
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -111,6 +111,9 @@ test: ## 运行测试并显示覆盖率（含中文提示与结果解析）
 
 test-e2e: ## 运行 v0.1 REST+MCP E2E（默认内存；VDOC_E2E_LIVE=1 启用 PostgreSQL/RustFS）
 	@./scripts/vdoc-e2e.sh all
+
+test-e2e-live: ## 运行 PostgreSQL + RustFS live E2E（需要 VDOC_TEST_* 环境变量）
+	@./scripts/vdoc-e2e.sh live
 
 fmt: ## 格式化代码
 	@echo "格式化代码..."

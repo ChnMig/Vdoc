@@ -31,6 +31,11 @@ API documentation:
 - Human-readable guide: [docs/api/API.md](docs/api/API.md)
 - Machine-readable OpenAPI spec: [docs/api/openapi.yaml](docs/api/openapi.yaml)
 
+Pilot and release documentation lives at the workspace root:
+
+- [../PILOT_RUNBOOK.md](../PILOT_RUNBOOK.md)
+- [../RELEASE_DEPLOY.md](../RELEASE_DEPLOY.md)
+
 Implemented in v0.1:
 
 - Versioned route tree under `/api/v1`
