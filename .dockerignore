@@ -1,0 +1,43 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+
+# Local secrets and configuration
+.env
+.env.*
+config.yaml
+
+# Build outputs
+bin/
+bulid/
+build/
+dist/
+*.exe
+/vdoc
+*.out
+
+# Runtime state
+data/
+log/
+logs/
+*.log
+*.pid
+
+# Dependencies and caches
+vendor/
+.cache/
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# Local agent/workspace artifacts
+.claude/
+.sisyphus/
+.suco-auggie/
+*.txt
+PRD.md

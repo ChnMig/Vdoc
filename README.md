@@ -231,6 +231,25 @@ Health check:
 curl http://127.0.0.1:8080/api/v1/open/health
 ```
 
+### Docker Image
+
+Build the backend image from this repository root:
+
+```bash
+docker build -t vdoc-backend:local .
+```
+
+Run with environment-only configuration. Production runs must provide real secrets and external dependency endpoints; do not use `localhost` for services in other containers.
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e VDOC_JWT_KEY="$(openssl rand -base64 32)" \
+  -e VDOC_SERVER_PORT=8080 \
+  vdoc-backend:local
+```
+
+The image exposes port `8080`, runs as a non-root user, and includes a healthcheck for `/api/v1/open/health`. This repository's `docker-compose.yml` remains dependency-only for local PostgreSQL/RustFS; workspace Compose guidance lives in `../COMPOSE_DEPLOY.md`.
+
 ### Common Commands
 
 ```bash
