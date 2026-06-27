@@ -39,6 +39,56 @@ func TestPublishFlowRecordsSanitizedAuditTrail(t *testing.T) {
 	}
 }
 
+func TestReviewDraftAuditRecordsTrimmedReviewComment(t *testing.T) {
+	store, _, projectID, serviceID, branchID := newContractPipelineStore(t)
+	draft, err := store.CreateDraft("writer", projectID, serviceID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: testOpenAPI("reviewComment")})
+	if err != nil {
+		t.Fatalf("CreateDraft() error = %v", err)
+	}
+	if _, err := store.SubmitDraft("writer", projectID, serviceID, draft.ID); err != nil {
+		t.Fatalf("SubmitDraft() error = %v", err)
+	}
+
+	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", AuditContext{RequestID: "trace-review-comment", ReviewComment: "  looks safe to publish  "})
+	if err != nil {
+		t.Fatalf("ReviewDraft(approve) error = %v", err)
+	}
+	version := published.(*ContractVersion)
+
+	review := requireAudit(t, store.AuditLogsForTest(), "contract_draft.review", draft.ID)
+	if review.Metadata["review_comment"] != "looks safe to publish" || review.Metadata["review_action"] != "approve" || review.Metadata["branch_id"] != draft.BranchID || review.Metadata["version_name"] != draft.VersionName || review.Metadata["version_id"] != version.ID {
+		t.Fatalf("review audit metadata = %+v, want trimmed comment and existing review keys", review.Metadata)
+	}
+	publish := requireAudit(t, store.AuditLogsForTest(), "document_version.publish", version.ID)
+	if _, ok := publish.Metadata["review_comment"]; ok {
+		t.Fatalf("publish audit metadata = %+v, want no review comment", publish.Metadata)
+	}
+}
+
+func TestReviewMarkdownDraftAuditRecordsReviewComment(t *testing.T) {
+	store, projectID, documentID, branchID := newMarkdownDocumentFlowStore(t)
+	draft, err := store.CreateMarkdownDraft("writer", projectID, documentID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: markdownV1()})
+	if err != nil {
+		t.Fatalf("CreateMarkdownDraft() error = %v", err)
+	}
+	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, draft.ID); err != nil {
+		t.Fatalf("SubmitMarkdownDraft() error = %v", err)
+	}
+
+	reviewed, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "request-changes", AuditContext{ReviewComment: "needs a clearer intro"})
+	if err != nil {
+		t.Fatalf("ReviewMarkdownDraft(request-changes) error = %v", err)
+	}
+	if reviewed.(*ContractDraft).Status != DraftStatusChangesRequested {
+		t.Fatalf("reviewed draft status = %d, want changes requested", reviewed.(*ContractDraft).Status)
+	}
+
+	review := requireAudit(t, store.AuditLogsForTest(), "markdown_draft.review", draft.ID)
+	if review.Metadata["review_comment"] != "needs a clearer intro" || review.Metadata["review_action"] != "request-changes" || review.Metadata["branch_id"] != draft.BranchID || review.Metadata["version_name"] != draft.VersionName {
+		t.Fatalf("markdown review audit metadata = %+v, want comment and existing review keys", review.Metadata)
+	}
+}
+
 func TestMCPTokenLifecycleAuditsDoNotExposeSecret(t *testing.T) {
 	store := newMCPTokenTestStore()
 	ctx := AuditContext{RequestID: "trace-token", IPAddress: "203.0.113.11", UserAgent: "audit-test"}

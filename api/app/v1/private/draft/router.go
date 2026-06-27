@@ -187,14 +187,18 @@ func reviewDraft(c *gin.Context, action string) {
 	if !ok {
 		return
 	}
+	auditCtx, ok := reviewAuditContext(c)
+	if !ok {
+		return
+	}
 	var (
 		result any
 		err    error
 	)
 	if shared.IsMarkdownDocument(document) {
-		result, err = shared.Store().ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, shared.AuditContextFromGin(c))
+		result, err = shared.Store().ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
 	} else {
-		result, err = shared.Store().ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, shared.AuditContextFromGin(c))
+		result, err = shared.Store().ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)

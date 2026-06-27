@@ -1201,7 +1201,7 @@ func (s *Store) ReviewMarkdownDraft(actorID, projectID, documentID, draftID, act
 	if outcome == domaindraft.ReviewOutcomePublish {
 		return s.publishDraftLocked(actorID, d, ctx)
 	}
-	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", draftID, projectID, documentID, auditMetadata("result", "success", "review_action", action, "branch_id", d.BranchID, "version_name", d.VersionName))
+	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", draftID, projectID, documentID, reviewAuditMetadata(reviewAuditMetadataInput{Context: ctx, Draft: d, Action: action}))
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -1649,7 +1649,7 @@ func (s *Store) ReviewDraft(actorID, projectID, serviceID, draftID, action strin
 	if outcome == domaindraft.ReviewOutcomePublish {
 		return s.publishDraftLocked(actorID, d, ctx)
 	}
-	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.review", "contract_draft", draftID, projectID, serviceID, auditMetadata("result", "success", "review_action", action, "branch_id", d.BranchID, "version_name", d.VersionName))
+	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.review", "contract_draft", draftID, projectID, serviceID, reviewAuditMetadata(reviewAuditMetadataInput{Context: ctx, Draft: d, Action: action}))
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -2379,7 +2379,7 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 	if diff != nil {
 		pending.Diffs[diff.ID] = diff
 	}
-	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "contract_draft.review", "contract_draft", d.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "review_action", "approve", "branch_id", d.BranchID, "version_name", d.VersionName, "version_id", v.ID))
+	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "contract_draft.review", "contract_draft", d.ID, d.ProjectID, d.ServiceID, reviewAuditMetadata(reviewAuditMetadataInput{Context: auditCtx, Draft: d, Action: "approve", VersionID: v.ID}))
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "document_version.publish", "document_version", v.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "draft_id", d.ID, "branch_id", d.BranchID, "version_name", d.VersionName))
 	if s.persistence != nil {
 		ctx := context.Background()
@@ -2447,7 +2447,7 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 	if diff != nil {
 		pending.Diffs[diff.ID] = diff
 	}
-	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", d.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "review_action", "approve", "branch_id", d.BranchID, "version_name", d.VersionName, "version_id", v.ID))
+	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", d.ID, d.ProjectID, d.ServiceID, reviewAuditMetadata(reviewAuditMetadataInput{Context: auditCtx, Draft: d, Action: "approve", VersionID: v.ID}))
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "document_version.publish", "document_version", v.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "draft_id", d.ID, "branch_id", d.BranchID, "version_name", d.VersionName))
 	if s.persistence != nil {
 		ctx := context.Background()

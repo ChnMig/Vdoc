@@ -102,9 +102,10 @@ type MCPToken = domainvdoc.MCPToken
 type AuditLog = domainvdoc.AuditLog
 
 type AuditContext struct {
-	ActorType    int
-	ActorTokenID string
-	IPAddress    string
-	UserAgent    string
-	RequestID    string
+	ActorType     int
+	ActorTokenID  string
+	IPAddress     string
+	UserAgent     string
+	RequestID     string
+	ReviewComment string
 }
