@@ -77,11 +77,15 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 }
 
 func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey, path string, payload any) ([]byte, error) {
+	baseURL, err := normalizeAIProviderBaseURL(provider.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal ai request: %w", err)
 	}
-	url := strings.TrimRight(provider.BaseURL, "/") + path
+	url := baseURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create ai request: %w", err)

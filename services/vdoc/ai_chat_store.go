@@ -102,7 +102,6 @@ func (s *Store) prepareAIChatRequest(actorID, projectID, sessionID, content stri
 	}
 	now := time.Now()
 	userMessage := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleUser, Content: trimmed, CreatedAt: now}
-	s.aiMessages[userMessage.ID] = userMessage
 	userPrompt := strings.ReplaceAll(prompt.UserPromptTemplate, "{{context}}", contextText)
 	userPrompt = strings.ReplaceAll(userPrompt, "{{message}}", trimmed)
 	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt, Temperature: 0.2, MaxTokens: 1000}
@@ -118,6 +117,7 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 	}
 	now := time.Now()
 	assistant := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleAssistant, Content: answer, ProviderID: request.Completion.Provider.ID, CreatedAt: now}
+	s.aiMessages[request.UserMessage.ID] = request.UserMessage
 	s.aiMessages[assistant.ID] = assistant
 	if session := s.aiChats[sessionID]; session != nil {
 		session.UpdatedAt = now

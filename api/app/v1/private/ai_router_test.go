@@ -2,8 +2,8 @@ package private
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -61,6 +61,26 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	}
 }
 
+func TestAIProviderRoutes_ReturnInvalidArgument_whenSystemProviderBaseURLUnsafe(t *testing.T) {
+	// Given
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("ai-unsafe-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	token := issuePrivateTestToken(t, superUser.ID)
+
+	// When
+	body := `{"name":"unsafe","base_url":"http://127.0.0.1:11434","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-secret-1234","enabled":true}`
+	envelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/ai/provider", token, body))
+
+	// Then
+	if envelope.Code != 400 || envelope.Status != "INVALID_ARGUMENT" {
+		t.Fatalf("unsafe provider response = code %d status %q detail %s", envelope.Code, envelope.Status, string(envelope.Detail))
+	}
+}
+
 func TestAIPromptRoutes_ReturnDefaultsAndProjectOverride_whenAdminOverrides(t *testing.T) {
 	// Given
 	router := setupPrivateRouter(t)
@@ -96,15 +116,15 @@ func TestAIPromptRoutes_ReturnDefaultsAndProjectOverride_whenAdminOverrides(t *t
 
 func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T) {
 	// Given
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
-			t.Fatalf("upstream path = %q", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"AI explains the scoped change"}}]}`))
-	}))
-	defer upstream.Close()
 	router := setupPrivateRouter(t)
 	store := app.DefaultStore()
+	store.SetAIHTTPClient(&http.Client{Transport: privateAIRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		defer r.Body.Close()
+		if r.URL.String() != "https://ai.example.test/v1/chat/completions" {
+			t.Fatalf("upstream url = %q", r.URL.String())
+		}
+		return privateAIJSONResponse(`{"choices":[{"message":{"content":"AI explains the scoped change"}}]}`), nil
+	})})
 	superUser, err := store.Register("summary-super@example.com", "Super", privateTestPassword)
 	if err != nil {
 		t.Fatalf("register super: %v", err)
@@ -140,7 +160,7 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 	}
 	superToken := issuePrivateTestToken(t, superUser.ID)
 	readerToken := issuePrivateTestToken(t, readerUser.ID)
-	providerBody := `{"name":"fake","base_url":"` + upstream.URL + `","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-test-1234","enabled":true}`
+	providerBody := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-test-1234","enabled":true}`
 	providerEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/ai/provider", superToken, providerBody))
 	if providerEnvelope.Code != 200 {
 		t.Fatalf("provider setup = code %d body %s", providerEnvelope.Code, string(providerEnvelope.Detail))
@@ -164,4 +184,14 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 	if chatSession.Code != 200 || message.Code != 200 || !strings.Contains(string(message.Detail), "AI explains the scoped change") {
 		t.Fatalf("chat response = session %d message %d detail %s", chatSession.Code, message.Code, string(message.Detail))
 	}
+}
+
+type privateAIRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f privateAIRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func privateAIJSONResponse(body string) *http.Response {
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }

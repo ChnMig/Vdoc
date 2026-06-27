@@ -75,7 +75,7 @@ func NewStore() *Store {
 		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
 		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{},
 		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
-		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: &http.Client{Timeout: 30 * time.Second}, audits: map[string]*AuditLog{},
+		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: newAIHTTPClient(), audits: map[string]*AuditLog{},
 	}
 }
 

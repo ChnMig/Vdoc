@@ -93,10 +93,13 @@ func (s *Store) upsertAIProvider(actorID, projectID string, input AIProviderInpu
 }
 
 func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderInput) (*AIProviderConfig, error) {
-	baseURL := strings.TrimSpace(input.BaseURL)
+	baseURL, err := normalizeAIProviderBaseURL(input.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	model := strings.TrimSpace(input.Model)
 	mode := strings.TrimSpace(input.APIMode)
-	if baseURL == "" || model == "" || !validAIMode(mode) {
+	if model == "" || !validAIMode(mode) {
 		return nil, ErrInvalidArgument
 	}
 	now := time.Now()

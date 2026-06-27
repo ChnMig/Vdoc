@@ -3,20 +3,22 @@ package vdoc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	domainai "vdoc/domain/ai"
 )
 
 func TestAIClient_ParsesChatCompletionsContent_whenProviderUsesChatMode(t *testing.T) {
 	// Given
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Fatalf("request path=%q auth=%q", r.URL.Path, r.Header.Get("Authorization"))
+	store := NewStore()
+	store.SetAIHTTPClient(&http.Client{Transport: aiRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		defer r.Body.Close()
+		if r.URL.String() != testAIProviderBaseURL+"/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Fatalf("request url=%q auth=%q", r.URL.String(), r.Header.Get("Authorization"))
 		}
 		var body chatCompletionPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -25,11 +27,9 @@ func TestAIClient_ParsesChatCompletionsContent_whenProviderUsesChatMode(t *testi
 		if body.Model != "gpt-test" || len(body.Messages) != 2 || body.Messages[0].Role != "system" {
 			t.Fatalf("chat payload = %+v", body)
 		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"chat summary"}}]}`))
-	}))
-	defer server.Close()
-	store := NewStore()
-	provider := &AIProviderConfig{BaseURL: server.URL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions}
+		return aiJSONResponse(`{"choices":[{"message":{"content":"chat summary"}}]}`), nil
+	})})
+	provider := &AIProviderConfig{BaseURL: testAIProviderBaseURL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions}
 
 	// When
 	content, err := store.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: "test-key", System: "system", User: "user"})
@@ -45,9 +45,11 @@ func TestAIClient_ParsesChatCompletionsContent_whenProviderUsesChatMode(t *testi
 
 func TestAIClient_ParsesResponsesOutputContent_whenOutputTextMissing(t *testing.T) {
 	// Given
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/responses" {
-			t.Fatalf("request path=%q", r.URL.Path)
+	store := NewStore()
+	store.SetAIHTTPClient(&http.Client{Transport: aiRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		defer r.Body.Close()
+		if r.URL.String() != testAIProviderBaseURL+"/v1/responses" {
+			t.Fatalf("request url=%q", r.URL.String())
 		}
 		var body responsesPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -56,11 +58,9 @@ func TestAIClient_ParsesResponsesOutputContent_whenOutputTextMissing(t *testing.
 		if body.Store || !strings.Contains(body.Instructions, "system") || !strings.Contains(body.Input, "user") {
 			t.Fatalf("responses payload = %+v", body)
 		}
-		_, _ = w.Write([]byte(`{"output":[{"content":[{"text":"part one"},{"text":"part two"}]}]}`))
-	}))
-	defer server.Close()
-	store := NewStore()
-	provider := &AIProviderConfig{BaseURL: server.URL, Model: "gpt-test", APIMode: domainai.ProviderModeResponses}
+		return aiJSONResponse(`{"output":[{"content":[{"text":"part one"},{"text":"part two"}]}]}`), nil
+	})})
+	provider := &AIProviderConfig{BaseURL: testAIProviderBaseURL, Model: "gpt-test", APIMode: domainai.ProviderModeResponses}
 
 	// When
 	content, err := store.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: "test-key", System: "system", User: "user"})
@@ -76,23 +76,21 @@ func TestAIClient_ParsesResponsesOutputContent_whenOutputTextMissing(t *testing.
 
 func TestAIProviderTest_UsesStoredAPIKey_whenInputOmitsKey(t *testing.T) {
 	// Given
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	store := newAISuperStore(t)
+	store.SetAIHTTPClient(&http.Client{Transport: aiRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		defer r.Body.Close()
 		if r.Header.Get("Authorization") != "Bearer stored-key" {
 			t.Fatalf("auth header = %q, want stored key", r.Header.Get("Authorization"))
 		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"provider ok"}}]}`))
-	}))
-	defer server.Close()
-	now := time.Now()
-	store := NewStore()
-	store.users["super"] = &User{ID: "super", Email: "super@example.com", IsSuperAdmin: true, Status: UserStatusActive, CreatedAt: now, UpdatedAt: now}
-	_, err := store.UpsertSystemAIProvider("super", AIProviderInput{Name: "stored", BaseURL: server.URL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions, APIKey: "stored-key", Enabled: true})
+		return aiJSONResponse(`{"choices":[{"message":{"content":"provider ok"}}]}`), nil
+	})})
+	_, err := store.UpsertSystemAIProvider(testAISuperUserID, AIProviderInput{Name: "stored", BaseURL: testAIProviderBaseURL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions, APIKey: "stored-key", Enabled: true})
 	if err != nil {
 		t.Fatalf("UpsertSystemAIProvider() error = %v", err)
 	}
 
 	// When
-	content, err := store.TestSystemAIProvider("super", &AIProviderInput{Name: "stored", BaseURL: server.URL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions, Enabled: true})
+	content, err := store.TestSystemAIProvider(testAISuperUserID, &AIProviderInput{Name: "stored", BaseURL: testAIProviderBaseURL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions, Enabled: true})
 
 	// Then
 	if err != nil {
@@ -101,4 +99,36 @@ func TestAIProviderTest_UsesStoredAPIKey_whenInputOmitsKey(t *testing.T) {
 	if content != "provider ok" {
 		t.Fatalf("content = %q, want provider ok", content)
 	}
+}
+
+func TestAIClient_RejectsUnsafeBaseURLBeforeTransport_whenProviderTargetsLoopback(t *testing.T) {
+	// Given
+	called := false
+	store := NewStore()
+	store.SetAIHTTPClient(&http.Client{Transport: aiRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return aiJSONResponse(`{"choices":[{"message":{"content":"should not call"}}]}`), nil
+	})})
+	provider := &AIProviderConfig{BaseURL: "http://127.0.0.1:11434", Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions}
+
+	// When
+	_, err := store.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: "test-key", System: "system", User: "user"})
+
+	// Then
+	if called {
+		t.Fatalf("transport was called for unsafe base_url")
+	}
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("completeAI() error = %v, want ErrInvalidArgument", err)
+	}
+}
+
+type aiRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f aiRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func aiJSONResponse(body string) *http.Response {
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
