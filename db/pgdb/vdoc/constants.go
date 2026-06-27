@@ -17,6 +17,11 @@ const (
 	TableNameAPIEndpointDetails   = "api_endpoint_details"
 	TableNameDocumentVersionDiffs = "document_version_diffs"
 	TableNameDocumentDiffItems    = "document_diff_items"
+	TableNameAIProviders          = "ai_providers"
+	TableNameAIPromptOverrides    = "ai_prompt_overrides"
+	TableNameAISummaries          = "ai_summaries"
+	TableNameAIChatSessions       = "ai_chat_sessions"
+	TableNameAIChatMessages       = "ai_chat_messages"
 	TableNameAuditLogs            = "audit_logs"
 	TableNameSchemaObjects        = "vdoc_schema_objects"
 

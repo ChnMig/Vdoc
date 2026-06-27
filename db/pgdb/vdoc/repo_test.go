@@ -205,6 +205,67 @@ func TestAuditPersistenceSourceLoadsAndInsertsConflictSafe(t *testing.T) {
 	}
 }
 
+func TestAIPersistenceSourceLoadsAndUpsertsScopedState(t *testing.T) {
+	repoSource, err := os.ReadFile("repo.go")
+	if err != nil {
+		t.Fatalf("read repo.go: %v", err)
+	}
+	aiRepoSource, err := os.ReadFile("ai_repo.go")
+	if err != nil {
+		t.Fatalf("read ai_repo.go: %v", err)
+	}
+	storeSource, err := os.ReadFile("../../../services/vdoc/postgres_repository.go")
+	if err != nil {
+		t.Fatalf("read postgres_repository.go: %v", err)
+	}
+	aiStoreSource, err := os.ReadFile("../../../services/vdoc/ai_postgres_repository.go")
+	if err != nil {
+		t.Fatalf("read ai_postgres_repository.go: %v", err)
+	}
+
+	for _, want := range []string{
+		"loadAIProviders(ctx, state)",
+		"loadAIPrompts(ctx, state)",
+		"loadAISummaries(ctx, state)",
+		"loadAIChats(ctx, state)",
+		"loadAIMessages(ctx, state)",
+	} {
+		if !strings.Contains(string(repoSource), want) {
+			t.Fatalf("repo.go missing AI load marker %q", want)
+		}
+	}
+	for _, want := range []string{
+		"func (r *Repository) UpsertAIProvider",
+		"func (r *Repository) UpsertAIPrompt",
+		"func (r *Repository) UpsertAISummary",
+		"func (r *Repository) UpsertAIChatSession",
+		"func (r *Repository) UpsertAIChatMessage",
+		"aiProviderModelFromDomain",
+		"domainAIProviderFromModel",
+		"aiPromptStateKey",
+		"aiSummaryStateKey",
+	} {
+		if !strings.Contains(string(aiRepoSource), want) {
+			t.Fatalf("ai_repo.go missing AI persistence marker %q", want)
+		}
+	}
+	if !strings.Contains(string(storeSource), "saveAIStateLocked(ctx, store, repo)") {
+		t.Fatal("postgres_repository.go must call saveAIStateLocked during persistence")
+	}
+	for _, want := range []string{
+		"type aiMutationRepository interface",
+		"UpsertAIProvider(ctx context.Context",
+		"UpsertAIPrompt(ctx context.Context",
+		"UpsertAISummary(ctx context.Context",
+		"UpsertAIChatSession(ctx context.Context",
+		"UpsertAIChatMessage(ctx context.Context",
+	} {
+		if !strings.Contains(string(aiStoreSource), want) {
+			t.Fatalf("ai_postgres_repository.go missing AI store marker %q", want)
+		}
+	}
+}
+
 func TestMCPTokenPersistenceSourceDoesNotStorePlaintextToken(t *testing.T) {
 	source, err := os.ReadFile("repo.go")
 	if err != nil {

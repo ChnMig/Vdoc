@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -53,6 +54,12 @@ type Store struct {
 	endpoints   map[string]*Endpoint
 	diffs       map[string]*Diff
 	tokens      map[string]*MCPToken
+	aiProviders map[string]*AIProviderConfig
+	aiPrompts   map[string]*AIPromptOverride
+	aiSummaries map[string]*AISummary
+	aiChats     map[string]*AIChatSession
+	aiMessages  map[string]*AIChatMessage
+	aiHTTP      *http.Client
 	audits      map[string]*AuditLog
 	persistence *postgresPersistence
 	objects     ObjectStorage
@@ -66,7 +73,9 @@ func NewStore() *Store {
 	return &Store{
 		users: map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
 		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
-		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{}, audits: map[string]*AuditLog{},
+		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{},
+		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
+		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: &http.Client{Timeout: 30 * time.Second}, audits: map[string]*AuditLog{},
 	}
 }
 

@@ -100,6 +100,13 @@ type DiffSummary = domainvdoc.DiffSummary
 type DiffItem = domainvdoc.DiffItem
 type MCPToken = domainvdoc.MCPToken
 type AuditLog = domainvdoc.AuditLog
+type AIProviderConfig = domainvdoc.AIProviderConfig
+type AIProviderInput = domainvdoc.AIProviderInput
+type AIPromptOverride = domainvdoc.AIPromptOverride
+type AIPromptTemplate = domainvdoc.AIPromptTemplate
+type AISummary = domainvdoc.AISummary
+type AIChatSession = domainvdoc.AIChatSession
+type AIChatMessage = domainvdoc.AIChatMessage
 
 type AuditContext struct {
 	ActorType     int

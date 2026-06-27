@@ -31,6 +31,8 @@ tags:
     description: Document version comparison.
   - name: MCP Tokens
     description: User MCP token lifecycle.
+  - name: AI
+    description: Built-in Admin AI provider, prompt, summary, and page chat APIs. AI can summarize and explain only; it cannot approve, request changes, reject, publish, or modify drafts or versions.
 paths:
   /api/v1/open/health:
     get:
@@ -547,6 +549,199 @@ paths:
       security: [{JWTAuth: []}]
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/ai/provider:
+    get:
+      tags: [AI]
+      summary: Get system AI provider configuration.
+      operationId: getSystemAIProvider
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+    put:
+      tags: [AI]
+      summary: Upsert system AI provider configuration.
+      operationId: putSystemAIProvider
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/ai/provider/test:
+    post:
+      tags: [AI]
+      summary: Test the system AI provider without exposing its API key.
+      operationId: testSystemAIProvider
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/provider:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+    get:
+      tags: [AI]
+      summary: Get project AI provider configuration.
+      operationId: getProjectAIProvider
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+    put:
+      tags: [AI]
+      summary: Upsert project AI provider configuration.
+      operationId: putProjectAIProvider
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/provider/test:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+    post:
+      tags: [AI]
+      summary: Test the effective project AI provider.
+      operationId: testProjectAIProvider
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/ai/prompts:
+    get:
+      tags: [AI]
+      summary: List effective system AI prompts.
+      operationId: listSystemAIPrompts
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
+  /api/v1/private/ai/prompts/{prompt_key}:
+    parameters:
+      - {$ref: '#/components/parameters/AIPromptKey'}
+    put:
+      tags: [AI]
+      summary: Upsert a system AI prompt override.
+      operationId: putSystemAIPrompt
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/prompts:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+    get:
+      tags: [AI]
+      summary: List effective project AI prompts.
+      operationId: listProjectAIPrompts
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/AIPromptKey'}
+    put:
+      tags: [AI]
+      summary: Upsert a project AI prompt override.
+      operationId: putProjectAIPrompt
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/DraftID'}
+    get:
+      tags: [AI]
+      summary: Get an AI summary for a draft.
+      operationId: getDraftAISummary
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary/regenerate:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/DraftID'}
+    post:
+      tags: [AI]
+      summary: Regenerate an AI summary for a draft.
+      operationId: regenerateDraftAISummary
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/VersionID'}
+    get:
+      tags: [AI]
+      summary: Get an AI summary for a version.
+      operationId: getVersionAISummary
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary/regenerate:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/VersionID'}
+    post:
+      tags: [AI]
+      summary: Regenerate an AI summary for a version.
+      operationId: regenerateVersionAISummary
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/DiffID'}
+    get:
+      tags: [AI]
+      summary: Get an AI summary for a diff.
+      operationId: getDiffAISummary
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary/regenerate:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/DiffID'}
+    post:
+      tags: [AI]
+      summary: Regenerate an AI summary for a diff.
+      operationId: regenerateDiffAISummary
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/chat-sessions:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+    post:
+      tags: [AI]
+      summary: Create an AI chat session scoped to a draft, version, or diff.
+      operationId: createAIChatSession
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/AIChatSessionID'}
+    get:
+      tags: [AI]
+      summary: Get an AI chat session and messages.
+      operationId: getAIChatSession
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/AIChatSessionID'}
+    post:
+      tags: [AI]
+      summary: Send a message in a page-scoped AI chat session.
+      operationId: sendAIChatMessage
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/mcp-tokens:
     get:
       tags: [MCP Tokens]
@@ -664,6 +859,20 @@ components:
         type: string
         enum: [raw, normalized, stable]
       description: Selects raw, normalized OpenAPI, or stable Markdown content.
+    AIPromptKey:
+      name: prompt_key
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [draft_review_summary, version_change_summary, diff_change_summary, page_chat]
+      description: AI prompt key.
+    AIChatSessionID:
+      name: session_id
+      in: path
+      required: true
+      schema: {type: string}
+      description: AI chat session ID.
   responses:
     VdocEnvelopeResponse:
       description: HTTP 200 response with Vdoc envelope.

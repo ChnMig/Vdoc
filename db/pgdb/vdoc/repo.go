@@ -61,6 +61,21 @@ func (r *Repository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
 	if err := r.loadDiffs(ctx, state); err != nil {
 		return nil, err
 	}
+	if err := r.loadAIProviders(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := r.loadAIPrompts(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := r.loadAISummaries(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := r.loadAIChats(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := r.loadAIMessages(ctx, state); err != nil {
+		return nil, err
+	}
 	if err := r.loadAudits(ctx, state); err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	commonvdoc "vdoc/common/vdoc"
+	domainai "vdoc/domain/ai"
 	domainaudit "vdoc/domain/audit"
 	domaindocument "vdoc/domain/document"
 	domainbranch "vdoc/domain/documentbranch"
@@ -111,3 +112,10 @@ type DiffSummary = domaindiff.DiffSummary
 type DiffItem = domaindiff.DiffItem
 type MCPToken = domainmcp.MCPToken
 type AuditLog = domainaudit.AuditLog
+type AIProviderConfig = domainai.ProviderConfig
+type AIProviderInput = domainai.ProviderInput
+type AIPromptOverride = domainai.PromptOverride
+type AIPromptTemplate = domainai.PromptTemplate
+type AISummary = domainai.Summary
+type AIChatSession = domainai.ChatSession
+type AIChatMessage = domainai.ChatMessage

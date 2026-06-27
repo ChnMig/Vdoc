@@ -49,6 +49,11 @@ func (p *postgresPersistence) saveLocked(ctx context.Context, store *Store) erro
 			return err
 		}
 	}
+	if repo, ok := p.repo.(aiMutationRepository); ok {
+		if err := p.saveAIStateLocked(ctx, store, repo); err != nil {
+			return err
+		}
+	}
 	for _, audit := range sortedStoreValues(store.audits, func(value *domainvdoc.AuditLog) string {
 		return value.CreatedAt.Format(sortableTimeLayout) + ":" + value.ID
 	}) {
@@ -132,6 +137,11 @@ func (s *Store) applyStateLocked(loaded *domainvdoc.State) {
 	s.endpoints = loaded.Endpoints
 	s.diffs = loaded.Diffs
 	s.tokens = loaded.Tokens
+	s.aiProviders = loaded.AIProviders
+	s.aiPrompts = loaded.AIPrompts
+	s.aiSummaries = loaded.AISummaries
+	s.aiChats = loaded.AIChats
+	s.aiMessages = loaded.AIMessages
 	s.audits = loaded.AuditLogs
 }
 
@@ -148,6 +158,11 @@ func (s *Store) stateLocked() *domainvdoc.State {
 		Endpoints:   s.endpoints,
 		Diffs:       s.diffs,
 		Tokens:      s.tokens,
+		AIProviders: s.aiProviders,
+		AIPrompts:   s.aiPrompts,
+		AISummaries: s.aiSummaries,
+		AIChats:     s.aiChats,
+		AIMessages:  s.aiMessages,
 		AuditLogs:   s.audits,
 	}
 }
@@ -204,6 +219,27 @@ func (s *Store) cloneStateLocked() *domainvdoc.State {
 			copied.RevokedBy = &revokedBy
 		}
 		state.Tokens[key] = &copied
+	}
+	for key, value := range s.aiProviders {
+		copied := *value
+		copied.APIKeyCiphertext = append([]byte(nil), value.APIKeyCiphertext...)
+		state.AIProviders[key] = &copied
+	}
+	for key, value := range s.aiPrompts {
+		copied := *value
+		state.AIPrompts[key] = &copied
+	}
+	for key, value := range s.aiSummaries {
+		copied := *value
+		state.AISummaries[key] = &copied
+	}
+	for key, value := range s.aiChats {
+		copied := *value
+		state.AIChats[key] = &copied
+	}
+	for key, value := range s.aiMessages {
+		copied := *value
+		state.AIMessages[key] = &copied
 	}
 	for key, value := range s.audits {
 		state.AuditLogs[key] = cloneAuditLog(value)

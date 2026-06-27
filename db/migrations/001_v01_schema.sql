@@ -310,6 +310,86 @@ CREATE INDEX IF NOT EXISTS document_diff_items_diff_severity_idx ON document_dif
 CREATE INDEX IF NOT EXISTS document_diff_items_endpoint_idx ON document_diff_items (diff_id, method, path);
 CREATE INDEX IF NOT EXISTS document_diff_items_change_type_idx ON document_diff_items (change_type);
 
+CREATE TABLE IF NOT EXISTS ai_providers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope text NOT NULL CHECK (scope IN ('system', 'project')),
+  project_id uuid REFERENCES projects(id),
+  name text NOT NULL,
+  base_url text NOT NULL,
+  model text NOT NULL,
+  api_mode text NOT NULL CHECK (api_mode IN ('chat_completions', 'responses')),
+  api_key_ciphertext bytea NOT NULL,
+  cipher_kid text NOT NULL,
+  api_key_last4 text,
+  enabled boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL REFERENCES users(id),
+  updated_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ai_providers_scope_project_check CHECK ((scope = 'system' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ai_providers_system_uidx ON ai_providers (scope) WHERE scope = 'system';
+CREATE UNIQUE INDEX IF NOT EXISTS ai_providers_project_uidx ON ai_providers (project_id) WHERE scope = 'project';
+
+CREATE TABLE IF NOT EXISTS ai_prompt_overrides (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope text NOT NULL CHECK (scope IN ('system', 'project')),
+  project_id uuid REFERENCES projects(id),
+  prompt_key text NOT NULL,
+  system_prompt text NOT NULL,
+  user_prompt_template text NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL REFERENCES users(id),
+  updated_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ai_prompt_scope_project_check CHECK ((scope = 'system' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ai_prompt_system_uidx ON ai_prompt_overrides (prompt_key) WHERE scope = 'system';
+CREATE UNIQUE INDEX IF NOT EXISTS ai_prompt_project_uidx ON ai_prompt_overrides (project_id, prompt_key) WHERE scope = 'project';
+
+CREATE TABLE IF NOT EXISTS ai_summaries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES projects(id),
+  document_id uuid NOT NULL REFERENCES documents(id),
+  owner_type text NOT NULL CHECK (owner_type IN ('draft', 'version', 'diff')),
+  owner_id uuid NOT NULL,
+  prompt_key text NOT NULL,
+  provider_id uuid REFERENCES ai_providers(id),
+  status text NOT NULL CHECK (status IN ('skipped', 'succeeded', 'failed')),
+  content text,
+  error_message text,
+  generated_by uuid NOT NULL REFERENCES users(id),
+  generated_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ai_summaries_owner_uidx ON ai_summaries (project_id, document_id, owner_type, owner_id);
+
+CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES projects(id),
+  document_id uuid REFERENCES documents(id),
+  context_type text NOT NULL CHECK (context_type IN ('draft', 'version', 'diff')),
+  context_id uuid NOT NULL,
+  title text NOT NULL,
+  created_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_chat_sessions_project_idx ON ai_chat_sessions (project_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_chat_messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL REFERENCES ai_chat_sessions(id),
+  role text NOT NULL CHECK (role IN ('user', 'assistant')),
+  content text NOT NULL,
+  provider_id uuid REFERENCES ai_providers(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_chat_messages_session_idx ON ai_chat_messages (session_id, created_at);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   actor_type smallint NOT NULL CONSTRAINT audit_logs_actor_type_check CHECK (actor_type IN (1, 2, 3)),

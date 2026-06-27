@@ -60,6 +60,7 @@ Projects directly own typed Documents. `document_type` is `1` for OpenAPI and `2
 | Endpoints | Parsed endpoint list and detail from published versions. |
 | Diffs | Semantic version comparison and summaries. |
 | MCP Tokens | User MCP token lifecycle. |
+| AI | Built-in Admin AI provider, prompt, AI summary, and page chat APIs. |
 
 ## v0.1 Workflows
 
@@ -162,6 +163,32 @@ The token value in `.detail.token` is a one time copyable secret returned only b
 
 Current MCP tools include `list_projects`, `list_documents`, `list_api_versions`, `get_latest_schema`, `get_endpoint_detail`, `compare_api_versions`, `get_change_summary`, `create_api_version_draft`, `update_api_version_draft`, `submit_api_version_draft`, `get_api_version_draft`, `get_latest_doc`, `compare_doc_versions`, `create_doc_draft`, `update_doc_draft`, `submit_doc_draft`, and `get_doc_draft`. Direct publish tools are intentionally not exposed in v0.1.
 
+### 5. Built-In Admin AI
+
+SuperAdmins configure the system OpenAI-compatible provider at `/api/v1/private/ai/provider`; project Admins can override provider and prompts under `/api/v1/private/projects/{project_id}/ai/*`. Provider responses expose `api_key_set` and `api_key_last4` only. AI summary and chat outputs are AI-generated helper text and cannot approve, request changes, reject, publish, or modify drafts or versions.
+
+```text
+GET  /api/v1/private/ai/provider
+PUT  /api/v1/private/ai/provider
+POST /api/v1/private/ai/provider/test
+GET  /api/v1/private/projects/{project_id}/ai/provider
+PUT  /api/v1/private/projects/{project_id}/ai/provider
+POST /api/v1/private/projects/{project_id}/ai/provider/test
+GET  /api/v1/private/ai/prompts
+PUT  /api/v1/private/ai/prompts/{prompt_key}
+GET  /api/v1/private/projects/{project_id}/ai/prompts
+PUT  /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}
+GET  /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary
+POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary/regenerate
+GET  /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary
+POST /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary/regenerate
+GET  /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary
+POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary/regenerate
+POST /api/v1/private/projects/{project_id}/ai/chat-sessions
+GET  /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}
+POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages
+```
+
 ## Route Reference
 
 | Category | Methods | Path | Auth |
@@ -207,6 +234,23 @@ Current MCP tools include `list_projects`, `list_documents`, `list_api_versions`
 | Diffs | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs` | JWT |
 | Diffs | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}` | JWT |
 | Diffs | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/summary` | JWT |
+| AI | `GET`, `PUT` | `/api/v1/private/ai/provider` | JWT |
+| AI | `POST` | `/api/v1/private/ai/provider/test` | JWT |
+| AI | `GET`, `PUT` | `/api/v1/private/projects/{project_id}/ai/provider` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/ai/provider/test` | JWT |
+| AI | `GET` | `/api/v1/private/ai/prompts` | JWT |
+| AI | `PUT` | `/api/v1/private/ai/prompts/{prompt_key}` | JWT |
+| AI | `GET` | `/api/v1/private/projects/{project_id}/ai/prompts` | JWT |
+| AI | `PUT` | `/api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}` | JWT |
+| AI | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary/regenerate` | JWT |
+| AI | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary/regenerate` | JWT |
+| AI | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary/regenerate` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/ai/chat-sessions` | JWT |
+| AI | `GET` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages` | JWT |
 | MCP Tokens | `GET`, `POST` | `/api/v1/private/mcp-tokens` | JWT |
 | MCP Tokens | `GET` | `/api/v1/private/mcp-tokens/{token_id}` | JWT |
 | MCP Tokens | `POST` | `/api/v1/private/mcp-tokens/{token_id}/revoke` | JWT |

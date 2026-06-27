@@ -24,6 +24,11 @@ func TestModelsDeclareV01TableNames(t *testing.T) {
 		"api_endpoint_details":   APIEndpointDetail{},
 		"document_version_diffs": DocumentVersionDiff{},
 		"document_diff_items":    DocumentDiffItem{},
+		"ai_providers":           AIProvider{},
+		"ai_prompt_overrides":    AIPromptOverride{},
+		"ai_summaries":           AISummary{},
+		"ai_chat_sessions":       AIChatSession{},
+		"ai_chat_messages":       AIChatMessage{},
 		"audit_logs":             AuditLog{},
 		"vdoc_schema_objects":    SchemaObject{},
 	}
@@ -120,6 +125,47 @@ func TestAuditLogModelDeclaresSchemaColumns(t *testing.T) {
 		}
 		if got := field.Tag.Get("gorm"); !containsAll(got, wantParts) {
 			t.Fatalf("AuditLog.%s gorm tag = %q, want parts %#v", fieldName, got, wantParts)
+		}
+	}
+}
+
+func TestAIModelsDeclareNullableScopeColumns(t *testing.T) {
+	aiProvider := reflect.TypeFor[AIProvider]()
+	for _, fieldName := range []string{"ProjectID"} {
+		field, ok := aiProvider.FieldByName(fieldName)
+		if !ok {
+			t.Fatalf("AIProvider.%s missing", fieldName)
+		}
+		if field.Type.Kind() != reflect.Pointer {
+			t.Fatalf("AIProvider.%s type = %s, want pointer for nullable uuid", fieldName, field.Type)
+		}
+	}
+
+	aiPrompt := reflect.TypeFor[AIPromptOverride]()
+	field, ok := aiPrompt.FieldByName("ProjectID")
+	if !ok {
+		t.Fatal("AIPromptOverride.ProjectID missing")
+	}
+	if field.Type.Kind() != reflect.Pointer {
+		t.Fatalf("AIPromptOverride.ProjectID type = %s, want pointer for nullable uuid", field.Type)
+	}
+
+	for modelName, fields := range map[string]struct {
+		modelType  reflect.Type
+		fieldNames []string
+	}{
+		"AISummary":     {modelType: reflect.TypeFor[AISummary](), fieldNames: []string{"ProviderID"}},
+		"AIChatSession": {modelType: reflect.TypeFor[AIChatSession](), fieldNames: []string{"DocumentID"}},
+		"AIChatMessage": {modelType: reflect.TypeFor[AIChatMessage](), fieldNames: []string{"ProviderID"}},
+	} {
+		for _, fieldName := range fields.fieldNames {
+			field, ok := fields.modelType.FieldByName(fieldName)
+			if !ok {
+				t.Fatalf("%s.%s missing", modelName, fieldName)
+			}
+			if field.Type.Kind() != reflect.Pointer {
+				t.Fatalf("%s.%s type = %s, want pointer for nullable uuid", modelName, fieldName, field.Type)
+			}
 		}
 	}
 }
