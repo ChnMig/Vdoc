@@ -167,6 +167,22 @@ Current MCP tools include `list_projects`, `list_documents`, `list_api_versions`
 
 SuperAdmins configure the system OpenAI-compatible provider at `/api/v1/private/ai/provider`; project Admins can override provider and prompts under `/api/v1/private/projects/{project_id}/ai/*`. Provider responses expose `api_key_set` and `api_key_last4` only. AI summary and chat outputs are AI-generated helper text and cannot approve, request changes, reject, publish, or modify drafts or versions.
 
+Provider payloads accept tuning fields alongside `name`, `base_url`, `model`, `api_mode`, `api_key`, and `enabled`. `temperature` defaults to `0.2` and accepts `0` through `2`. `timeout_ms` defaults to `30000` and accepts `1000` through `120000`. `max_output_tokens` defaults to `1000` and accepts `1` through `32000`. Project provider endpoints use the same request and response shape as the system provider.
+
+```sh
+curl -sS "$API_BASE/api/v1/private/ai/provider" \
+  -X PUT \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: $JWT" \
+  -d '{"name":"docs-ai","base_url":"https://api.openai.example","model":"gpt-4.1-mini","api_mode":"chat_completions","api_key":"sk-change-me","enabled":true,"temperature":0.2,"timeout_ms":30000,"max_output_tokens":1000}'
+```
+
+Submitting a draft automatically attempts a draft AI summary after the draft is saved as submitted. Approving a draft automatically attempts a version AI summary after the version is published. OpenAPI and Markdown draft submit and approve paths both follow this rule. The summary attempt is helper work, not part of the approval decision.
+
+Skipped and failed automatic summaries are saved as non-blocking `skipped` or `failed` records. Missing providers and disabled prompts are stored as `skipped`; provider call errors are stored as `failed`. These records are visible through the same `ai-summary` read endpoints and do not roll back submit or publish.
+
+AI audit metadata includes token usage fields when the provider returns them: `prompt_tokens`, `completion_tokens`, and `total_tokens`. API keys, JWTs, MCP tokens, and Authorization headers are not stored in AI audit metadata. Provider test calls, manual summary regeneration, automatic summaries, and chat calls are audited with status and non-secret context.
+
 ```text
 GET  /api/v1/private/ai/provider
 PUT  /api/v1/private/ai/provider

@@ -59,11 +59,14 @@ func (s *Store) SendAIChatMessage(actorID, projectID, sessionID, content string,
 	if err != nil {
 		return nil, err
 	}
-	answer, callErr := s.completeAI(context.Background(), request.Completion)
+	result, callErr := s.completeAI(context.Background(), request.Completion)
 	if callErr != nil {
+		if auditErr := s.auditFailedAIChatMessage(actorID, projectID, sessionID, request, callErr, auditCtx...); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, callErr
 	}
-	return s.finishAIChatMessage(actorID, projectID, sessionID, request, answer, auditCtx...)
+	return s.finishAIChatMessage(actorID, projectID, sessionID, request, result, auditCtx...)
 }
 
 type aiChatRequest struct {
@@ -104,11 +107,11 @@ func (s *Store) prepareAIChatRequest(actorID, projectID, sessionID, content stri
 	userMessage := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleUser, Content: trimmed, CreatedAt: now}
 	userPrompt := strings.ReplaceAll(prompt.UserPromptTemplate, "{{context}}", contextText)
 	userPrompt = strings.ReplaceAll(userPrompt, "{{message}}", trimmed)
-	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt, Temperature: 0.2, MaxTokens: 1000}
+	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt}
 	return aiChatRequest{UserMessage: cloneAIChatMessage(userMessage), Completion: completion}, nil
 }
 
-func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, request aiChatRequest, answer string, auditCtx ...AuditContext) (*AIChatMessage, error) {
+func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, request aiChatRequest, result aiCompletionResult, auditCtx ...AuditContext) (*AIChatMessage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -116,17 +119,31 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 		return nil, err
 	}
 	now := time.Now()
-	assistant := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleAssistant, Content: answer, ProviderID: request.Completion.Provider.ID, CreatedAt: now}
+	assistant := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleAssistant, Content: result.Content, ProviderID: request.Completion.Provider.ID, CreatedAt: now}
 	s.aiMessages[request.UserMessage.ID] = request.UserMessage
 	s.aiMessages[assistant.ID] = assistant
 	if session := s.aiChats[sessionID]; session != nil {
 		session.UpdatedAt = now
 	}
-	s.auditLocked(ctx, AuditActorUser, actorID, "ai.chat.message", "ai_chat_session", sessionID, projectID, "", auditMetadata("result", "success", "provider_id", request.Completion.Provider.ID))
+	metadata := auditMetadata("result", "success", "provider_id", request.Completion.Provider.ID, "api_mode", request.Completion.Provider.APIMode)
+	addTokenUsageMetadata(metadata, result.Usage)
+	s.auditLocked(ctx, AuditActorUser, actorID, "ai.chat.message", "ai_chat_session", sessionID, projectID, "", metadata)
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
 	return cloneAIChatMessage(assistant), nil
+}
+
+func (s *Store) auditFailedAIChatMessage(actorID, projectID, sessionID string, request aiChatRequest, callErr error, auditCtx ...AuditContext) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ctx := auditContext(auditCtx)
+	if err := s.refreshLocked(); err != nil {
+		return err
+	}
+	metadata := auditMetadata("result", "failed", "provider_id", request.Completion.Provider.ID, "api_mode", request.Completion.Provider.APIMode, "reason", callErr.Error())
+	s.auditLocked(ctx, AuditActorUser, actorID, "ai.chat.message", "ai_chat_session", sessionID, projectID, "", metadata)
+	return s.persistLocked()
 }
 
 func (s *Store) chatMessagesLocked(sessionID string) []*AIChatMessage {

@@ -60,6 +60,73 @@ func TestAIProviderStore_TestSystemProviderRejectsUnsafeBaseURL_whenInputOverrid
 	}
 }
 
+func TestAIProviderStore_UpsertSystemProviderDefaultsTuning_whenFieldsOmitted(t *testing.T) {
+	// Given
+	store := newAISuperStore(t)
+
+	// When
+	provider, err := store.UpsertSystemAIProvider(testAISuperUserID, testAIProviderInput(testAIProviderBaseURL))
+
+	// Then
+	if err != nil {
+		t.Fatalf("UpsertSystemAIProvider() error = %v", err)
+	}
+	if provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
+		t.Fatalf("provider tuning = temp %v timeout %d max %d, want 0.2/30000/1000", provider.Temperature, provider.TimeoutMS, provider.MaxOutputTokens)
+	}
+}
+
+func TestAIProviderStore_UpsertSystemProviderRejectsTuningOutOfBounds(t *testing.T) {
+	tests := []struct {
+		name   string
+		adjust func(*AIProviderInput)
+	}{
+		{name: "temperature below minimum", adjust: func(input *AIProviderInput) { input.Temperature = float64Ptr(-0.01) }},
+		{name: "temperature above maximum", adjust: func(input *AIProviderInput) { input.Temperature = float64Ptr(2.01) }},
+		{name: "timeout below minimum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(999) }},
+		{name: "timeout above maximum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(120001) }},
+		{name: "max output below minimum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(0) }},
+		{name: "max output above maximum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(32001) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Given
+			store := newAISuperStore(t)
+			input := testAIProviderInput(testAIProviderBaseURL)
+			tt.adjust(&input)
+
+			// When
+			_, err := store.UpsertSystemAIProvider(testAISuperUserID, input)
+
+			// Then
+			if !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("UpsertSystemAIProvider() error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+}
+
+func TestAIProviderStore_UpsertSystemProviderPreservesZeroTemperature_whenConfigured(t *testing.T) {
+	// Given
+	store := newAISuperStore(t)
+	input := testAIProviderInput(testAIProviderBaseURL)
+	input.Temperature = float64Ptr(0)
+	input.TimeoutMS = intPtr(1000)
+	input.MaxOutputTokens = intPtr(1)
+
+	// When
+	provider, err := store.UpsertSystemAIProvider(testAISuperUserID, input)
+
+	// Then
+	if err != nil {
+		t.Fatalf("UpsertSystemAIProvider() error = %v", err)
+	}
+	if provider.Temperature != 0 || provider.TimeoutMS != 1000 || provider.MaxOutputTokens != 1 {
+		t.Fatalf("provider tuning = temp %v timeout %d max %d, want 0/1000/1", provider.Temperature, provider.TimeoutMS, provider.MaxOutputTokens)
+	}
+}
+
 func TestAIProviderURL_RejectsResolvedUnsafeAddress_whenDNSReturnsInternalAddress(t *testing.T) {
 	// Given
 	addrs := []netip.Addr{netip.MustParseAddr("10.0.0.10")}
@@ -97,3 +164,7 @@ func newAISuperStore(t *testing.T) *Store {
 func testAIProviderInput(baseURL string) AIProviderInput {
 	return AIProviderInput{Name: "test", BaseURL: baseURL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions, APIKey: "sk-test-1234", Enabled: true}
 }
+
+func float64Ptr(value float64) *float64 { return &value }
+
+func intPtr(value int) *int { return &value }

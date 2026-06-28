@@ -53,12 +53,12 @@ func (s *Store) UpsertProjectAIProvider(actorID, projectID string, input AIProvi
 	return s.upsertAIProvider(actorID, projectID, input, auditCtx...)
 }
 
-func (s *Store) TestSystemAIProvider(actorID string, input *AIProviderInput) (string, error) {
-	return s.testAIProvider(actorID, "", input)
+func (s *Store) TestSystemAIProvider(actorID string, input *AIProviderInput, auditCtx ...AuditContext) (string, error) {
+	return s.testAIProvider(actorID, "", input, auditCtx...)
 }
 
-func (s *Store) TestProjectAIProvider(actorID, projectID string, input *AIProviderInput) (string, error) {
-	return s.testAIProvider(actorID, projectID, input)
+func (s *Store) TestProjectAIProvider(actorID, projectID string, input *AIProviderInput, auditCtx ...AuditContext) (string, error) {
+	return s.testAIProvider(actorID, projectID, input, auditCtx...)
 }
 
 func (s *Store) upsertAIProvider(actorID, projectID string, input AIProviderInput, auditCtx ...AuditContext) (*AIProviderConfig, error) {
@@ -102,6 +102,10 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	if model == "" || !validAIMode(mode) {
 		return nil, ErrInvalidArgument
 	}
+	tuning, err := providerTuning(input)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	key := aiProviderKey(projectID)
 	existing := s.aiProviders[key]
@@ -119,6 +123,9 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	provider.Model = model
 	provider.APIMode = mode
 	provider.Enabled = input.Enabled
+	provider.Temperature = tuning.temperature
+	provider.TimeoutMS = tuning.timeoutMS
+	provider.MaxOutputTokens = tuning.maxOutputTokens
 	provider.UpdatedBy = actorID
 	provider.UpdatedAt = now
 	if strings.TrimSpace(input.APIKey) != "" {
@@ -136,12 +143,48 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	return provider, nil
 }
 
-func (s *Store) testAIProvider(actorID, projectID string, input *AIProviderInput) (string, error) {
+func (s *Store) testAIProvider(actorID, projectID string, input *AIProviderInput, auditCtx ...AuditContext) (string, error) {
 	provider, apiKey, err := s.resolveProviderForTest(actorID, projectID, input)
 	if err != nil {
 		return "", err
 	}
-	return s.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: apiKey, System: immutableAIGuard(), User: "Reply with a short provider connectivity check.", Temperature: 0, MaxTokens: 64})
+	result, callErr := s.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: apiKey, System: immutableAIGuard(), User: "Reply with a short provider connectivity check."})
+	if auditErr := s.auditAIProviderTest(actorID, projectID, provider, result.Usage, callErr, auditCtx...); auditErr != nil {
+		return "", auditErr
+	}
+	if callErr != nil {
+		return "", callErr
+	}
+	return result.Content, nil
+}
+
+type aiProviderTuning struct {
+	temperature     float64
+	timeoutMS       int
+	maxOutputTokens int
+}
+
+func providerTuning(input AIProviderInput) (aiProviderTuning, error) {
+	tuning := aiProviderTuning{temperature: domainai.ProviderDefaultTemperature, timeoutMS: domainai.ProviderDefaultTimeoutMS, maxOutputTokens: domainai.ProviderDefaultMaxTokens}
+	if input.Temperature != nil {
+		tuning.temperature = *input.Temperature
+	}
+	if input.TimeoutMS != nil {
+		tuning.timeoutMS = *input.TimeoutMS
+	}
+	if input.MaxOutputTokens != nil {
+		tuning.maxOutputTokens = *input.MaxOutputTokens
+	}
+	if tuning.temperature < domainai.ProviderMinTemperature || tuning.temperature > domainai.ProviderMaxTemperature {
+		return aiProviderTuning{}, ErrInvalidArgument
+	}
+	if tuning.timeoutMS < domainai.ProviderMinTimeoutMS || tuning.timeoutMS > domainai.ProviderMaxTimeoutMS {
+		return aiProviderTuning{}, ErrInvalidArgument
+	}
+	if tuning.maxOutputTokens < domainai.ProviderMinMaxTokens || tuning.maxOutputTokens > domainai.ProviderMaxMaxTokens {
+		return aiProviderTuning{}, ErrInvalidArgument
+	}
+	return tuning, nil
 }
 
 func (s *Store) resolveProviderForTest(actorID, projectID string, input *AIProviderInput) (*AIProviderConfig, string, error) {

@@ -15,6 +15,7 @@ import (
 
 	commonvdoc "vdoc/common/vdoc"
 	"vdoc/config"
+	domainai "vdoc/domain/ai"
 	domainaudit "vdoc/domain/audit"
 	domaindocument "vdoc/domain/document"
 	domainbranch "vdoc/domain/documentbranch"
@@ -1157,22 +1158,26 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 
 func (s *Store) SubmitMarkdownDraft(actorID, projectID, documentID, draftID string, auditCtx ...AuditContext) (*ContractDraft, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
 	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if !s.canDraftLocked(actorID, projectID) {
+		s.mu.Unlock()
 		return nil, ErrPermissionDenied
 	}
 	d, ok := s.draftInProjectServiceLocked(projectID, documentID, draftID)
 	if !ok {
+		s.mu.Unlock()
 		return nil, ErrNotFound
 	}
 	if err := s.ensureMarkdownDocumentLocked(documentID); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	now := time.Now()
@@ -1181,40 +1186,58 @@ func (s *Store) SubmitMarkdownDraft(actorID, projectID, documentID, draftID stri
 	d.UpdatedAt = now
 	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.submit", "document_draft", draftID, projectID, documentID, auditMetadata("result", "success", "branch_id", d.BranchID, "version_name", d.VersionName))
 	if err := s.persistLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	return cloneDraft(d), nil
+	submitted := cloneDraft(d)
+	s.mu.Unlock()
+	s.regenerateAISummaryForWorkflow(aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: projectID, DocumentID: documentID, OwnerType: domainai.SummaryOwnerDraft, OwnerID: draftID}, Trigger: aiSummaryTriggerDraftSubmit, Audit: ctx})
+	return submitted, nil
 }
 
 func (s *Store) ReviewMarkdownDraft(actorID, projectID, documentID, draftID, action string, auditCtx ...AuditContext) (any, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
 	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if !s.canPublishLocked(actorID, projectID) {
+		s.mu.Unlock()
 		return nil, ErrPermissionDenied
 	}
 	d, ok := s.draftInProjectServiceLocked(projectID, documentID, draftID)
 	if !ok {
+		s.mu.Unlock()
 		return nil, ErrNotFound
 	}
 	if err := s.ensureMarkdownDocumentLocked(documentID); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	outcome, err := domaindraft.Review(d, action, time.Now())
 	if err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if outcome == domaindraft.ReviewOutcomePublish {
-		return s.publishDraftLocked(actorID, d, ctx)
+		published, err := s.publishDraftLocked(actorID, d, ctx)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		s.mu.Unlock()
+		s.regenerateAISummaryForWorkflow(aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: projectID, DocumentID: documentID, OwnerType: domainai.SummaryOwnerVersion, OwnerID: published.ID}, Trigger: aiSummaryTriggerVersionPublish, Audit: ctx})
+		return published, nil
 	}
 	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", draftID, projectID, documentID, reviewAuditMetadata(reviewAuditMetadataInput{Context: ctx, Draft: d, Action: action}))
 	if err := s.persistLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	return cloneDraft(d), nil
+	reviewed := cloneDraft(d)
+	s.mu.Unlock()
+	return reviewed, nil
 }
 
 func (s *Store) MarkdownVersionContent(actorID, projectID, documentID, versionID, kind string) (*SchemaDocument, error) {
@@ -1606,22 +1629,26 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 }
 func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, auditCtx ...AuditContext) (*ContractDraft, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
 	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if !s.canDraftLocked(actorID, projectID) {
+		s.mu.Unlock()
 		return nil, ErrPermissionDenied
 	}
 	d, ok := s.draftInProjectServiceLocked(projectID, serviceID, draftID)
 	if !ok {
+		s.mu.Unlock()
 		return nil, ErrNotFound
 	}
 	if err := s.ensureOpenAPIDocumentLocked(serviceID); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	now := time.Now()
@@ -1630,39 +1657,57 @@ func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, audit
 	d.UpdatedAt = now
 	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.submit", "contract_draft", draftID, projectID, serviceID, auditMetadata("result", "success", "branch_id", d.BranchID, "version_name", d.VersionName))
 	if err := s.persistLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	return cloneDraft(d), nil
+	submitted := cloneDraft(d)
+	s.mu.Unlock()
+	s.regenerateAISummaryForWorkflow(aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: projectID, DocumentID: serviceID, OwnerType: domainai.SummaryOwnerDraft, OwnerID: draftID}, Trigger: aiSummaryTriggerDraftSubmit, Audit: ctx})
+	return submitted, nil
 }
 func (s *Store) ReviewDraft(actorID, projectID, serviceID, draftID, action string, auditCtx ...AuditContext) (any, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
 	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if !s.canPublishLocked(actorID, projectID) {
+		s.mu.Unlock()
 		return nil, ErrPermissionDenied
 	}
 	d, ok := s.draftInProjectServiceLocked(projectID, serviceID, draftID)
 	if !ok {
+		s.mu.Unlock()
 		return nil, ErrNotFound
 	}
 	if err := s.ensureOpenAPIDocumentLocked(serviceID); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	outcome, err := domaindraft.Review(d, action, time.Now())
 	if err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if outcome == domaindraft.ReviewOutcomePublish {
-		return s.publishDraftLocked(actorID, d, ctx)
+		published, err := s.publishDraftLocked(actorID, d, ctx)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		s.mu.Unlock()
+		s.regenerateAISummaryForWorkflow(aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: projectID, DocumentID: serviceID, OwnerType: domainai.SummaryOwnerVersion, OwnerID: published.ID}, Trigger: aiSummaryTriggerVersionPublish, Audit: ctx})
+		return published, nil
 	}
 	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.review", "contract_draft", draftID, projectID, serviceID, reviewAuditMetadata(reviewAuditMetadataInput{Context: ctx, Draft: d, Action: action}))
 	if err := s.persistLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	return cloneDraft(d), nil
+	reviewed := cloneDraft(d)
+	s.mu.Unlock()
+	return reviewed, nil
 }
 func (s *Store) ListDrafts(actorID, projectID, serviceID string) ([]*ContractDraft, error) {
 	s.mu.Lock()

@@ -113,11 +113,11 @@ func aiProviderModelFromDomain(provider *domainvdoc.AIProviderConfig) *AIProvide
 	if provider == nil {
 		return nil
 	}
-	return &AIProvider{Base: pgdb.Base{ID: provider.ID, CreatedAt: nonZeroTime(provider.CreatedAt), UpdatedAt: nonZeroTime(provider.UpdatedAt)}, Scope: provider.Scope, ProjectID: stringPtr(provider.ProjectID), Name: provider.Name, BaseURL: provider.BaseURL, Model: provider.Model, APIMode: provider.APIMode, APIKeyCiphertext: append([]byte(nil), provider.APIKeyCiphertext...), CipherKID: provider.CipherKID, APIKeyLast4: provider.APIKeyLast4, Enabled: provider.Enabled, CreatedBy: provider.CreatedBy, UpdatedBy: provider.UpdatedBy}
+	return &AIProvider{Base: pgdb.Base{ID: provider.ID, CreatedAt: nonZeroTime(provider.CreatedAt), UpdatedAt: nonZeroTime(provider.UpdatedAt)}, Scope: provider.Scope, ProjectID: stringPtr(provider.ProjectID), Name: provider.Name, BaseURL: provider.BaseURL, Model: provider.Model, APIMode: provider.APIMode, APIKeyCiphertext: append([]byte(nil), provider.APIKeyCiphertext...), CipherKID: provider.CipherKID, APIKeyLast4: provider.APIKeyLast4, Enabled: provider.Enabled, Temperature: provider.Temperature, TimeoutMS: provider.TimeoutMS, MaxOutputTokens: provider.MaxOutputTokens, CreatedBy: provider.CreatedBy, UpdatedBy: provider.UpdatedBy}
 }
 
 func domainAIProviderFromModel(model AIProvider) *domainvdoc.AIProviderConfig {
-	return &domainvdoc.AIProviderConfig{ID: domainID(model.ID), Scope: model.Scope, ProjectID: stringValueID(model.ProjectID), Name: model.Name, BaseURL: model.BaseURL, Model: model.Model, APIMode: model.APIMode, APIKeyCiphertext: append([]byte(nil), model.APIKeyCiphertext...), CipherKID: model.CipherKID, APIKeyLast4: model.APIKeyLast4, Enabled: model.Enabled, CreatedBy: domainID(model.CreatedBy), UpdatedBy: domainID(model.UpdatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+	return &domainvdoc.AIProviderConfig{ID: domainID(model.ID), Scope: model.Scope, ProjectID: stringValueID(model.ProjectID), Name: model.Name, BaseURL: model.BaseURL, Model: model.Model, APIMode: model.APIMode, APIKeyCiphertext: append([]byte(nil), model.APIKeyCiphertext...), CipherKID: model.CipherKID, APIKeyLast4: model.APIKeyLast4, Enabled: model.Enabled, Temperature: model.Temperature, TimeoutMS: model.TimeoutMS, MaxOutputTokens: model.MaxOutputTokens, CreatedBy: domainID(model.CreatedBy), UpdatedBy: domainID(model.UpdatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
 func aiPromptModelFromDomain(prompt *domainvdoc.AIPromptOverride) *AIPromptOverride {

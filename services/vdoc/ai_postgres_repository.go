@@ -14,6 +14,20 @@ type aiMutationRepository interface {
 	UpsertAIChatMessage(ctx context.Context, message *domainvdoc.AIChatMessage) error
 }
 
+func (p *postgresPersistence) saveAISummaryLocked(ctx context.Context, summary *domainvdoc.AISummary, audit *domainvdoc.AuditLog) (bool, error) {
+	repo, ok := p.repo.(aiMutationRepository)
+	if !ok {
+		return false, nil
+	}
+	if err := repo.UpsertAISummary(ctx, summary); err != nil {
+		return true, err
+	}
+	if audit == nil {
+		return true, nil
+	}
+	return true, p.repo.RecordAudit(ctx, audit)
+}
+
 func (p *postgresPersistence) saveAIStateLocked(ctx context.Context, store *Store, repo aiMutationRepository) error {
 	for _, provider := range sortedStoreValues(store.aiProviders, func(value *domainvdoc.AIProviderConfig) string { return value.ID }) {
 		if err := repo.UpsertAIProvider(ctx, provider); err != nil {

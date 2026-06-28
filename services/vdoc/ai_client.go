@@ -8,20 +8,32 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	domainai "vdoc/domain/ai"
 )
 
 type aiCompletionRequest struct {
-	Provider    *AIProviderConfig
-	APIKey      string
-	System      string
-	User        string
-	Temperature float64
-	MaxTokens   int
+	Provider *AIProviderConfig
+	APIKey   string
+	System   string
+	User     string
 }
 
-func (s *Store) completeAI(ctx context.Context, input aiCompletionRequest) (string, error) {
+type aiCompletionResult struct {
+	Content string
+	Usage   aiTokenUsage
+}
+
+type aiTokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	InputTokens      int
+	OutputTokens     int
+	TotalTokens      int
+}
+
+func (s *Store) completeAI(ctx context.Context, input aiCompletionRequest) (aiCompletionResult, error) {
 	client := s.aiHTTP
 	if client == nil {
 		client = http.DefaultClient
@@ -32,48 +44,48 @@ func (s *Store) completeAI(ctx context.Context, input aiCompletionRequest) (stri
 	case domainai.ProviderModeResponses:
 		return callResponses(ctx, client, input)
 	default:
-		return "", fmt.Errorf("%w: unsupported ai api_mode", ErrInvalidArgument)
+		return aiCompletionResult{}, fmt.Errorf("%w: unsupported ai api_mode", ErrInvalidArgument)
 	}
 }
 
-func callChatCompletions(ctx context.Context, client *http.Client, input aiCompletionRequest) (string, error) {
-	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: []aiMessagePayload{{Role: "system", Content: input.System}, {Role: "user", Content: input.User}}, Temperature: input.Temperature, MaxTokens: input.MaxTokens}
+func callChatCompletions(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
+	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: []aiMessagePayload{{Role: "system", Content: input.System}, {Role: "user", Content: input.User}}, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens}
 	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "/v1/chat/completions", payload)
 	if err != nil {
-		return "", err
+		return aiCompletionResult{}, err
 	}
 	var out chatCompletionResponse
 	if err := json.Unmarshal(body, &out); err != nil {
-		return "", fmt.Errorf("parse chat completions response: %w", err)
+		return aiCompletionResult{}, fmt.Errorf("parse chat completions response: %w", err)
 	}
 	if len(out.Choices) == 0 {
-		return "", fmt.Errorf("%w: provider returned no choices", ErrFailedPrecondition)
+		return aiCompletionResult{}, fmt.Errorf("%w: provider returned no choices", ErrFailedPrecondition)
 	}
 	content := strings.TrimSpace(out.Choices[0].Message.Content)
 	if content == "" {
-		return "", fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
+		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
-	return content, nil
+	return aiCompletionResult{Content: content, Usage: aiTokenUsage{PromptTokens: out.Usage.PromptTokens, CompletionTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}}, nil
 }
 
-func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (string, error) {
-	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: input.User, Temperature: input.Temperature, MaxOutputTokens: input.MaxTokens, Store: false}
+func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
+	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: input.User, Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false}
 	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "/v1/responses", payload)
 	if err != nil {
-		return "", err
+		return aiCompletionResult{}, err
 	}
 	var out responsesResponse
 	if err := json.Unmarshal(body, &out); err != nil {
-		return "", fmt.Errorf("parse responses response: %w", err)
+		return aiCompletionResult{}, fmt.Errorf("parse responses response: %w", err)
 	}
 	content := strings.TrimSpace(out.OutputText)
 	if content == "" {
 		content = strings.TrimSpace(out.JoinedText())
 	}
 	if content == "" {
-		return "", fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
+		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
-	return content, nil
+	return aiCompletionResult{Content: content, Usage: aiTokenUsage{InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, TotalTokens: out.Usage.TotalTokens}}, nil
 }
 
 func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey, path string, payload any) ([]byte, error) {
@@ -85,8 +97,10 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 	if err != nil {
 		return nil, fmt.Errorf("marshal ai request: %w", err)
 	}
+	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(providerTimeoutMS(provider))*time.Millisecond)
+	defer cancel()
 	url := baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create ai request: %w", err)
 	}
@@ -107,6 +121,13 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 	return data, nil
 }
 
+func providerTimeoutMS(provider *AIProviderConfig) int {
+	if provider.TimeoutMS == 0 {
+		return domainai.ProviderDefaultTimeoutMS
+	}
+	return provider.TimeoutMS
+}
+
 type aiMessagePayload struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -115,8 +136,8 @@ type aiMessagePayload struct {
 type chatCompletionPayload struct {
 	Model       string             `json:"model"`
 	Messages    []aiMessagePayload `json:"messages"`
-	Temperature float64            `json:"temperature,omitempty"`
-	MaxTokens   int                `json:"max_tokens,omitempty"`
+	Temperature float64            `json:"temperature"`
+	MaxTokens   int                `json:"max_tokens"`
 }
 
 type chatCompletionResponse struct {
@@ -125,14 +146,19 @@ type chatCompletionResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 type responsesPayload struct {
 	Model           string  `json:"model"`
 	Instructions    string  `json:"instructions"`
 	Input           string  `json:"input"`
-	Temperature     float64 `json:"temperature,omitempty"`
-	MaxOutputTokens int     `json:"max_output_tokens,omitempty"`
+	Temperature     float64 `json:"temperature"`
+	MaxOutputTokens int     `json:"max_output_tokens"`
 	Store           bool    `json:"store"`
 }
 
@@ -143,6 +169,11 @@ type responsesResponse struct {
 			Text string `json:"text"`
 		} `json:"content"`
 	} `json:"output"`
+	Usage struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 func (r responsesResponse) JoinedText() string {

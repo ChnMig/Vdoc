@@ -4,30 +4,37 @@ import (
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/response"
 	app "vdoc/appstore"
+	domainai "vdoc/domain/ai"
 
 	"github.com/gin-gonic/gin"
 )
 
 type providerRequest struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	Model   string `json:"model"`
-	APIMode string `json:"api_mode"`
-	APIKey  string `json:"api_key"`
-	Enabled bool   `json:"enabled"`
+	Name            string   `json:"name"`
+	BaseURL         string   `json:"base_url"`
+	Model           string   `json:"model"`
+	APIMode         string   `json:"api_mode"`
+	APIKey          string   `json:"api_key"`
+	Enabled         bool     `json:"enabled"`
+	Temperature     *float64 `json:"temperature"`
+	TimeoutMS       *int     `json:"timeout_ms"`
+	MaxOutputTokens *int     `json:"max_output_tokens"`
 }
 
 type providerDTO struct {
-	ID          string `json:"id,omitempty"`
-	Scope       string `json:"scope,omitempty"`
-	ProjectID   string `json:"project_id,omitempty"`
-	Name        string `json:"name,omitempty"`
-	BaseURL     string `json:"base_url,omitempty"`
-	Model       string `json:"model,omitempty"`
-	APIMode     string `json:"api_mode,omitempty"`
-	APIKeySet   bool   `json:"api_key_set"`
-	APIKeyLast4 string `json:"api_key_last4,omitempty"`
-	Enabled     bool   `json:"enabled"`
+	ID              string  `json:"id,omitempty"`
+	Scope           string  `json:"scope,omitempty"`
+	ProjectID       string  `json:"project_id,omitempty"`
+	Name            string  `json:"name,omitempty"`
+	BaseURL         string  `json:"base_url,omitempty"`
+	Model           string  `json:"model,omitempty"`
+	APIMode         string  `json:"api_mode,omitempty"`
+	APIKeySet       bool    `json:"api_key_set"`
+	APIKeyLast4     string  `json:"api_key_last4,omitempty"`
+	Enabled         bool    `json:"enabled"`
+	Temperature     float64 `json:"temperature"`
+	TimeoutMS       int     `json:"timeout_ms"`
+	MaxOutputTokens int     `json:"max_output_tokens"`
 }
 
 func getSystemProvider(c *gin.Context) {
@@ -61,7 +68,7 @@ func testSystemProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	content, err := shared.Store().TestSystemAIProvider(userID, input)
+	content, err := shared.Store().TestSystemAIProvider(userID, input, shared.AuditContextFromGin(c))
 	returnTestResult(c, content, err)
 }
 
@@ -96,7 +103,7 @@ func testProjectProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	content, err := shared.Store().TestProjectAIProvider(userID, c.Param("project_id"), input)
+	content, err := shared.Store().TestProjectAIProvider(userID, c.Param("project_id"), input, shared.AuditContextFromGin(c))
 	returnTestResult(c, content, err)
 }
 
@@ -121,7 +128,7 @@ func optionalProvider(c *gin.Context) (*app.AIProviderInput, bool) {
 }
 
 func providerInput(req providerRequest) app.AIProviderInput {
-	return app.AIProviderInput{Name: req.Name, BaseURL: req.BaseURL, Model: req.Model, APIMode: req.APIMode, APIKey: req.APIKey, Enabled: req.Enabled}
+	return app.AIProviderInput{Name: req.Name, BaseURL: req.BaseURL, Model: req.Model, APIMode: req.APIMode, APIKey: req.APIKey, Enabled: req.Enabled, Temperature: req.Temperature, TimeoutMS: req.TimeoutMS, MaxOutputTokens: req.MaxOutputTokens}
 }
 
 func returnProvider(c *gin.Context, provider *app.AIProviderConfig, err error) {
@@ -142,7 +149,7 @@ func returnTestResult(c *gin.Context, content string, err error) {
 
 func providerView(provider *app.AIProviderConfig) providerDTO {
 	if provider == nil {
-		return providerDTO{}
+		return providerDTO{Temperature: domainai.ProviderDefaultTemperature, TimeoutMS: domainai.ProviderDefaultTimeoutMS, MaxOutputTokens: domainai.ProviderDefaultMaxTokens}
 	}
-	return providerDTO{ID: provider.ID, Scope: provider.Scope, ProjectID: provider.ProjectID, Name: provider.Name, BaseURL: provider.BaseURL, Model: provider.Model, APIMode: provider.APIMode, APIKeySet: len(provider.APIKeyCiphertext) > 0, APIKeyLast4: provider.APIKeyLast4, Enabled: provider.Enabled}
+	return providerDTO{ID: provider.ID, Scope: provider.Scope, ProjectID: provider.ProjectID, Name: provider.Name, BaseURL: provider.BaseURL, Model: provider.Model, APIMode: provider.APIMode, APIKeySet: len(provider.APIKeyCiphertext) > 0, APIKeyLast4: provider.APIKeyLast4, Enabled: provider.Enabled, Temperature: provider.Temperature, TimeoutMS: provider.TimeoutMS, MaxOutputTokens: provider.MaxOutputTokens}
 }

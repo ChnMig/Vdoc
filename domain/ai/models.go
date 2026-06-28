@@ -8,6 +8,15 @@ const (
 
 	ProviderModeChatCompletions = "chat_completions"
 	ProviderModeResponses       = "responses"
+	ProviderDefaultTemperature  = 0.2
+	ProviderMinTemperature      = 0
+	ProviderMaxTemperature      = 2
+	ProviderDefaultTimeoutMS    = 30000
+	ProviderMinTimeoutMS        = 1000
+	ProviderMaxTimeoutMS        = 120000
+	ProviderDefaultMaxTokens    = 1000
+	ProviderMinMaxTokens        = 1
+	ProviderMaxMaxTokens        = 32000
 
 	PromptDraftReviewSummary   = "draft_review_summary"
 	PromptVersionChangeSummary = "version_change_summary"
@@ -38,6 +47,9 @@ type ProviderConfig struct {
 	CipherKID        string    `json:"-"`
 	APIKeyLast4      string    `json:"api_key_last4,omitempty"`
 	Enabled          bool      `json:"enabled"`
+	Temperature      float64   `json:"temperature"`
+	TimeoutMS        int       `json:"timeout_ms"`
+	MaxOutputTokens  int       `json:"max_output_tokens"`
 	CreatedBy        string    `json:"created_by"`
 	UpdatedBy        string    `json:"updated_by"`
 	CreatedAt        time.Time `json:"created_at"`
@@ -45,12 +57,15 @@ type ProviderConfig struct {
 }
 
 type ProviderInput struct {
-	Name    string
-	BaseURL string
-	Model   string
-	APIMode string
-	APIKey  string
-	Enabled bool
+	Name            string
+	BaseURL         string
+	Model           string
+	APIMode         string
+	APIKey          string
+	Enabled         bool
+	Temperature     *float64
+	TimeoutMS       *int
+	MaxOutputTokens *int
 }
 
 type PromptOverride struct {

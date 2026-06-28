@@ -131,6 +131,19 @@ func TestAuditLogModelDeclaresSchemaColumns(t *testing.T) {
 
 func TestAIModelsDeclareNullableScopeColumns(t *testing.T) {
 	aiProvider := reflect.TypeFor[AIProvider]()
+	for fieldName, wantParts := range map[string][]string{
+		"Temperature":     {"column:temperature", "type:double precision", "not null", "default:0.2"},
+		"TimeoutMS":       {"column:timeout_ms", "type:integer", "not null", "default:30000"},
+		"MaxOutputTokens": {"column:max_output_tokens", "type:integer", "not null", "default:1000"},
+	} {
+		field, ok := aiProvider.FieldByName(fieldName)
+		if !ok {
+			t.Fatalf("AIProvider.%s missing", fieldName)
+		}
+		if got := field.Tag.Get("gorm"); !containsAll(got, wantParts) {
+			t.Fatalf("AIProvider.%s gorm tag = %q, want parts %#v", fieldName, got, wantParts)
+		}
+	}
 	for _, fieldName := range []string{"ProjectID"} {
 		field, ok := aiProvider.FieldByName(fieldName)
 		if !ok {

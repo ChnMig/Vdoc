@@ -37,7 +37,7 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	writerToken := issuePrivateTestToken(t, writerUser.ID)
 
 	// When
-	body := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-secret-1234","enabled":true}`
+	body := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-secret-1234","enabled":true,"temperature":0,"timeout_ms":45000,"max_output_tokens":2048}`
 	created := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/ai/provider", superToken, body))
 	denied := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/projects/"+project.ID+"/ai/provider", writerToken, body))
 
@@ -46,18 +46,59 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 		t.Fatalf("provider response = code %d detail %s", created.Code, string(created.Detail))
 	}
 	var provider struct {
-		APIKeySet   bool   `json:"api_key_set"`
-		APIKeyLast4 string `json:"api_key_last4"`
-		APIMode     string `json:"api_mode"`
+		APIKeySet       bool    `json:"api_key_set"`
+		APIKeyLast4     string  `json:"api_key_last4"`
+		APIMode         string  `json:"api_mode"`
+		Temperature     float64 `json:"temperature"`
+		TimeoutMS       int     `json:"timeout_ms"`
+		MaxOutputTokens int     `json:"max_output_tokens"`
 	}
 	if err := json.Unmarshal(created.Detail, &provider); err != nil {
 		t.Fatalf("decode provider: %v", err)
 	}
-	if !provider.APIKeySet || provider.APIKeyLast4 != "1234" || provider.APIMode != "chat_completions" {
+	var providerFields map[string]any
+	if err := json.Unmarshal(created.Detail, &providerFields); err != nil {
+		t.Fatalf("decode provider fields: %v", err)
+	}
+	if !provider.APIKeySet || provider.APIKeyLast4 != "1234" || provider.APIMode != "chat_completions" || provider.Temperature != 0 || provider.TimeoutMS != 45000 || provider.MaxOutputTokens != 2048 {
 		t.Fatalf("provider = %+v", provider)
+	}
+	if _, ok := providerFields["api_key"]; ok {
+		t.Fatalf("provider detail exposes api_key field: %s", string(created.Detail))
 	}
 	if denied.Code != 403 || denied.Status != "PERMISSION_DENIED" {
 		t.Fatalf("writer provider update response = code %d status %q", denied.Code, denied.Status)
+	}
+}
+
+func TestAIProviderRoutes_ReturnDefaultTuning_whenSystemProviderUnset(t *testing.T) {
+	// Given
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("ai-defaults-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	token := issuePrivateTestToken(t, superUser.ID)
+
+	// When
+	envelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/ai/provider", token, ""))
+
+	// Then
+	if envelope.Code != 200 {
+		t.Fatalf("system provider response = code %d detail %s", envelope.Code, string(envelope.Detail))
+	}
+	var provider struct {
+		APIKeySet       bool    `json:"api_key_set"`
+		Temperature     float64 `json:"temperature"`
+		TimeoutMS       int     `json:"timeout_ms"`
+		MaxOutputTokens int     `json:"max_output_tokens"`
+	}
+	if err := json.Unmarshal(envelope.Detail, &provider); err != nil {
+		t.Fatalf("decode provider: %v", err)
+	}
+	if provider.APIKeySet || provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
+		t.Fatalf("provider defaults = %+v", provider)
 	}
 }
 
@@ -78,6 +119,37 @@ func TestAIProviderRoutes_ReturnInvalidArgument_whenSystemProviderBaseURLUnsafe(
 	// Then
 	if envelope.Code != 400 || envelope.Status != "INVALID_ARGUMENT" {
 		t.Fatalf("unsafe provider response = code %d status %q detail %s", envelope.Code, envelope.Status, string(envelope.Detail))
+	}
+}
+
+func TestAIProviderRoutes_RecordProviderTestAuditWithRequestContext_whenProviderTestRuns(t *testing.T) {
+	// Given
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	store.SetAIHTTPClient(&http.Client{Transport: privateAIRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		defer r.Body.Close()
+		return privateAIJSONResponse(`{"choices":[{"message":{"content":"route provider ok"}}],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`), nil
+	})})
+	superUser, err := store.Register("ai-route-audit-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	token := issuePrivateTestToken(t, superUser.ID)
+	body := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-route-secret","enabled":true}`
+
+	// When
+	envelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/ai/provider/test", token, body))
+
+	// Then
+	if envelope.Code != 200 || !strings.Contains(string(envelope.Detail), "route provider ok") {
+		t.Fatalf("provider test response = code %d detail %s", envelope.Code, string(envelope.Detail))
+	}
+	audit := requirePrivateAudit(t, store.AuditLogsForTest(), "ai.provider.test")
+	if audit.RequestID == "" || audit.Metadata["result"] != "success" || audit.Metadata["api_mode"] != "chat_completions" || audit.Metadata["prompt_tokens"] != "4" || audit.Metadata["completion_tokens"] != "3" || audit.Metadata["total_tokens"] != "7" {
+		t.Fatalf("provider test audit = %+v", audit)
+	}
+	if privateAuditContainsValue(store.AuditLogsForTest(), "sk-route-secret") || privateAuditContainsValue(store.AuditLogsForTest(), token) || privateAuditContainsValue(store.AuditLogsForTest(), "Authorization") {
+		t.Fatalf("provider test audit leaked secret: %+v", store.AuditLogsForTest())
 	}
 }
 
@@ -194,4 +266,26 @@ func (f privateAIRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, erro
 
 func privateAIJSONResponse(body string) *http.Response {
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+}
+
+func requirePrivateAudit(t *testing.T, logs []*app.AuditLog, action string) *app.AuditLog {
+	t.Helper()
+	for _, audit := range logs {
+		if audit.Action == action {
+			return audit
+		}
+	}
+	t.Fatalf("missing audit action=%s logs=%+v", action, logs)
+	return nil
+}
+
+func privateAuditContainsValue(logs []*app.AuditLog, forbidden string) bool {
+	for _, audit := range logs {
+		for key, value := range audit.Metadata {
+			if strings.Contains(key, forbidden) || strings.Contains(value, forbidden) {
+				return true
+			}
+		}
+	}
+	return false
 }

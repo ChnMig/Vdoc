@@ -18,6 +18,9 @@ type AIProvider struct {
 	CipherKID        string  `gorm:"column:cipher_kid;type:text;not null"`
 	APIKeyLast4      string  `gorm:"column:api_key_last4;type:text"`
 	Enabled          bool    `gorm:"column:enabled;type:boolean;not null;default:true"`
+	Temperature      float64 `gorm:"column:temperature;type:double precision;not null;default:0.2"`
+	TimeoutMS        int     `gorm:"column:timeout_ms;type:integer;not null;default:30000"`
+	MaxOutputTokens  int     `gorm:"column:max_output_tokens;type:integer;not null;default:1000"`
 	CreatedBy        string  `gorm:"column:created_by;type:uuid;not null"`
 	UpdatedBy        string  `gorm:"column:updated_by;type:uuid;not null"`
 }

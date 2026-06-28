@@ -30,15 +30,40 @@ func (s *Store) AISummary(actorID string, target AISummaryTarget) (*AISummary, e
 }
 
 func (s *Store) RegenerateAISummary(actorID string, target AISummaryTarget, auditCtx ...AuditContext) (*AISummary, error) {
-	request, skipped, err := s.prepareAISummaryRequest(actorID, target)
+	run := aiSummaryRun{ActorID: actorID, Target: target, Trigger: aiSummaryTriggerManual, RequireManage: true, Audit: auditContext(auditCtx)}
+	return s.runAISummary(run)
+}
+
+type aiSummaryTrigger string
+
+const (
+	aiSummaryTriggerManual         aiSummaryTrigger = "manual"
+	aiSummaryTriggerDraftSubmit    aiSummaryTrigger = "draft_submit"
+	aiSummaryTriggerVersionPublish aiSummaryTrigger = "version_publish"
+)
+
+type aiSummaryRun struct {
+	ActorID       string
+	Target        AISummaryTarget
+	Trigger       aiSummaryTrigger
+	RequireManage bool
+	Audit         AuditContext
+}
+
+func (s *Store) regenerateAISummaryForWorkflow(run aiSummaryRun) {
+	_, _ = s.runAISummary(run)
+}
+
+func (s *Store) runAISummary(run aiSummaryRun) (*AISummary, error) {
+	request, skipped, err := s.prepareAISummaryRequest(run)
 	if err != nil {
 		return nil, err
 	}
 	if skipped != nil {
 		return skipped, nil
 	}
-	content, callErr := s.completeAI(context.Background(), request.Completion)
-	return s.finishAISummary(actorID, target, request, content, callErr, auditCtx...)
+	result, callErr := s.completeAI(context.Background(), request.Completion)
+	return s.finishAISummary(run, aiSummaryCompletion{Request: request, Result: result, Err: callErr})
 }
 
 type aiSummaryRequest struct {
@@ -47,56 +72,107 @@ type aiSummaryRequest struct {
 	Completion aiCompletionRequest
 }
 
-func (s *Store) prepareAISummaryRequest(actorID string, target AISummaryTarget) (aiSummaryRequest, *AISummary, error) {
+type aiSummaryCompletion struct {
+	Request aiSummaryRequest
+	Result  aiCompletionResult
+	Err     error
+}
+
+type aiSummarySkip struct {
+	PromptKey    string
+	ProviderID   string
+	APIMode      string
+	ErrorMessage string
+}
+
+type aiSummaryAuditInput struct {
+	Summary    *AISummary
+	PromptKey  string
+	ProviderID string
+	APIMode    string
+	Status     string
+	Usage      aiTokenUsage
+}
+
+func (s *Store) prepareAISummaryRequest(run aiSummaryRun) (aiSummaryRequest, *AISummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
 		return aiSummaryRequest{}, nil, err
 	}
-	if !s.canManageProjectLocked(actorID, target.ProjectID) {
+	if run.RequireManage && !s.canManageProjectLocked(run.ActorID, run.Target.ProjectID) {
 		return aiSummaryRequest{}, nil, ErrPermissionDenied
 	}
-	contextText, promptKey, err := s.aiTargetContextLocked(target)
+	contextText, promptKey, err := s.aiTargetContextLocked(run.Target)
 	if err != nil {
 		return aiSummaryRequest{}, nil, err
 	}
-	provider, apiKey, err := s.effectiveAIProviderLocked(target.ProjectID)
+	provider, apiKey, err := s.effectiveAIProviderLocked(run.Target.ProjectID)
 	if err != nil {
 		if Is(err, ErrFailedPrecondition) {
-			skipped := s.storeAISummaryLocked(actorID, target, promptKey, "", domainai.SummaryStatusSkipped, "ai provider is not configured", "")
-			return aiSummaryRequest{}, cloneAISummary(skipped), s.persistLocked()
+			skipped, audit := s.storeSkippedAISummaryLocked(run, aiSummarySkip{PromptKey: promptKey, ErrorMessage: "ai provider is not configured"})
+			return aiSummaryRequest{}, cloneAISummary(skipped), s.persistAISummaryLocked(skipped, audit)
 		}
 		return aiSummaryRequest{}, nil, err
 	}
-	prompt := s.effectivePromptLocked(target.ProjectID, promptKey)
+	prompt := s.effectivePromptLocked(run.Target.ProjectID, promptKey)
 	if !prompt.Enabled {
-		skipped := s.storeAISummaryLocked(actorID, target, promptKey, provider.ID, domainai.SummaryStatusSkipped, "ai prompt is disabled", "")
-		return aiSummaryRequest{}, cloneAISummary(skipped), s.persistLocked()
+		skipped, audit := s.storeSkippedAISummaryLocked(run, aiSummarySkip{PromptKey: promptKey, ProviderID: provider.ID, APIMode: provider.APIMode, ErrorMessage: "ai prompt is disabled"})
+		return aiSummaryRequest{}, cloneAISummary(skipped), s.persistAISummaryLocked(skipped, audit)
 	}
 	userPrompt := strings.ReplaceAll(prompt.UserPromptTemplate, "{{context}}", contextText)
-	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt, Temperature: 0.2, MaxTokens: 900}
+	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt}
 	return aiSummaryRequest{Provider: cloneAIProvider(provider), Prompt: prompt, Completion: completion}, nil, nil
 }
 
-func (s *Store) finishAISummary(actorID string, target AISummaryTarget, request aiSummaryRequest, content string, callErr error, auditCtx ...AuditContext) (*AISummary, error) {
+func (s *Store) finishAISummary(run aiSummaryRun, completion aiSummaryCompletion) (*AISummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ctx := auditContext(auditCtx)
 	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
 	status := domainai.SummaryStatusSucceeded
 	errorMessage := ""
-	if callErr != nil {
+	if completion.Err != nil {
 		status = domainai.SummaryStatusFailed
-		errorMessage = callErr.Error()
+		errorMessage = completion.Err.Error()
 	}
-	summary := s.storeAISummaryLocked(actorID, target, request.Prompt.PromptKey, request.Provider.ID, status, errorMessage, content)
-	s.auditLocked(ctx, AuditActorUser, actorID, "ai.summary.regenerate", "ai_summary", summary.ID, target.ProjectID, target.DocumentID, auditMetadata("result", status, "owner_type", target.OwnerType, "owner_id", target.OwnerID, "prompt_key", request.Prompt.PromptKey))
-	if err := s.persistLocked(); err != nil {
+	summary := s.storeAISummaryLocked(run.ActorID, run.Target, completion.Request.Prompt.PromptKey, completion.Request.Provider.ID, status, errorMessage, completion.Result.Content)
+	audit := s.auditAISummaryLocked(run, aiSummaryAuditInput{Summary: summary, PromptKey: completion.Request.Prompt.PromptKey, ProviderID: completion.Request.Provider.ID, APIMode: completion.Request.Provider.APIMode, Status: status, Usage: completion.Result.Usage})
+	if err := s.persistAISummaryLocked(summary, audit); err != nil {
 		return nil, err
 	}
 	return cloneAISummary(summary), nil
+}
+
+func (s *Store) storeSkippedAISummaryLocked(run aiSummaryRun, skipped aiSummarySkip) (*AISummary, *AuditLog) {
+	summary := s.storeAISummaryLocked(run.ActorID, run.Target, skipped.PromptKey, skipped.ProviderID, domainai.SummaryStatusSkipped, skipped.ErrorMessage, "")
+	audit := s.auditAISummaryLocked(run, aiSummaryAuditInput{Summary: summary, PromptKey: skipped.PromptKey, ProviderID: skipped.ProviderID, APIMode: skipped.APIMode, Status: domainai.SummaryStatusSkipped})
+	return summary, audit
+}
+
+func (s *Store) auditAISummaryLocked(run aiSummaryRun, input aiSummaryAuditInput) *AuditLog {
+	metadata := auditMetadata("result", input.Status, "trigger", string(run.Trigger), "owner_type", run.Target.OwnerType, "owner_id", run.Target.OwnerID, "prompt_key", input.PromptKey, "provider_id", input.ProviderID, "api_mode", input.APIMode)
+	addTokenUsageMetadata(metadata, input.Usage)
+	if s.audits == nil {
+		s.audits = map[string]*AuditLog{}
+	}
+	return appendAuditToState(s.audits, run.Audit, AuditActorUser, run.ActorID, "ai.summary.regenerate", "ai_summary", input.Summary.ID, run.Target.ProjectID, run.Target.DocumentID, metadata)
+}
+
+func (s *Store) persistAISummaryLocked(summary *AISummary, audit *AuditLog) error {
+	if s.persistence == nil {
+		return nil
+	}
+	ctx := context.Background()
+	persisted, err := s.persistence.saveAISummaryLocked(ctx, summary, audit)
+	if err != nil {
+		return err
+	}
+	if !persisted {
+		return nil
+	}
+	return s.persistence.load(ctx, s)
 }
 
 func (s *Store) storeAISummaryLocked(actorID string, target AISummaryTarget, promptKey, providerID, status, errorMessage, content string) *AISummary {

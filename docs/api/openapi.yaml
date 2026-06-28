@@ -32,7 +32,7 @@ tags:
   - name: MCP Tokens
     description: User MCP token lifecycle.
   - name: AI
-    description: Built-in Admin AI provider, prompt, summary, and page chat APIs. AI can summarize and explain only; it cannot approve, request changes, reject, publish, or modify drafts or versions.
+    description: Built-in Admin AI provider, prompt, summary, and page chat APIs. AI can summarize and explain only; it cannot approve, request changes, reject, publish, or modify drafts or versions. Draft submit and version publish attempt summaries after the state change is saved. Skipped or failed summaries are stored without blocking submit or publish. AI audit metadata may include prompt_tokens, completion_tokens, and total_tokens, but never raw API keys, JWTs, MCP tokens, or Authorization headers.
 paths:
   /api/v1/open/health:
     get:
@@ -553,6 +553,7 @@ paths:
     get:
       tags: [AI]
       summary: Get system AI provider configuration.
+      description: Returns provider detail using AIProviderResponse. The response includes tuning fields temperature, timeout_ms, and max_output_tokens, plus redacted key state through api_key_set and api_key_last4.
       operationId: getSystemAIProvider
       security: [{JWTAuth: []}]
       responses:
@@ -560,16 +561,28 @@ paths:
     put:
       tags: [AI]
       summary: Upsert system AI provider configuration.
+      description: Saves an OpenAI-compatible provider. Omitted tuning fields use defaults from AIProviderRequest. The raw api_key is accepted only in the request and is never returned.
       operationId: putSystemAIProvider
       security: [{JWTAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AIProviderRequest'}
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/ai/provider/test:
     post:
       tags: [AI]
       summary: Test the system AI provider without exposing its API key.
+      description: Tests the saved provider when the body is omitted, or tests the supplied AIProviderRequest without exposing the API key. Audit metadata records token usage when the provider returns usage fields and excludes secrets.
       operationId: testSystemAIProvider
       security: [{JWTAuth: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AIProviderRequest'}
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/ai/provider:
@@ -578,6 +591,7 @@ paths:
     get:
       tags: [AI]
       summary: Get project AI provider configuration.
+      description: Returns the project override provider detail using AIProviderResponse when one is configured. Provider response fields include tuning values and redacted key metadata only.
       operationId: getProjectAIProvider
       security: [{JWTAuth: []}]
       responses:
@@ -585,8 +599,14 @@ paths:
     put:
       tags: [AI]
       summary: Upsert project AI provider configuration.
+      description: Saves a project-level provider override with the same AIProviderRequest tuning defaults and ranges as the system provider.
       operationId: putProjectAIProvider
       security: [{JWTAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AIProviderRequest'}
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/ai/provider/test:
@@ -595,8 +615,14 @@ paths:
     post:
       tags: [AI]
       summary: Test the effective project AI provider.
+      description: Tests the effective project provider, falling back to the system provider when no enabled project override exists. A request body may supply AIProviderRequest for a one-off test.
       operationId: testProjectAIProvider
       security: [{JWTAuth: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AIProviderRequest'}
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/ai/prompts:
@@ -911,6 +937,129 @@ components:
         - type: object
           properties:
             total: {type: integer}
+    AIProviderRequest:
+      type: object
+      additionalProperties: false
+      required: [name, base_url, model, api_mode, enabled]
+      properties:
+        name:
+          type: string
+          description: Human-readable provider name.
+        base_url:
+          type: string
+          format: uri
+          description: OpenAI-compatible base URL. The backend normalizes it to the supported API path for the selected api_mode.
+        model:
+          type: string
+          description: Provider model name sent to the upstream provider.
+        api_mode:
+          type: string
+          enum: [chat_completions, responses]
+          description: Selects OpenAI chat completions payloads or OpenAI responses payloads.
+        api_key:
+          type: string
+          writeOnly: true
+          description: Raw provider API key. It is encrypted for storage and never returned by API responses or audit metadata.
+        enabled:
+          type: boolean
+          description: Whether this provider can be used for summaries and chat.
+        temperature:
+          type: number
+          format: double
+          default: 0.2
+          minimum: 0
+          maximum: 2
+          description: Sampling temperature. Omit to use 0.2. Values from 0 through 2 are accepted.
+        timeout_ms:
+          type: integer
+          default: 30000
+          minimum: 1000
+          maximum: 120000
+          description: Provider request timeout in milliseconds. Omit to use 30000. Values from 1000 through 120000 are accepted.
+        max_output_tokens:
+          type: integer
+          default: 1000
+          minimum: 1
+          maximum: 32000
+          description: Maximum generated output tokens. Omit to use 1000. Values from 1 through 32000 are accepted.
+    AIProviderResponse:
+      type: object
+      additionalProperties: false
+      required: [api_key_set, enabled, temperature, timeout_ms, max_output_tokens]
+      properties:
+        id: {type: string}
+        scope:
+          type: string
+          enum: [system, project]
+        project_id: {type: string}
+        name: {type: string}
+        base_url: {type: string}
+        model: {type: string}
+        api_mode:
+          type: string
+          enum: [chat_completions, responses]
+        api_key_set:
+          type: boolean
+          description: True when an encrypted provider API key is stored.
+        api_key_last4:
+          type: string
+          description: Last four characters of the stored provider key, returned for operator confirmation only.
+        enabled: {type: boolean}
+        temperature:
+          type: number
+          format: double
+          default: 0.2
+          minimum: 0
+          maximum: 2
+          description: Effective sampling temperature.
+        timeout_ms:
+          type: integer
+          default: 30000
+          minimum: 1000
+          maximum: 120000
+          description: Effective provider timeout in milliseconds.
+        max_output_tokens:
+          type: integer
+          default: 1000
+          minimum: 1
+          maximum: 32000
+          description: Effective output token cap.
+    AIProviderTestResult:
+      type: object
+      additionalProperties: false
+      required: [ok, content]
+      properties:
+        ok: {type: boolean}
+        content:
+          type: string
+          description: Provider connectivity check response text.
+    AISummaryResponse:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, document_id, owner_type, owner_id, prompt_key, status, generated_by, generated_at, updated_at]
+      properties:
+        id: {type: string}
+        project_id: {type: string}
+        document_id: {type: string}
+        owner_type:
+          type: string
+          enum: [draft, version, diff]
+        owner_id: {type: string}
+        prompt_key:
+          type: string
+          enum: [draft_review_summary, version_change_summary, diff_change_summary]
+        provider_id: {type: string}
+        status:
+          type: string
+          enum: [skipped, succeeded, failed]
+          description: skipped and failed records are persisted for diagnostics and do not block draft submit or version publish.
+        content: {type: string}
+        error_message:
+          type: string
+          description: Non-secret provider, prompt, or configuration failure summary for skipped and failed records.
+        generated_by: {type: string}
+        generated_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     MCPToolName:
       type: string
       enum:
