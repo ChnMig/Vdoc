@@ -70,7 +70,11 @@ func TestAPIDocsOpenAPIProviderTuningSchema(t *testing.T) {
 }
 
 func TestAPIDocsDatabaseSchemaDescribesAILoopPersistence(t *testing.T) {
-	document := readDocsMarkdown(t, "../../../DATABASE_SCHEMA.md")
+	const documentPath = "../../../DATABASE_SCHEMA.md"
+	if missingOptionalWorkspaceDocument(t, documentPath) {
+		return
+	}
+	document := readDocsMarkdown(t, documentPath)
 	requiredPhrases := []string{
 		"`ai_providers`",
 		"`temperature`",
