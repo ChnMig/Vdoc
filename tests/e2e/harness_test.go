@@ -269,13 +269,14 @@ func setupLiveDefaultStore(t *testing.T) string {
 
 func resetLiveDatabase(t *testing.T, database *gorm.DB) {
 	t.Helper()
-	for _, statement := range []string{
-		"DROP SCHEMA IF EXISTS public CASCADE",
-		"CREATE SCHEMA public",
-	} {
-		if err := database.Exec(statement).Error; err != nil {
-			t.Fatalf("reset live PostgreSQL schema with %q: %v", statement, err)
-		}
+	if err := assertDisposableTestDatabase(os.Getenv("VDOC_TEST_DATABASE_DSN")); err != nil {
+		t.Fatalf("refusing to reset live PostgreSQL schema: %v", err)
+	}
+	if err := database.Exec("DROP SCHEMA IF EXISTS public CASCADE").Error; err != nil {
+		t.Fatalf("reset live PostgreSQL schema with DROP SCHEMA: %v", err)
+	}
+	if err := database.Exec("CREATE SCHEMA public").Error; err != nil {
+		t.Fatalf("reset live PostgreSQL schema with CREATE SCHEMA: %v", err)
 	}
 }
 

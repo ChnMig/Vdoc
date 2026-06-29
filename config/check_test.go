@@ -110,6 +110,21 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "initial admin disabled compose defaults use blank triplet",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminEmail = ""
+				cfg.InitialAdminName = ""
+				cfg.InitialAdminPassword = ""
+			},
+		},
+		{
+			name: "initial admin disabled rejects name only default",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminName = "VdocAdmin"
+			},
+			wantErr: true,
+		},
+		{
 			name: "initial admin missing email",
 			mutate: func(cfg *loadedConfig) {
 				cfg.InitialAdminPassword = "Password123456"

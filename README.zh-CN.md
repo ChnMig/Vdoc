@@ -36,6 +36,31 @@ API 文档：
 - [../PILOT_RUNBOOK.md](../PILOT_RUNBOOK.md)
 - [../RELEASE_DEPLOY.md](../RELEASE_DEPLOY.md)
 
+本机闭环统一使用 workspace root 路径：
+
+```sh
+scripts/vdoc-local-bootstrap.sh
+docker compose --env-file .env up -d --build
+cd Vdoc && go run ./tools/vdoc-demo-seed
+```
+
+Demo seed 是可选步骤。运行 live E2E 时保持 root Compose 正在运行，然后使用后端脚本：
+
+```sh
+cd Vdoc
+./scripts/vdoc-e2e.sh live-compose --env-file ../.env --check-only
+./scripts/vdoc-e2e.sh live-compose --env-file ../.env
+```
+
+Live E2E 会重置选中的一次性 `VDOC_TEST_POSTGRES_DB`，默认是 `vdoc_e2e`。它不会使用或重置 `VDOC_POSTGRES_DB` 指向的应用数据库。本机门禁使用 release dry-run：
+
+```sh
+scripts/vdoc-release-dry-run.sh --list
+scripts/vdoc-release-dry-run.sh
+```
+
+不要提交 `.env`，也不要暴露原始 JWT、MCP token、DB password、storage secret 或 `Authorization` header 值。
+
 v0.1 已经实现：
 
 - `/api/v1` 版本化路由树

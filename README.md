@@ -36,6 +36,31 @@ Pilot and release documentation lives at the workspace root:
 - [../PILOT_RUNBOOK.md](../PILOT_RUNBOOK.md)
 - [../RELEASE_DEPLOY.md](../RELEASE_DEPLOY.md)
 
+Workspace local closure uses one root path:
+
+```sh
+scripts/vdoc-local-bootstrap.sh
+docker compose --env-file .env up -d --build
+cd Vdoc && go run ./tools/vdoc-demo-seed
+```
+
+The demo seed is optional. For live E2E, keep the root Compose stack running and use the backend script:
+
+```sh
+cd Vdoc
+./scripts/vdoc-e2e.sh live-compose --env-file ../.env --check-only
+./scripts/vdoc-e2e.sh live-compose --env-file ../.env
+```
+
+Live E2E resets the selected disposable `VDOC_TEST_POSTGRES_DB`, `vdoc_e2e` by default. It does not use or reset the application database from `VDOC_POSTGRES_DB`. Use the release dry-run as the local gate:
+
+```sh
+scripts/vdoc-release-dry-run.sh --list
+scripts/vdoc-release-dry-run.sh
+```
+
+Do not commit `.env` or expose raw JWTs, MCP tokens, DB passwords, storage secrets, or `Authorization` header values.
+
 Implemented in v0.1:
 
 - Versioned route tree under `/api/v1`
@@ -248,7 +273,7 @@ docker run --rm -p 8080:8080 \
   vdoc-backend:local
 ```
 
-The image exposes port `8080`, runs as a non-root user, and includes a healthcheck for `/api/v1/open/health`. This repository's `docker-compose.yml` remains dependency-only for local PostgreSQL/RustFS; workspace Compose guidance lives in `../COMPOSE_DEPLOY.md`.
+The image exposes port `8080`, runs as a non-root user, and includes a healthcheck for `/api/v1/open/health`. Workspace Compose guidance lives in `../COMPOSE_DEPLOY.md`.
 
 ### Common Commands
 
