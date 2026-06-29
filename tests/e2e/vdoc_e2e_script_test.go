@@ -149,7 +149,20 @@ func TestVdocE2EScriptCLI_live_compose_check_only_derives_env(t *testing.T) {
 
 func TestVdocE2EScriptCLI_live_compose_check_only_accepts_env_example(t *testing.T) {
 	// Given
-	invocation := e2eScriptInvocation{args: []string{"live-compose", "--env-file", "../.env.example", "--check-only"}}
+	envPath := writeComposeEnv(t, []string{
+		"VDOC_POSTGRES_HOST_PORT=5432",
+		"VDOC_POSTGRES_DB=vdoc",
+		"VDOC_POSTGRES_USER=vdoc",
+		"VDOC_POSTGRES_PASSWORD=replace-with-local-postgres-password",
+		"VDOC_RUSTFS_HOST_PORT=9000",
+		"VDOC_STORAGE_BUCKET=vdoc",
+		"VDOC_STORAGE_ACCESS_KEY=replace-with-local-rustfs-access-key",
+		"VDOC_STORAGE_SECRET_KEY=replace-with-local-rustfs-secret-key",
+		"VDOC_TEST_POSTGRES_DB=vdoc_e2e",
+		"VDOC_TEST_STORAGE_USE_SSL=false",
+		"VDOC_TEST_STORAGE_PATH_STYLE=true",
+	})
+	invocation := e2eScriptInvocation{args: []string{"live-compose", "--env-file", envPath, "--check-only"}}
 
 	// When
 	result := runVdocE2EScript(t, invocation)
