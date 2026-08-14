@@ -2,7 +2,6 @@ package health
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,12 +41,6 @@ var (
 )
 
 const dependencyCheckTimeout = 2 * time.Second
-
-var (
-	credentialURLPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)([^/\s:@]+):([^@\s/]+)@`)
-	passwordPattern      = regexp.MustCompile(`(?i)(password=)[^\s]+`)
-	secretPattern        = regexp.MustCompile(`(?i)((secret|access)_?key=)[^\s]+`)
-)
 
 func defaultDependencyChecks() []DependencyCheck {
 	return []DependencyCheck{
@@ -120,7 +113,7 @@ func evaluateDependencies(ctx context.Context) map[string]DependencyStatus {
 		err := check.Check(checkCtx)
 		cancel()
 		if err != nil {
-			statuses[name] = DependencyStatus{Enabled: true, Ready: false, Status: "error", Message: sanitizeDependencyMessage(err.Error())}
+			statuses[name] = DependencyStatus{Enabled: true, Ready: false, Status: "error", Message: "dependency check failed"}
 			continue
 		}
 		message := firstNonEmpty(check.ReadyMessage, "ready")
@@ -133,17 +126,6 @@ func dependencyChecksSnapshot() []DependencyCheck {
 	dependencyMu.RLock()
 	defer dependencyMu.RUnlock()
 	return append([]DependencyCheck(nil), dependencyChecks...)
-}
-
-func sanitizeDependencyMessage(message string) string {
-	message = strings.TrimSpace(message)
-	message = credentialURLPattern.ReplaceAllString(message, `${1}${2}:<redacted>@`)
-	message = passwordPattern.ReplaceAllString(message, `${1}<redacted>`)
-	message = secretPattern.ReplaceAllString(message, `${1}<redacted>`)
-	if message == "" {
-		return "dependency check failed"
-	}
-	return message
 }
 
 func firstNonEmpty(values ...string) string {

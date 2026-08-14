@@ -9,6 +9,8 @@ security: []
 tags:
   - name: Open
     description: Public health, authentication, docs, and MCP entry points.
+  - name: Document Shares
+    description: Admin-managed document share links and minimal anonymous published-content access.
   - name: Identity
     description: Current user identity.
   - name: System Users
@@ -29,6 +31,8 @@ tags:
     description: Parsed endpoint data from published document versions.
   - name: Diffs
     description: Document version comparison.
+  - name: Audit Logs
+    description: Filtered audit history for super administrators and project administrators.
   - name: MCP Tokens
     description: User MCP token lifecycle.
   - name: AI
@@ -44,7 +48,8 @@ paths:
   /api/v1/open/auth/register:
     post:
       tags: [Open]
-      summary: Register a user and issue a JWT.
+      summary: Register a user and issue a JWT when anonymous registration is enabled.
+      description: Disabled by default. Operators must explicitly set auth.allow_registration=true only for trusted disposable or pilot environments.
       operationId: registerAuth
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
@@ -53,6 +58,14 @@ paths:
       tags: [Open]
       summary: Authenticate a user and issue a JWT.
       operationId: loginAuth
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/open/auth/config:
+    get:
+      tags: [Open]
+      summary: Read public authentication capabilities.
+      description: Returns whether anonymous registration is enabled so clients can hide unavailable registration flows.
+      operationId: getAuthConfig
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/open/docs/openapi.yaml:
@@ -71,6 +84,58 @@ paths:
         - MCPTokenAuth: []
       responses:
         '200': {$ref: '#/components/responses/MCPJSONRPCResponse'}
+  /api/v1/open/document-shares/{share_id}:
+    parameters:
+      - {$ref: '#/components/parameters/ShareID'}
+    get:
+      tags: [Document Shares]
+      summary: Read minimal metadata for an authorized public document share.
+      operationId: getPublicDocumentShare
+      security: [{DocumentShareAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/open/document-shares/{share_id}/unlock:
+    parameters:
+      - {$ref: '#/components/parameters/ShareID'}
+    post:
+      tags: [Document Shares]
+      summary: Exchange a valid share password for a short-lived memory-only unlock proof.
+      operationId: unlockPublicDocumentShare
+      security: [{DocumentShareAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/open/document-shares/{share_id}/versions:
+    parameters:
+      - {$ref: '#/components/parameters/ShareID'}
+    get:
+      tags: [Document Shares]
+      summary: List published versions allowed by an all-versions share.
+      operationId: listPublicDocumentShareVersions
+      security: [{DocumentShareAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
+  /api/v1/open/document-shares/{share_id}/versions/{version_id}/content:
+    parameters:
+      - {$ref: '#/components/parameters/ShareID'}
+      - {$ref: '#/components/parameters/VersionID'}
+    get:
+      tags: [Document Shares]
+      summary: Read an allowed immutable published snapshot.
+      operationId: getPublicDocumentShareContent
+      security: [{DocumentShareAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/open/document-shares/{share_id}/versions/{version_id}/download:
+    parameters:
+      - {$ref: '#/components/parameters/ShareID'}
+      - {$ref: '#/components/parameters/VersionID'}
+    get:
+      tags: [Document Shares]
+      summary: Download an allowed immutable published source file through Vdoc authorization.
+      operationId: downloadPublicDocumentShareVersion
+      security: [{DocumentShareAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/PublicDocumentDownloadResponse'}
   /api/v1/private/identity/me:
     get:
       tags: [Identity]
@@ -128,7 +193,7 @@ paths:
   /api/v1/private/teams:
     get:
       tags: [Teams]
-      summary: List teams.
+      summary: List teams (SuperAdmin only).
       operationId: listTeams
       security: [{JWTAuth: []}]
       responses:
@@ -145,7 +210,7 @@ paths:
       - {$ref: '#/components/parameters/TeamID'}
     get:
       tags: [Teams]
-      summary: Get team.
+      summary: Get team (SuperAdmin only).
       operationId: getTeam
       security: [{JWTAuth: []}]
       responses:
@@ -226,6 +291,17 @@ paths:
       security: [{JWTAuth: []}]
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/member-candidates:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+    get:
+      tags: [Projects]
+      summary: List active users eligible to join the project.
+      description: Project Admin or SuperAdmin only. Existing active project members and disabled users are excluded.
+      operationId: listProjectMemberCandidates
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/members/{user_id}:
     parameters:
       - {$ref: '#/components/parameters/ProjectID'}
@@ -256,6 +332,12 @@ paths:
       summary: List project documents.
       operationId: listProjectDocuments
       security: [{JWTAuth: []}]
+      parameters:
+        - name: document_type
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+          description: Filter documents by type code (1 OpenAPI, 2 Markdown).
       responses:
         '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
     post:
@@ -280,6 +362,7 @@ paths:
     patch:
       tags: [Documents]
       summary: Update project document.
+      description: Updates document metadata only. Lifecycle status cannot be changed here; use the archive action. Invalid lifecycle input is rejected before any metadata is committed.
       operationId: updateProjectDocument
       security: [{JWTAuth: []}]
       responses:
@@ -292,6 +375,50 @@ paths:
       tags: [Documents]
       summary: Archive project document.
       operationId: archiveProjectDocument
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/shares:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+    get:
+      tags: [Document Shares]
+      summary: List retained public-share history for a document.
+      operationId: listDocumentShares
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
+    post:
+      tags: [Document Shares]
+      summary: Create an immutable branch-bound public-share policy and return its capability once.
+      description: Requires an active Project, Document, and Branch with at least one published version. Archived parents retain list and revoke access but block creation.
+      operationId: createDocumentShare
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/shares/{share_id}/reveal:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/ShareID'}
+    post:
+      tags: [Document Shares]
+      summary: Reveal an active share capability without returning its password.
+      description: Requires active parent resources. Archived parents retain list and revoke access but block capability reveal.
+      operationId: revealDocumentShare
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/projects/{project_id}/documents/{document_id}/shares/{share_id}/revoke:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {$ref: '#/components/parameters/DocumentID'}
+      - {$ref: '#/components/parameters/ShareID'}
+    post:
+      tags: [Document Shares]
+      summary: Irreversibly revoke an active public document share.
+      operationId: revokeDocumentShare
       security: [{JWTAuth: []}]
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
@@ -353,6 +480,8 @@ paths:
       summary: List document drafts.
       operationId: listDocumentDrafts
       security: [{JWTAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/BranchIDQuery'}
       responses:
         '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
     post:
@@ -462,6 +591,8 @@ paths:
       summary: List published document versions.
       operationId: listDocumentVersions
       security: [{JWTAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/BranchIDQuery'}
       responses:
         '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}:
@@ -521,10 +652,19 @@ paths:
     post:
       tags: [Diffs]
       summary: Compare document versions.
+      description: Creates or returns a comparison only when the Project and Document are active and the two version IDs differ. Stored Diff history remains readable after archive.
       operationId: createDocumentDiff
       security: [{JWTAuth: []}]
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+    get:
+      tags: [Diffs]
+      summary: List stored document diffs.
+      description: Optional from_version_id and to_version_id query parameters select an exact version pair.
+      operationId: listDocumentDiffs
+      security: [{JWTAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}:
     parameters:
       - {$ref: '#/components/parameters/ProjectID'}
@@ -549,11 +689,26 @@ paths:
       security: [{JWTAuth: []}]
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/audit-logs:
+    get:
+      tags: [Audit Logs]
+      summary: List authorized audit history.
+      description: Super administrators may query all projects. Project administrators must supply project_id and can query only projects they administer. Reader and writer roles are denied. Results are newest first and capped at 200.
+      operationId: listAuditLogs
+      security: [{JWTAuth: []}]
+      parameters:
+        - {name: project_id, in: query, required: false, schema: {type: string}}
+        - {name: action, in: query, required: false, schema: {type: string}}
+        - {name: resource_type, in: query, required: false, schema: {type: string}}
+        - {name: resource_id, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
   /api/v1/private/ai/provider:
     get:
       tags: [AI]
       summary: Get system AI provider configuration.
-      description: Returns provider detail using AIProviderResponse. The response includes tuning fields temperature, timeout_ms, and max_output_tokens, plus redacted key state through api_key_set and api_key_last4.
+      description: SuperAdmin only. Returns provider detail using AIProviderResponse. The response includes tuning fields temperature, timeout_ms, and max_output_tokens, plus redacted key state through api_key_set and api_key_last4.
       operationId: getSystemAIProvider
       security: [{JWTAuth: []}]
       responses:
@@ -561,7 +716,7 @@ paths:
     put:
       tags: [AI]
       summary: Upsert system AI provider configuration.
-      description: Saves an OpenAI-compatible provider. Omitted tuning fields use defaults from AIProviderRequest. The raw api_key is accepted only in the request and is never returned.
+      description: SuperAdmin only. Saves an OpenAI-compatible provider. Omitted tuning fields use defaults from AIProviderRequest. The raw api_key is accepted only in the request and is never returned.
       operationId: putSystemAIProvider
       security: [{JWTAuth: []}]
       requestBody:
@@ -575,7 +730,7 @@ paths:
     post:
       tags: [AI]
       summary: Test the system AI provider without exposing its API key.
-      description: Tests the saved provider when the body is omitted, or tests the supplied AIProviderRequest without exposing the API key. Audit metadata records token usage when the provider returns usage fields and excludes secrets.
+      description: SuperAdmin only. Tests the saved provider when the body is omitted, or tests the supplied AIProviderRequest without exposing the API key. Audit metadata records token usage when the provider returns usage fields and excludes secrets.
       operationId: testSystemAIProvider
       security: [{JWTAuth: []}]
       requestBody:
@@ -591,7 +746,7 @@ paths:
     get:
       tags: [AI]
       summary: Get project AI provider configuration.
-      description: Returns the project override provider detail using AIProviderResponse when one is configured. Provider response fields include tuning values and redacted key metadata only.
+      description: Project Admin or SuperAdmin only; Reader and Writer are denied even though they may use page summaries and chat where document permissions allow. Returns the project override using AIProviderResponse when configured. Historical configuration remains readable after project archive. Provider response fields include tuning values and redacted key metadata only.
       operationId: getProjectAIProvider
       security: [{JWTAuth: []}]
       responses:
@@ -599,7 +754,7 @@ paths:
     put:
       tags: [AI]
       summary: Upsert project AI provider configuration.
-      description: Saves a project-level provider override with the same AIProviderRequest tuning defaults and ranges as the system provider.
+      description: Project Admin or SuperAdmin only. Saves a project-level provider override for an active project with the same AIProviderRequest tuning defaults and ranges as the system provider. Archived project configuration cannot be changed.
       operationId: putProjectAIProvider
       security: [{JWTAuth: []}]
       requestBody:
@@ -615,7 +770,7 @@ paths:
     post:
       tags: [AI]
       summary: Test the effective project AI provider.
-      description: Tests the effective project provider, falling back to the system provider when no enabled project override exists. A request body may supply AIProviderRequest for a one-off test.
+      description: Project Admin or SuperAdmin only, and the project must be active. With no request body, tests the effective provider and falls back to the enabled system provider when no enabled project override exists. A request body supplies AIProviderRequest for a one-off project-scoped test. Reader and Writer are denied this configuration operation but may use page summaries and chat where document permissions allow.
       operationId: testProjectAIProvider
       security: [{JWTAuth: []}]
       requestBody:
@@ -629,6 +784,7 @@ paths:
     get:
       tags: [AI]
       summary: List effective system AI prompts.
+      description: SuperAdmin only. Returns built-in prompts with any effective system overrides and the immutable AI guard appended.
       operationId: listSystemAIPrompts
       security: [{JWTAuth: []}]
       responses:
@@ -639,8 +795,14 @@ paths:
     put:
       tags: [AI]
       summary: Upsert a system AI prompt override.
+      description: SuperAdmin only. The path supplies prompt_key; the body supplies only editable prompt content. Every user_prompt_template must contain {{context}}, and page_chat must also contain {{message}}.
       operationId: putSystemAIPrompt
       security: [{JWTAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AIPromptRequest'}
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/ai/prompts:
@@ -649,6 +811,7 @@ paths:
     get:
       tags: [AI]
       summary: List effective project AI prompts.
+      description: Project Admin or SuperAdmin only; Reader and Writer are denied even though they may use page summaries and chat where document permissions allow. Returns project overrides layered over system or built-in prompts. Historical prompt configuration remains readable after project archive.
       operationId: listProjectAIPrompts
       security: [{JWTAuth: []}]
       responses:
@@ -660,8 +823,14 @@ paths:
     put:
       tags: [AI]
       summary: Upsert a project AI prompt override.
+      description: Project Admin or SuperAdmin only, and the project must be active. The path supplies prompt_key; the body supplies only editable prompt content. Every user_prompt_template must contain {{context}}, and page_chat must also contain {{message}}. Archived project prompt configuration cannot be changed.
       operationId: putProjectAIPrompt
       security: [{JWTAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AIPromptRequest'}
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
   /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/ai-summary:
@@ -739,9 +908,22 @@ paths:
   /api/v1/private/projects/{project_id}/ai/chat-sessions:
     parameters:
       - {$ref: '#/components/parameters/ProjectID'}
+    get:
+      tags: [AI]
+      summary: List AI chat sessions for an exact draft, version, or diff context.
+      description: Returns retained sessions newest-updated first, including after the Project, Document, or target Branch is archived.
+      operationId: listAIChatSessions
+      security: [{JWTAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/AIChatDocumentIDQuery'}
+        - {$ref: '#/components/parameters/AIChatContextTypeQuery'}
+        - {$ref: '#/components/parameters/AIChatContextIDQuery'}
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
     post:
       tags: [AI]
       summary: Create an AI chat session scoped to a draft, version, or diff.
+      description: Requires an active Project, Document, and target Branch. Existing sessions remain readable after archive.
       operationId: createAIChatSession
       security: [{JWTAuth: []}]
       responses:
@@ -779,7 +961,7 @@ paths:
     post:
       tags: [MCP Tokens]
       summary: Create MCP token.
-      description: Returns the one time copyable token value only on create. List, get, and revoke responses are redacted.
+      description: Returns a copyable token on create. The owner can reveal an active token again with the detail endpoint; list, revoked, and expired responses are redacted.
       operationId: createMCPToken
       security: [{JWTAuth: []}]
       responses:
@@ -816,7 +998,19 @@ components:
       in: header
       name: Authorization
       description: Raw MCP token string issued by the private MCP token APIs.
+    DocumentShareAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: VdocShare scheme carrying the fragment-derived document-share capability. Protected links also require X-Vdoc-Share-Unlock after password exchange.
   parameters:
+
+    BranchIDQuery:
+      name: branch_id
+      in: query
+      required: false
+      schema: {type: string, format: uuid}
+      description: Filter drafts or versions to one document branch.
     ProjectID:
       name: project_id
       in: path
@@ -847,6 +1041,14 @@ components:
       required: true
       schema: {type: string}
       description: Published document version ID.
+    ShareID:
+      name: share_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+      description: Public document share ID. The capability secret is never placed in this path.
     EndpointID:
       name: endpoint_id
       in: path
@@ -899,6 +1101,26 @@ components:
       required: true
       schema: {type: string}
       description: AI chat session ID.
+    AIChatDocumentIDQuery:
+      name: document_id
+      in: query
+      required: true
+      schema: {type: string}
+      description: Document ID for the exact AI page context.
+    AIChatContextTypeQuery:
+      name: context_type
+      in: query
+      required: true
+      schema:
+        type: string
+        enum: [draft, version, diff]
+      description: AI page context type.
+    AIChatContextIDQuery:
+      name: context_id
+      in: query
+      required: true
+      schema: {type: string}
+      description: Draft, version, or Diff ID for the exact AI page context.
   responses:
     VdocEnvelopeResponse:
       description: HTTP 200 response with Vdoc envelope.
@@ -920,6 +1142,18 @@ components:
       content:
         application/json:
           schema: {type: object}
+    PublicDocumentDownloadResponse:
+      description: Authorized immutable raw OpenAPI or Markdown bytes with an attachment Content-Disposition header.
+      headers:
+        Content-Disposition:
+          schema: {type: string}
+      content:
+        application/json:
+          schema: {type: string, format: binary}
+        application/yaml:
+          schema: {type: string, format: binary}
+        text/markdown:
+          schema: {type: string, format: binary}
   schemas:
     VdocEnvelope:
       type: object
@@ -1024,6 +1258,22 @@ components:
           minimum: 1
           maximum: 32000
           description: Effective output token cap.
+    AIPromptRequest:
+      type: object
+      additionalProperties: false
+      required: [system_prompt, user_prompt_template, enabled]
+      properties:
+        system_prompt:
+          type: string
+          minLength: 1
+          description: Non-blank operator prompt. The backend appends an immutable guard that prevents AI review or publication actions.
+        user_prompt_template:
+          type: string
+          minLength: 1
+          description: Non-blank template. Every prompt key requires the literal {{context}} placeholder; page_chat additionally requires the literal {{message}} placeholder.
+        enabled:
+          type: boolean
+          description: Whether this prompt can be used. A disabled summary prompt records generation as skipped without blocking draft submission or version publishing.
     AIProviderTestResult:
       type: object
       additionalProperties: false
@@ -1051,8 +1301,8 @@ components:
         provider_id: {type: string}
         status:
           type: string
-          enum: [skipped, succeeded, failed]
-          description: skipped and failed records are persisted for diagnostics and do not block draft submit or version publish.
+          enum: [pending, skipped, succeeded, failed]
+          description: pending marks the latest in-flight request; skipped and failed records are persisted for diagnostics and do not block draft submit or version publish.
         content: {type: string}
         error_message:
           type: string
@@ -1066,6 +1316,7 @@ components:
         - list_projects
         - list_documents
         - list_api_versions
+        - list_doc_versions
         - get_latest_schema
         - get_endpoint_detail
         - compare_api_versions

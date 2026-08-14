@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,6 +21,8 @@ const (
 	minMCPTokenCipherKeyLength = 32
 	// 初始管理员密码最小长度，需与 Vdoc 用户密码规则保持一致
 	minInitialAdminPasswordLength = 12
+	// bcrypt 仅接受最多 72 bytes
+	maxInitialAdminPasswordBytes = 72
 )
 
 // CheckConfig 校验关键配置项，缺失或不安全则 fatal 并记录日志
@@ -27,6 +31,18 @@ func CheckConfig(
 	JWTExpiration int64,
 ) {
 	cfg := loadedConfig{
+		ListenPort:           ListenPort,
+		MaxBodySize:          MaxBodySize,
+		MaxHeaderBytes:       MaxHeaderBytes,
+		ShutdownTimeout:      ShutdownTimeout,
+		ReadTimeout:          ReadTimeout,
+		WriteTimeout:         WriteTimeout,
+		IdleTimeout:          IdleTimeout,
+		EnableRateLimit:      EnableRateLimit,
+		GlobalRateLimit:      GlobalRateLimit,
+		GlobalRateBurst:      GlobalRateBurst,
+		AuthRateLimit:        AuthRateLimit,
+		AuthRateBurst:        AuthRateBurst,
 		JWTKey:               JWTKey,
 		JWTExpiration:        time.Duration(JWTExpiration),
 		DatabaseEnabled:      DatabaseEnabled,
@@ -43,6 +59,8 @@ func CheckConfig(
 		InitialAdminPassword: InitialAdminPassword,
 		MCPTokenCipherKey:    MCPTokenCipherKey,
 		MCPTokenCipherKID:    MCPTokenCipherKID,
+		CORSAllowedOrigins:   append([]string(nil), CORSAllowedOrigins...),
+		TrustedProxies:       append([]string(nil), TrustedProxies...),
 	}
 	if err := validateConfig(cfg); err != nil {
 		zap.L().Fatal("配置安全校验失败", zap.Error(err))
@@ -50,6 +68,9 @@ func CheckConfig(
 }
 
 func validateConfig(cfg loadedConfig) error {
+	if err := validateServerConfig(cfg); err != nil {
+		return err
+	}
 	if err := validateJWTConfig(cfg.JWTKey, int64(cfg.JWTExpiration)); err != nil {
 		return err
 	}
@@ -62,7 +83,80 @@ func validateConfig(cfg loadedConfig) error {
 	if err := validateInitialAdminConfig(cfg); err != nil {
 		return err
 	}
+	if err := validateCORSOrigins(cfg.CORSAllowedOrigins); err != nil {
+		return err
+	}
+	if err := validateTrustedProxies(cfg.TrustedProxies); err != nil {
+		return err
+	}
 	return validateMCPTokenCipherConfig(cfg)
+}
+
+func validateServerConfig(cfg loadedConfig) error {
+	if cfg.ListenPort <= 0 || cfg.ListenPort > 65535 {
+		return fmt.Errorf("server.port must be between 1 and 65535")
+	}
+	if cfg.MaxBodySize <= 0 {
+		return fmt.Errorf("server.max_body_size must be positive")
+	}
+	if cfg.MaxHeaderBytes <= 0 {
+		return fmt.Errorf("server.max_header_bytes must be positive")
+	}
+	if cfg.ShutdownTimeout <= 0 || cfg.ReadTimeout <= 0 || cfg.WriteTimeout <= 0 || cfg.IdleTimeout <= 0 {
+		return fmt.Errorf("server shutdown/read/write/idle timeouts must all be positive")
+	}
+	if cfg.GlobalRateLimit <= 0 {
+		return fmt.Errorf("server.global_rate_limit must be positive")
+	}
+	if cfg.GlobalRateBurst <= 0 {
+		return fmt.Errorf("server.global_rate_burst must be positive")
+	}
+	if cfg.AuthRateLimit <= 0 {
+		return fmt.Errorf("auth.rate_limit must be positive")
+	}
+	if cfg.AuthRateBurst <= 0 {
+		return fmt.Errorf("auth.rate_burst must be positive")
+	}
+	return nil
+}
+
+func validateTrustedProxies(proxies []string) error {
+	for _, proxy := range proxies {
+		if ip := net.ParseIP(proxy); ip != nil {
+			continue
+		}
+		_, network, err := net.ParseCIDR(proxy)
+		if err != nil {
+			return fmt.Errorf("server.trusted_proxies contains invalid IP or CIDR %q", proxy)
+		}
+		trustsAllIPv4 := network.Contains(net.ParseIP("0.0.0.0")) && network.Contains(net.ParseIP("255.255.255.255"))
+		trustsAllIPv6 := network.Contains(net.ParseIP("::")) && network.Contains(net.ParseIP("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
+		if trustsAllIPv4 || trustsAllIPv6 {
+			return fmt.Errorf("server.trusted_proxies must not trust every address: %q", proxy)
+		}
+	}
+	return nil
+}
+
+func validateCORSOrigins(origins []string) error {
+	for _, origin := range origins {
+		if origin == "*" {
+			return fmt.Errorf("server.cors_allowed_origins must not contain wildcard origins")
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("server.cors_allowed_origins contains invalid origin %q", origin)
+		}
+		if parsed.Scheme == "http" && !isLocalDevelopmentHost(parsed.Hostname()) {
+			return fmt.Errorf("server.cors_allowed_origins must use HTTPS outside local development: %q", origin)
+		}
+	}
+	return nil
+}
+
+func isLocalDevelopmentHost(host string) bool {
+	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
+	return normalized == "localhost" || strings.HasSuffix(normalized, ".localhost") || normalized == "127.0.0.1" || normalized == "::1"
 }
 
 func validateJWTConfig(JWTKey string, JWTExpiration int64) error {
@@ -84,8 +178,8 @@ func validateJWTConfig(JWTKey string, JWTExpiration int64) error {
 	}
 
 	// 检查过期时间是否设置
-	if JWTExpiration == 0 {
-		return fmt.Errorf("JWTExpiration 配置缺失，请在 config.yaml 中设置 jwt.expiration")
+	if JWTExpiration <= 0 {
+		return fmt.Errorf("JWTExpiration 必须为正数，请在 config.yaml 中设置 jwt.expiration")
 	}
 
 	return nil
@@ -151,7 +245,10 @@ func ValidateInitialAdminPassword(password string) error {
 		return fmt.Errorf("initial_admin.password must not have leading or trailing whitespace")
 	}
 	if len(password) < minInitialAdminPasswordLength {
-		return fmt.Errorf("initial_admin.password must be at least %d characters", minInitialAdminPasswordLength)
+		return fmt.Errorf("initial_admin.password must be at least %d bytes", minInitialAdminPasswordLength)
+	}
+	if len(password) > maxInitialAdminPasswordBytes {
+		return fmt.Errorf("initial_admin.password must not exceed %d bytes", maxInitialAdminPasswordBytes)
 	}
 	return nil
 }

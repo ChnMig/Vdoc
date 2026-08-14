@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
+	"vdoc/config"
 	"vdoc/utils/authentication"
 	"vdoc/utils/contextkey"
 
@@ -25,11 +27,28 @@ func RegisterOpenRoutes(open *gin.RouterGroup) {
 		return
 	}
 	g := open.Group("/auth")
-	g.POST("/register", Register)
-	g.POST("/login", Login)
+	authRateLimit := middleware.RateLimitWithOptions(middleware.RateLimitOptions{
+		Rate:  config.AuthRateLimit,
+		Burst: config.AuthRateBurst,
+		KeyFunc: func(c *gin.Context) string {
+			return "auth:" + c.ClientIP()
+		},
+		Message: "Authentication rate limit exceeded",
+	})
+	g.POST("/register", authRateLimit, Register)
+	g.POST("/login", authRateLimit, Login)
+	g.GET("/config", Config)
+}
+
+func Config(c *gin.Context) {
+	response.ReturnOk(c, gin.H{"registration_enabled": config.AllowRegistration})
 }
 
 func Register(c *gin.Context) {
+	if !config.AllowRegistration {
+		response.ReturnError(c, response.PERMISSION_DENIED, "公开注册未启用")
+		return
+	}
 	var req authRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())

@@ -37,6 +37,7 @@ func TestPidFileLifecycle(t *testing.T) {
 		"VDOC_SERVER_PORT="+port,
 		"VDOC_SERVER_SHUTDOWN_TIMEOUT=1s",
 		"VDOC_JWT_KEY=0123456789abcdef0123456789abcdef",
+		"VDOC_AUTH_ALLOW_REGISTRATION=true",
 	)
 
 	var out bytes.Buffer

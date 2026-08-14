@@ -18,7 +18,10 @@ type aiCompletionRequest struct {
 	APIKey   string
 	System   string
 	User     string
+	History  []aiMessagePayload
 }
+
+const aiProviderMaxResponseBytes = 4 << 20
 
 type aiCompletionResult struct {
 	Content string
@@ -49,7 +52,11 @@ func (s *Store) completeAI(ctx context.Context, input aiCompletionRequest) (aiCo
 }
 
 func callChatCompletions(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
-	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: []aiMessagePayload{{Role: "system", Content: input.System}, {Role: "user", Content: input.User}}, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens}
+	messages := make([]aiMessagePayload, 0, len(input.History)+2)
+	messages = append(messages, aiMessagePayload{Role: "system", Content: input.System})
+	messages = append(messages, input.History...)
+	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User})
+	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens}
 	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "/v1/chat/completions", payload)
 	if err != nil {
 		return aiCompletionResult{}, err
@@ -69,7 +76,7 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 }
 
 func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
-	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: input.User, Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false}
+	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false}
 	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "/v1/responses", payload)
 	if err != nil {
 		return aiCompletionResult{}, err
@@ -86,6 +93,22 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
 	return aiCompletionResult{Content: content, Usage: aiTokenUsage{InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, TotalTokens: out.Usage.TotalTokens}}, nil
+}
+
+func responsesConversationInput(history []aiMessagePayload, currentUser string) string {
+	if len(history) == 0 {
+		return currentUser
+	}
+	parts := make([]string, 0, len(history)+1)
+	for _, message := range history {
+		role := "User"
+		if message.Role == domainai.ChatRoleAssistant {
+			role = "Assistant"
+		}
+		parts = append(parts, role+":\n"+message.Content)
+	}
+	parts = append(parts, "Current user request:\n"+currentUser)
+	return strings.Join(parts, "\n\n")
 }
 
 func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey, path string, payload any) ([]byte, error) {
@@ -106,14 +129,19 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	safeClient := *client
+	safeClient.CheckRedirect = rejectAIProviderRedirect
+	resp, err := safeClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call ai provider: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, aiProviderMaxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read ai response: %w", err)
+	}
+	if len(data) > aiProviderMaxResponseBytes {
+		return nil, fmt.Errorf("%w: provider response exceeds %d bytes", ErrFailedPrecondition, aiProviderMaxResponseBytes)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("%w: provider status %d", ErrFailedPrecondition, resp.StatusCode)

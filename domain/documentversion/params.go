@@ -43,6 +43,7 @@ type DraftSnapshot struct {
 	DocumentID           string
 	BranchID             string
 	VersionName          string
+	RelativePath         string
 	Changelog            string
 	SourceGitCommitID    string
 	SchemaFormat         int

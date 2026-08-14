@@ -43,6 +43,11 @@ type DiffSummary struct {
 	RemovedEndpoints  int `json:"removed_endpoints"`
 	ModifiedEndpoints int `json:"modified_endpoints"`
 	BreakingChanges   int `json:"breaking_changes"`
+	DocumentFormat    int `json:"document_format,omitempty"`
+	AddedLines        int `json:"added_lines,omitempty"`
+	RemovedLines      int `json:"removed_lines,omitempty"`
+	ModifiedLines     int `json:"modified_lines,omitempty"`
+	ModifiedBlocks    int `json:"modified_blocks,omitempty"`
 }
 
 type DiffItem struct {

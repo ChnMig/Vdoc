@@ -204,6 +204,7 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 		"list_projects":            false,
 		"list_documents":           false,
 		"list_api_versions":        false,
+		"list_doc_versions":        false,
 		"get_latest_schema":        false,
 		"get_endpoint_detail":      false,
 		"compare_api_versions":     false,
@@ -263,6 +264,7 @@ func TestMCPJSONRPCToolsCallExecutesV01Tools(t *testing.T) {
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_projects", gin.H{}), "list_projects")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_documents", gin.H{"project_id": fixture.projectID}), "list_documents")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID}), "list_api_versions")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_doc_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}), "list_doc_versions")
 	latestSchema := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_schema", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "branch_id": fixture.branchID}), "get_latest_schema")
 	if !bytes.Contains(latestSchema, []byte("rpcChanged")) {
 		t.Fatalf("get_latest_schema result %s does not contain latest schema operation", string(latestSchema))
@@ -341,6 +343,9 @@ func TestMCPToolResultsUsePublicDocumentDTOs(t *testing.T) {
 
 	listVersions := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID}), "list_api_versions dto")
 	assertPublicMCPResult(t, "list_api_versions", listVersions, `"document_id"`, `"raw_content"`, `"normalized_content"`)
+
+	listDocVersions := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_doc_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}), "list_doc_versions dto")
+	assertPublicMCPResult(t, "list_doc_versions", listDocVersions, `"document_id"`, `"raw_content"`, `"stable_content"`)
 
 	latestSchema := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_schema", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "branch_id": fixture.branchID}), "get_latest_schema dto")
 	assertPublicMCPResult(t, "get_latest_schema", latestSchema, `"raw_content"`, `"content_kind"`, "dtoChanged")
@@ -471,6 +476,8 @@ func newMCPFixture(t *testing.T) mcpFixture {
 	gin.SetMode(gin.TestMode)
 	app.ResetDefaultStoreForTest()
 	t.Cleanup(app.ResetDefaultStoreForTest)
+	middleware.CleanupAllLimiters()
+	t.Cleanup(middleware.CleanupAllLimiters)
 
 	router := gin.New()
 	router.Use(middleware.TraceID())
@@ -539,6 +546,28 @@ func newMCPFixture(t *testing.T) mcpFixture {
 	}
 
 	return mcpFixture{router: router, superID: superUser.ID, readerID: readerUser.ID, writerID: writerUser.ID, projectID: project.ID, documentID: document.ID, branchID: branchID, markdownDocumentID: markdownDocument.ID, markdownBranchID: markdownBranchID}
+}
+
+func TestMCPRouteAlwaysEnforcesIndependentIPRateLimit(t *testing.T) {
+	fixture := newMCPFixture(t)
+	rateLimited := false
+	for attempt := 0; attempt < 100; attempt++ {
+		body := bytes.NewBufferString(`{"jsonrpc":"2.0","id":"rate-test","method":"tools/list"}`)
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/open/mcp", body)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(middleware.AuthorizationHeader, "vdoc_unknown_token")
+		request.RemoteAddr = "198.51.100.20:12345"
+		recorder := httptest.NewRecorder()
+		fixture.router.ServeHTTP(recorder, request)
+		var envelope mcpTestEnvelope
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err == nil && envelope.Code == http.StatusTooManyRequests && envelope.Status == "RESOURCE_EXHAUSTED" {
+			rateLimited = true
+			break
+		}
+	}
+	if !rateLimited {
+		t.Fatal("MCP route accepted 100 rapid requests from one IP without rate limiting")
+	}
 }
 
 func callMCPTool(t *testing.T, router *gin.Engine, token, tool string, args any) mcpTestEnvelope {

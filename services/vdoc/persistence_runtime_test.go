@@ -44,6 +44,19 @@ func TestInitDefaultStoreUsesInMemoryStoreWhenDatabaseDisabled(t *testing.T) {
 	}
 }
 
+func TestInitDefaultStoreRequiresARecoverableBootstrapPath(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	err := InitDefaultStore(context.Background(), RuntimeConfig{RequireBootstrapAccess: true})
+	if err == nil || !strings.Contains(err.Error(), "bootstrap access unavailable") {
+		t.Fatalf("InitDefaultStore(empty locked deployment) error = %v, want bootstrap access failure", err)
+	}
+	if err := InitDefaultStore(context.Background(), RuntimeConfig{RequireBootstrapAccess: true, AllowRegistration: true}); err != nil {
+		t.Fatalf("InitDefaultStore(empty explicit registration deployment) error = %v", err)
+	}
+}
+
 func TestInitDefaultStoreRequiresRepositoryWhenDatabaseEnabled(t *testing.T) {
 	ResetDefaultStoreForTest()
 	t.Cleanup(ResetDefaultStoreForTest)

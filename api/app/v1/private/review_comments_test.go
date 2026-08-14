@@ -33,6 +33,10 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	if changesEnvelope.Code != 200 || changesEnvelope.Status != "OK" {
 		t.Fatalf("request changes response = code %d status %q body %s", changesEnvelope.Code, changesEnvelope.Status, changesEnvelope.Message)
 	}
+	var changes app.ContractDraft
+	if err := json.Unmarshal(changesEnvelope.Detail, &changes); err != nil || changes.ReviewComment != "please clarify the error response" {
+		t.Fatalf("request changes draft = %+v error=%v, want persisted review comment", changes, err)
+	}
 	changesAudit := requirePrivateReviewAudit(t, changesDraft.ID, "request-changes")
 	if changesAudit.Metadata["review_comment"] != "please clarify the error response" {
 		t.Fatalf("request changes audit metadata = %+v, want trimmed comment", changesAudit.Metadata)
@@ -45,6 +49,10 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "reject"}), fixture.adminToken, `{"reason":"  does not match the contract  "}`))
 	if rejectEnvelope.Code != 200 || rejectEnvelope.Status != "OK" {
 		t.Fatalf("reject response = code %d status %q body %s", rejectEnvelope.Code, rejectEnvelope.Status, rejectEnvelope.Message)
+	}
+	var rejected app.ContractDraft
+	if err := json.Unmarshal(rejectEnvelope.Detail, &rejected); err != nil || rejected.ReviewComment != "does not match the contract" {
+		t.Fatalf("rejected draft = %+v error=%v, want persisted reason", rejected, err)
 	}
 	rejectAudit := requirePrivateReviewAudit(t, changesDraft.ID, "reject")
 	if rejectAudit.Metadata["review_comment"] != "does not match the contract" {
@@ -63,6 +71,10 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	approveAudit := requirePrivateReviewAudit(t, publishDraft.ID, "approve")
 	if approveAudit.Metadata["review_comment"] != "approved note wins" || approveAudit.Metadata["version_id"] != version.ID {
 		t.Fatalf("approve audit metadata = %+v, want comment precedence and published version", approveAudit.Metadata)
+	}
+	publishedDraft, err := app.DefaultStore().Draft(fixture.adminUser.ID, fixture.project.ID, document.ID, publishDraft.ID)
+	if err != nil || publishedDraft.ReviewComment != "approved note wins" {
+		t.Fatalf("published draft review comment = (%+v, %v)", publishedDraft, err)
 	}
 }
 

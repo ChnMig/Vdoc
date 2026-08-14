@@ -28,6 +28,7 @@ type ContractDraft struct {
 	NormalizedSchemaHash string             `json:"normalized_schema_hash"`
 	Status               int                `json:"status"`
 	DiffPreview          *documentdiff.Diff `json:"diff_preview,omitempty"`
+	ReviewComment        string             `json:"review_comment,omitempty"`
 	CreatedBy            string             `json:"created_by"`
 	SubmittedAt          *time.Time         `json:"submitted_at,omitempty"`
 	CreatedAt            time.Time          `json:"created_at"`

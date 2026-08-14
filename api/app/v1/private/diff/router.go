@@ -10,8 +10,22 @@ import (
 
 func RegisterRoutes(private *gin.RouterGroup) {
 	private.POST("/projects/:project_id/documents/:document_id/diffs", createDiff)
+	private.GET("/projects/:project_id/documents/:document_id/diffs", listDiffs)
 	private.GET("/projects/:project_id/documents/:document_id/diffs/:diff_id", getDiff)
 	private.GET("/projects/:project_id/documents/:document_id/diffs/:diff_id/summary", getDiffSummary)
+}
+
+func listDiffs(c *gin.Context) {
+	userID, ok := shared.CurrentUserID(c)
+	if !ok {
+		return
+	}
+	diffs, err := shared.Store().ListDocumentDiffs(userID, c.Param("project_id"), c.Param("document_id"), c.Query("from_version_id"), c.Query("to_version_id"))
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	response.ReturnOkWithTotal(c, len(diffs), shared.Diffs(diffs))
 }
 
 func createDiff(c *gin.Context) {

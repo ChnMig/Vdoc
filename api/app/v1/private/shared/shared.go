@@ -166,11 +166,29 @@ func Projects(values []*app.Project) []ProjectDTO {
 type ProjectMemberDTO struct {
 	ProjectID string    `json:"project_id"`
 	UserID    string    `json:"user_id"`
+	UserEmail string    `json:"user_email,omitempty"`
+	UserName  string    `json:"user_name,omitempty"`
 	Role      int       `json:"role"`
 	Status    int       `json:"status"`
 	AddedBy   string    `json:"added_by"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ProjectMemberCandidateDTO struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
+func ProjectMemberCandidates(values []*app.User) []ProjectMemberCandidateDTO {
+	out := make([]ProjectMemberCandidateDTO, 0, len(values))
+	for _, value := range values {
+		if value != nil {
+			out = append(out, ProjectMemberCandidateDTO{ID: value.ID, Email: value.Email, Name: value.Name})
+		}
+	}
+	return out
 }
 
 func ProjectMember(v *app.ProjectMember) ProjectMemberDTO {
@@ -272,6 +290,7 @@ type DraftDTO struct {
 	NormalizedSchemaHash  string     `json:"normalized_schema_hash,omitempty"`
 	Status                int        `json:"status"`
 	DiffPreview           *DiffDTO   `json:"diff_preview,omitempty"`
+	ReviewComment         string     `json:"review_comment,omitempty"`
 	CreatedBy             string     `json:"created_by"`
 	SubmittedAt           *time.Time `json:"submitted_at,omitempty"`
 	CreatedAt             time.Time  `json:"created_at"`
@@ -282,7 +301,7 @@ func Draft(v *app.ContractDraft) DraftDTO {
 	if v == nil {
 		return DraftDTO{}
 	}
-	return DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContent: v.RawSchema, NormalizedContent: v.NormalizedSchema, RawSchema: v.RawSchema, NormalizedSchema: v.NormalizedSchema, RawContentObjectKey: v.RawSchemaObjectKey, NormalizedContentKey: v.NormalizedObjectKey, RawSchemaObjectKey: v.RawSchemaObjectKey, NormalizedObjectKey: v.NormalizedObjectKey, RawContentHash: v.RawSchemaHash, NormalizedContentHash: v.NormalizedSchemaHash, RawSchemaHash: v.RawSchemaHash, NormalizedSchemaHash: v.NormalizedSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContent: v.RawSchema, NormalizedContent: v.NormalizedSchema, RawSchema: v.RawSchema, NormalizedSchema: v.NormalizedSchema, RawContentObjectKey: v.RawSchemaObjectKey, NormalizedContentKey: v.NormalizedObjectKey, RawSchemaObjectKey: v.RawSchemaObjectKey, NormalizedObjectKey: v.NormalizedObjectKey, RawContentHash: v.RawSchemaHash, NormalizedContentHash: v.NormalizedSchemaHash, RawSchemaHash: v.RawSchemaHash, NormalizedSchemaHash: v.NormalizedSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 
 func Drafts(values []*app.ContractDraft) []DraftDTO {
@@ -424,6 +443,11 @@ type DiffSummary struct {
 	RemovedEndpoints  int `json:"removed_endpoints"`
 	ModifiedEndpoints int `json:"modified_endpoints"`
 	BreakingChanges   int `json:"breaking_changes"`
+	DocumentFormat    int `json:"document_format,omitempty"`
+	AddedLines        int `json:"added_lines,omitempty"`
+	RemovedLines      int `json:"removed_lines,omitempty"`
+	ModifiedLines     int `json:"modified_lines,omitempty"`
+	ModifiedBlocks    int `json:"modified_blocks,omitempty"`
 }
 
 type DiffItemDTO struct {
@@ -462,12 +486,52 @@ func Diff(v *app.Diff) DiffDTO {
 	return DiffDTO{ID: v.ID, DocumentID: v.DocumentID, FromVersionID: v.FromVersionID, ToVersionID: v.ToVersionID, ObjectKey: v.ObjectKey, Hash: v.Hash, DiffStatus: v.DiffStatus, Summary: DiffSummaryDTO(v.Summary), Items: items, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 
+func Diffs(values []*app.Diff) []DiffDTO {
+	out := make([]DiffDTO, 0, len(values))
+	for _, value := range values {
+		out = append(out, Diff(value))
+	}
+	return out
+}
+
 func DiffSummaryDTO(v app.DiffSummary) DiffSummary {
-	return DiffSummary{AddedEndpoints: v.AddedEndpoints, RemovedEndpoints: v.RemovedEndpoints, ModifiedEndpoints: v.ModifiedEndpoints, BreakingChanges: v.BreakingChanges}
+	return DiffSummary{AddedEndpoints: v.AddedEndpoints, RemovedEndpoints: v.RemovedEndpoints, ModifiedEndpoints: v.ModifiedEndpoints, BreakingChanges: v.BreakingChanges, DocumentFormat: v.DocumentFormat, AddedLines: v.AddedLines, RemovedLines: v.RemovedLines, ModifiedLines: v.ModifiedLines, ModifiedBlocks: v.ModifiedBlocks}
 }
 
 func DiffItem(v app.DiffItem) DiffItemDTO {
 	return DiffItemDTO{ID: v.ID, ChangeType: v.ChangeType, Severity: v.Severity, Method: v.Method, Path: v.Path, OperationID: v.OperationID, Location: v.Location, OldValue: v.OldValue, NewValue: v.NewValue, Message: v.Message, FrontendImpact: v.FrontendImpact, IsBreaking: v.IsBreaking, MustHandle: v.MustHandle, SortOrder: v.SortOrder}
+}
+
+type AuditLogDTO struct {
+	ID           string            `json:"id"`
+	ActorType    int               `json:"actor_type"`
+	ActorUserID  string            `json:"actor_user_id,omitempty"`
+	ActorTokenID string            `json:"actor_token_id,omitempty"`
+	Action       string            `json:"action"`
+	ResourceType string            `json:"resource_type"`
+	ResourceID   string            `json:"resource_id,omitempty"`
+	ProjectID    string            `json:"project_id,omitempty"`
+	DocumentID   string            `json:"document_id,omitempty"`
+	Metadata     map[string]string `json:"metadata"`
+	IPAddress    string            `json:"ip_address,omitempty"`
+	UserAgent    string            `json:"user_agent,omitempty"`
+	RequestID    string            `json:"request_id,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
+func AuditLog(v *app.AuditLog) AuditLogDTO {
+	if v == nil {
+		return AuditLogDTO{}
+	}
+	return AuditLogDTO{ID: v.ID, ActorType: v.ActorType, ActorUserID: v.ActorUserID, ActorTokenID: v.ActorTokenID, Action: v.Action, ResourceType: v.ResourceType, ResourceID: v.ResourceID, ProjectID: v.ProjectID, DocumentID: v.ServiceID, Metadata: v.Metadata, IPAddress: v.IPAddress, UserAgent: v.UserAgent, RequestID: v.RequestID, CreatedAt: v.CreatedAt}
+}
+
+func AuditLogs(values []*app.AuditLog) []AuditLogDTO {
+	out := make([]AuditLogDTO, 0, len(values))
+	for _, value := range values {
+		out = append(out, AuditLog(value))
+	}
+	return out
 }
 
 type MCPTokenDTO struct {

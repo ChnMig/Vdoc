@@ -3,7 +3,6 @@ package health
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -75,7 +74,7 @@ func TestGetStatusReportsEnabledHealthyDependencies(t *testing.T) {
 	}
 }
 
-func TestGetStatusReportsEnabledUnhealthyDependencyWithSanitizedMessage(t *testing.T) {
+func TestGetStatusReportsEnabledUnhealthyDependencyWithoutInternalDetails(t *testing.T) {
 	SetDependencyChecks([]DependencyCheck{
 		{
 			Name:    "database",
@@ -95,10 +94,7 @@ func TestGetStatusReportsEnabledUnhealthyDependencyWithSanitizedMessage(t *testi
 	if status.Ready || status.Healthy || status.Status != "degraded" || dependency.Status != "error" {
 		t.Fatalf("status = %+v dependency = %+v, want degraded error", status, dependency)
 	}
-	if strings.Contains(dependency.Message, "secret") || strings.Contains(dependency.Message, "vdoc:secret") {
-		t.Fatalf("dependency message leaked credential: %q", dependency.Message)
-	}
-	if !strings.Contains(dependency.Message, "<redacted>") {
-		t.Fatalf("dependency message = %q, want redaction marker", dependency.Message)
+	if dependency.Message != "dependency check failed" {
+		t.Fatalf("dependency message = %q, want fixed public-safe message", dependency.Message)
 	}
 }

@@ -40,7 +40,7 @@ func (s *Store) ProjectAIProvider(actorID, projectID string) (*AIProviderConfig,
 	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
-	if !s.canReadLocked(actorID, projectID) {
+	if !s.canManageProjectLocked(actorID, projectID) {
 		return nil, ErrPermissionDenied
 	}
 	if _, ok := s.projects[projectID]; !ok {
@@ -76,8 +76,8 @@ func (s *Store) upsertAIProvider(actorID, projectID string, input AIProviderInpu
 		return nil, ErrPermissionDenied
 	}
 	if projectID != "" {
-		if _, ok := s.projects[projectID]; !ok {
-			return nil, ErrNotFound
+		if err := s.ensureActiveProjectLocked(projectID); err != nil {
+			return nil, err
 		}
 	}
 	provider, err := s.buildProviderLocked(actorID, projectID, input)
@@ -199,6 +199,11 @@ func (s *Store) resolveProviderForTest(actorID, projectID string, input *AIProvi
 		}
 	} else if !s.canManageProjectLocked(actorID, projectID) {
 		return nil, "", ErrPermissionDenied
+	}
+	if projectID != "" {
+		if err := s.ensureActiveProjectLocked(projectID); err != nil {
+			return nil, "", err
+		}
 	}
 	if input != nil {
 		provider, err := s.buildProviderLocked(actorID, projectID, *input)

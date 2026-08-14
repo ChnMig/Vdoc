@@ -39,6 +39,7 @@ func TestEmbeddedMigrationsCoverV01Schema(t *testing.T) {
 		"document_version_diffs",
 		"document_diff_items",
 		"mcp_tokens",
+		"document_shares",
 		"audit_logs",
 		"vdoc_schema_objects",
 	} {
@@ -82,6 +83,8 @@ func TestEmbeddedMigrationsIncludeImportantConstraintsAndIndexes(t *testing.T) {
 		"mcp_tokens_hash_uidx",
 		"mcp_tokens_revoked_fields_check",
 		"mcp_tokens_scopes_check",
+		"document_shares_token_hash_uidx",
+		"document_shares_revoked_fields_check",
 		"audit_logs_actor_idx",
 		"vdoc_schema_objects_owner_idx",
 	}
@@ -123,7 +126,7 @@ func TestRunMigrationsCreatesSchemaAndIsIdempotent(t *testing.T) {
 		t.Fatalf("second RunMigrations: %v", err)
 	}
 
-	for _, table := range []string{"users", "teams", "projects", "project_members", "documents", "document_branches", "document_drafts", "document_versions", "api_endpoints", "api_endpoint_details", "document_version_diffs", "document_diff_items", "mcp_tokens", "audit_logs", "vdoc_schema_objects"} {
+	for _, table := range []string{"users", "teams", "projects", "project_members", "documents", "document_branches", "document_drafts", "document_versions", "api_endpoints", "api_endpoint_details", "document_version_diffs", "document_diff_items", "mcp_tokens", "document_shares", "audit_logs", "vdoc_schema_objects"} {
 		if !tableExists(t, database, table) {
 			t.Fatalf("expected table %s", table)
 		}

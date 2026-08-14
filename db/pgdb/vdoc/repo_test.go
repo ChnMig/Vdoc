@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"regexp"
@@ -56,7 +57,7 @@ func TestRepositorySourceDoesNotKeepWholeStateAggregatePersistence(t *testing.T)
 }
 
 func TestDiffPreviewJSONRoundTripsSummary(t *testing.T) {
-	diff := &domainvdoc.Diff{Summary: domainvdoc.DiffSummary{AddedEndpoints: 1, RemovedEndpoints: 2, ModifiedEndpoints: 3, BreakingChanges: 4}}
+	diff := &domainvdoc.Diff{Summary: domainvdoc.DiffSummary{AddedEndpoints: 1, RemovedEndpoints: 2, ModifiedEndpoints: 3, BreakingChanges: 4, DocumentFormat: domainvdoc.DocumentFormatMarkdown, AddedLines: 5, RemovedLines: 6, ModifiedLines: 7, ModifiedBlocks: 8}}
 
 	loaded := diffPreviewFromJSON(diffPreviewJSON(diff))
 	if loaded == nil {
@@ -149,15 +150,72 @@ func TestMCPTokenModelMappingRoundTripsSecurityFields(t *testing.T) {
 	}
 }
 
+func TestDocumentShareModelMappingRoundTripsSecurityFields(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	expiresAt := now.Add(24 * time.Hour)
+	revokedAt := now.Add(time.Hour)
+	passwordVerifier := "$2a$12$document-share-verifier"
+	revokedBy := "revoker-id"
+	share := &domainvdoc.DocumentShare{
+		ID:               "share-id",
+		ProjectID:        "project-id",
+		DocumentID:       "document-id",
+		BranchID:         "branch-id",
+		TokenHash:        strings.Repeat("a", 64),
+		TokenCiphertext:  []byte{1, 2, 3, 4},
+		CipherKID:        "document-share-aes-gcm-v1",
+		PasswordVerifier: &passwordVerifier,
+		VersionScope:     2,
+		Status:           2,
+		ExpiresAt:        &expiresAt,
+		CreatedBy:        "creator-id",
+		RevokedBy:        &revokedBy,
+		RevokedAt:        &revokedAt,
+		CreatedAt:        now,
+		UpdatedAt:        revokedAt,
+	}
+
+	model := documentShareModelFromDomain(share)
+	loaded := domainDocumentShareFromModel(*model)
+
+	if model.PasswordVerifier == nil || *model.PasswordVerifier != passwordVerifier || model.RevokedBy == nil || *model.RevokedBy != revokedBy {
+		t.Fatalf("model lifecycle fields = %+v, want password verifier and revoker", model)
+	}
+	if loaded.ID != share.ID || loaded.ProjectID != share.ProjectID || loaded.DocumentID != share.DocumentID || loaded.BranchID != share.BranchID || loaded.TokenHash != share.TokenHash || !bytes.Equal(loaded.TokenCiphertext, share.TokenCiphertext) || loaded.CipherKID != share.CipherKID {
+		t.Fatalf("loaded share identity/security fields = %+v", loaded)
+	}
+	if loaded.PasswordVerifier == nil || *loaded.PasswordVerifier != passwordVerifier || loaded.VersionScope != share.VersionScope || loaded.Status != share.Status || loaded.ExpiresAt == nil || !loaded.ExpiresAt.Equal(expiresAt) || loaded.RevokedBy == nil || *loaded.RevokedBy != revokedBy || loaded.RevokedAt == nil || !loaded.RevokedAt.Equal(revokedAt) {
+		t.Fatalf("loaded share lifecycle fields = %+v", loaded)
+	}
+
+	model.TokenCiphertext[0] = 9
+	if loaded.TokenCiphertext[0] != 1 {
+		t.Fatal("loaded share ciphertext aliases the persistence model")
+	}
+}
+
+func TestLoadPublicDocumentShareSnapshotRejectsUninitializedRepository(t *testing.T) {
+	for name, repository := range map[string]*Repository{
+		"nil receiver": nil,
+		"nil database": NewRepository(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if snapshot, err := repository.LoadPublicDocumentShareSnapshot(context.Background(), "share-id"); err == nil || snapshot != nil {
+				t.Fatalf("LoadPublicDocumentShareSnapshot() = (%+v, %v), want nil snapshot and initialization error", snapshot, err)
+			}
+		})
+	}
+}
+
 func TestDocumentWorkflowModelMappingKeepsDocumentIdentity(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	document := &domainvdoc.APIService{ID: "document-id", ProjectID: "project-id", Name: "checkout", DocumentType: domainvdoc.DocumentTypeOpenAPI, RelativePath: "apis/checkout.yaml", Status: domainvdoc.DocumentStatusActive, CreatedBy: "admin-id", CreatedAt: now, UpdatedAt: now}
 	draft := &domainvdoc.ContractDraft{ID: "draft-id", ProjectID: "project-id", DocumentID: document.ID, ServiceID: document.ID, BranchID: "branch-id", VersionName: "1.0.0", SourceGitCommitID: "abc123", SchemaFormat: domainvdoc.DocumentFormatOpenAPI31, SourceType: domainvdoc.SourceTypeWebUpload, RawSchema: "raw", NormalizedSchema: "{}", RawSchemaObjectKey: "raw-key", NormalizedObjectKey: "normalized-key", RawSchemaHash: "raw-hash", NormalizedSchemaHash: "normalized-hash", Status: domainvdoc.DraftStatusSubmitted, CreatedBy: "writer-id", SubmittedAt: &now, CreatedAt: now, UpdatedAt: now}
-	version := &domainvdoc.ContractVersion{ID: "version-id", ProjectID: "project-id", DocumentID: document.ID, ServiceID: document.ID, BranchID: "branch-id", DraftID: draft.ID, VersionName: draft.VersionName, SourceGitCommitID: draft.SourceGitCommitID, SchemaFormat: draft.SchemaFormat, SourceType: draft.SourceType, RawSchema: draft.RawSchema, NormalizedSchema: draft.NormalizedSchema, RawSchemaObjectKey: draft.RawSchemaObjectKey, NormalizedObjectKey: draft.NormalizedObjectKey, RawSchemaHash: draft.RawSchemaHash, NormalizedSchemaHash: draft.NormalizedSchemaHash, Status: domainvdoc.VersionStatusPublished, PublishedBy: "admin-id", PublishedAt: now, CreatedAt: now, UpdatedAt: now}
+	version := &domainvdoc.ContractVersion{ID: "version-id", ProjectID: "project-id", DocumentID: document.ID, ServiceID: document.ID, BranchID: "branch-id", DraftID: draft.ID, VersionName: draft.VersionName, RelativePath: document.RelativePath, SourceGitCommitID: draft.SourceGitCommitID, SchemaFormat: draft.SchemaFormat, SourceType: draft.SourceType, RawSchema: draft.RawSchema, NormalizedSchema: draft.NormalizedSchema, RawSchemaObjectKey: draft.RawSchemaObjectKey, NormalizedObjectKey: draft.NormalizedObjectKey, RawSchemaHash: draft.RawSchemaHash, NormalizedSchemaHash: draft.NormalizedSchemaHash, Status: domainvdoc.VersionStatusPublished, PublishedBy: "admin-id", PublishedAt: now, CreatedAt: now, UpdatedAt: now}
 
 	documentModel := documentModelFromDomain(document)
 	draftModel := documentDraftModelFromDomain(draft, document)
-	versionModel := documentVersionModelFromDomain(version, document, 3, 7)
+	versionModel := documentVersionModelFromDomain(version, 3, 7)
 
 	if documentModel.DocumentType != domainvdoc.DocumentTypeOpenAPI || documentModel.RelativePath != document.RelativePath {
 		t.Fatalf("document model = %+v, want OpenAPI relative path", documentModel)
@@ -167,6 +225,24 @@ func TestDocumentWorkflowModelMappingKeepsDocumentIdentity(t *testing.T) {
 	}
 	if versionModel.ProjectID != document.ProjectID || versionModel.DocumentID != document.ID || versionModel.RelativePath != document.RelativePath || stringValue(versionModel.SourceGitCommitID) != version.SourceGitCommitID || versionModel.EndpointCount != 7 || versionModel.VersionNo != 3 {
 		t.Fatalf("version model = %+v, want project/document/path/source commit/version metadata", versionModel)
+	}
+}
+
+func TestDocumentVersionModelMappingRoundTripsImmutableRelativePath(t *testing.T) {
+	// Given
+	now := time.Now().UTC().Truncate(time.Second)
+	version := &domainvdoc.ContractVersion{ID: "version-id", ProjectID: "project-id", DocumentID: "document-id", ServiceID: "document-id", BranchID: "branch-id", DraftID: "draft-id", VersionName: "1.0.0", RelativePath: "apis/checkout.json", SchemaFormat: domainvdoc.DocumentFormatOpenAPI31, RawSchemaObjectKey: "raw-key", NormalizedObjectKey: "normalized-key", RawSchemaHash: "raw-hash", NormalizedSchemaHash: "normalized-hash", Status: domainvdoc.VersionStatusPublished, PublishedBy: "admin-id", PublishedAt: now, CreatedAt: now, UpdatedAt: now}
+
+	// When
+	model := documentVersionModelFromDomain(version, 1, 0)
+	loaded := domainDocumentVersionFromModel(*model)
+
+	// Then
+	if model.RelativePath != version.RelativePath {
+		t.Fatalf("model relative path = %q, want version snapshot %q", model.RelativePath, version.RelativePath)
+	}
+	if loaded.RelativePath != version.RelativePath {
+		t.Fatalf("loaded relative path = %q, want version snapshot %q", loaded.RelativePath, version.RelativePath)
 	}
 }
 

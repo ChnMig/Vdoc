@@ -75,11 +75,28 @@ func TestCompareVersionsDetectsRootSchemaTypeChanges(t *testing.T) {
 	if responseType.OldValue != "object" || responseType.NewValue != "array" {
 		t.Fatalf("response root type values = old %#v new %#v", responseType.OldValue, responseType.NewValue)
 	}
-	requestType := assertDiffItem(t, diff, ChangeRequestBodyChanged, "requestBody.application/json.type", SeverityWarning, false, "Request body schema type changed")
+	requestType := assertDiffItem(t, diff, ChangeRequestBodyChanged, "requestBody.application/json.type", SeverityBreaking, true, "Request body schema type changed")
 	if requestType.OldValue != "object" || requestType.NewValue != "array" {
 		t.Fatalf("request root type values = old %#v new %#v", requestType.OldValue, requestType.NewValue)
 	}
 	assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.properties.name", SeverityBreaking, true, "Response field removed")
+}
+
+func TestSemanticDiffMarksPRDRequestAnd2xxRemovalRulesBreaking(t *testing.T) {
+	store, _, projectID, serviceID, branchID := newContractPipelineStore(t)
+	fromSchema := `{"openapi":"3.1.0","info":{"title":"Rules","version":"1"},"paths":{"/widgets":{"post":{"requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"count":{"type":"string"}}}},"application/xml":{"schema":{"type":"object"}}}},"responses":{"200":{"description":"ok"},"404":{"description":"missing"}}}}}}`
+	toSchema := `{"openapi":"3.1.0","info":{"title":"Rules","version":"2"},"paths":{"/widgets":{"post":{"requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"count":{"type":"integer"}}}}}},"responses":{"500":{"description":"error"}}}}}}`
+	from := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.0.0", fromSchema)
+	to := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.1.0", toSchema)
+
+	diff, err := store.CompareVersions("reader", projectID, serviceID, from.ID, to.ID)
+	if err != nil {
+		t.Fatalf("CompareVersions() error = %v", err)
+	}
+	assertDiffItem(t, diff, ChangeRequestBodyChanged, "requestBody.application/json.properties.count", SeverityBreaking, true, "Request body field type changed")
+	assertDiffItem(t, diff, ChangeRequestBodyChanged, "requestBody.application/xml", SeverityBreaking, true, "Request body media type removed")
+	assertDiffItem(t, diff, ChangeResponseChanged, "responses.200", SeverityBreaking, true, "Response status removed")
+	assertDiffItem(t, diff, ChangeResponseChanged, "responses.404", SeverityWarning, false, "Response status removed")
 }
 
 func assertDiffItem(t *testing.T, diff *Diff, change int, location string, severity int, breaking bool, message string) DiffItem {

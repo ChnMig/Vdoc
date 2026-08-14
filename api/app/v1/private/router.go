@@ -2,9 +2,11 @@ package private
 
 import (
 	"vdoc/api/app/v1/private/ai"
+	"vdoc/api/app/v1/private/audit"
 	"vdoc/api/app/v1/private/branch"
 	"vdoc/api/app/v1/private/diff"
 	"vdoc/api/app/v1/private/document"
+	"vdoc/api/app/v1/private/documentshare"
 	"vdoc/api/app/v1/private/draft"
 	"vdoc/api/app/v1/private/endpoint"
 	"vdoc/api/app/v1/private/identity"
@@ -26,12 +28,14 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	}
 	private.Use(middleware.TokenVerify)
 	ai.RegisterRoutes(private)
+	audit.RegisterRoutes(private)
 	identity.RegisterRoutes(private)
 	systemuser.RegisterRoutes(private)
 	team.RegisterRoutes(private)
 	project.RegisterRoutes(private)
 	member.RegisterRoutes(private)
 	document.RegisterRoutes(private)
+	documentshare.RegisterRoutes(private)
 	branch.RegisterRoutes(private)
 	draft.RegisterRoutes(private)
 	version.RegisterRoutes(private)

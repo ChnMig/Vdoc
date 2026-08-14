@@ -18,6 +18,7 @@ func TestModelsDeclareV01TableNames(t *testing.T) {
 		"documents":              Document{},
 		"document_branches":      DocumentBranch{},
 		"mcp_tokens":             MCPToken{},
+		"document_shares":        DocumentShare{},
 		"document_drafts":        DocumentDraft{},
 		"document_versions":      DocumentVersion{},
 		"api_endpoints":          APIEndpoint{},
@@ -179,6 +180,22 @@ func TestAIModelsDeclareNullableScopeColumns(t *testing.T) {
 			if field.Type.Kind() != reflect.Pointer {
 				t.Fatalf("%s.%s type = %s, want pointer for nullable uuid", modelName, fieldName, field.Type)
 			}
+		}
+	}
+}
+
+func TestAIModelsDeclareGenerationCoordinationColumns(t *testing.T) {
+	for name, modelType := range map[string]reflect.Type{
+		"AISummary":     reflect.TypeFor[AISummary](),
+		"AIChatSession": reflect.TypeFor[AIChatSession](),
+	} {
+		token, ok := modelType.FieldByName("GenerationToken")
+		if !ok || !containsAll(token.Tag.Get("gorm"), []string{"column:generation_token", "type:text", "not null"}) {
+			t.Fatalf("%s.GenerationToken gorm tag = %q", name, token.Tag.Get("gorm"))
+		}
+		started, ok := modelType.FieldByName("GenerationStartedAt")
+		if !ok || started.Type.Kind() != reflect.Pointer || !containsAll(started.Tag.Get("gorm"), []string{"column:generation_started_at", "type:timestamptz"}) {
+			t.Fatalf("%s.GenerationStartedAt type/tag = %s %q", name, started.Type, started.Tag.Get("gorm"))
 		}
 	}
 }

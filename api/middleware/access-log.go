@@ -20,7 +20,7 @@ func AccessLog() gin.HandlerFunc {
 			fields := []zap.Field{
 				zap.String("method", c.Request.Method),
 				zap.String("path", c.Request.URL.Path),
-				zap.String("raw_query", c.Request.URL.RawQuery),
+				zap.Strings("query_keys", httplog.QueryKeys(c.Request.URL.RawQuery)),
 				zap.Int("status", c.Writer.Status()),
 				zap.Duration("latency", time.Since(start)),
 				zap.String("client_ip", c.ClientIP()),

@@ -24,6 +24,7 @@ const (
 	PromptPageChat             = "page_chat"
 
 	SummaryStatusSkipped   = "skipped"
+	SummaryStatusPending   = "pending"
 	SummaryStatusSucceeded = "succeeded"
 	SummaryStatusFailed    = "failed"
 
@@ -103,6 +104,12 @@ type Summary struct {
 	GeneratedBy  string    `json:"generated_by"`
 	GeneratedAt  time.Time `json:"generated_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+
+	// GenerationToken identifies the currently active provider request. It is
+	// persisted so multiple Vdoc instances can reject out-of-order completions,
+	// but it is never exposed through the API.
+	GenerationToken     string    `json:"-"`
+	GenerationStartedAt time.Time `json:"-"`
 }
 
 type ChatSession struct {
@@ -115,6 +122,11 @@ type ChatSession struct {
 	CreatedBy   string    `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	// GenerationToken provides latest-request-wins ordering for asynchronous
+	// provider calls across processes. These coordination fields are internal.
+	GenerationToken     string    `json:"-"`
+	GenerationStartedAt time.Time `json:"-"`
 }
 
 type ChatMessage struct {

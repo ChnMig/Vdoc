@@ -14,6 +14,9 @@ func Update(params UpdateParams) error {
 	if branch.Status == commonvdoc.BranchStatusArchived {
 		return commonvdoc.ErrFailedPrecondition
 	}
+	if params.IsDefault != nil && !*params.IsDefault && branch.IsDefault {
+		return commonvdoc.ErrFailedPrecondition
+	}
 	if strings.TrimSpace(params.Name) != "" {
 		name := strings.TrimSpace(params.Name)
 		kind, err := KindForName(name)
@@ -35,8 +38,6 @@ func Update(params UpdateParams) error {
 					other.UpdatedAt = params.Now
 				}
 			}
-		} else {
-			branch.IsDefault = false
 		}
 	}
 	if params.IsProtected != nil {

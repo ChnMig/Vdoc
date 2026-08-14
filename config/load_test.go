@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -23,6 +24,9 @@ func TestParseSize(t *testing.T) {
 		{"short form g", "2G", 2 * 1024 * 1024 * 1024, false},
 		{"invalid format", "invalid", 0, true},
 		{"unknown unit", "10XB", 0, true},
+		{"zero", "0MB", 0, true},
+		{"negative", "-1MB", 0, true},
+		{"overflow", "9223372036854775807GB", 0, true},
 	}
 
 	for _, tt := range tests {
@@ -32,7 +36,7 @@ func TestParseSize(t *testing.T) {
 				t.Errorf("parseSize() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got != tt.want {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parseSize() = %v, want %v", got, tt.want)
 			}
 		})
@@ -54,6 +58,7 @@ func TestSetDefaults(t *testing.T) {
 		{"jwt expiration", "jwt.expiration", "12h"},
 		{"log max size", "log.max_size", 50},
 		{"enable rate limit", "server.enable_rate_limit", false},
+		{"trusted proxies", "server.trusted_proxies", []string{}},
 		{"database enabled", "database.enabled", false},
 		{"database max open conns", "database.max_open_conns", 20},
 		{"storage bucket", "storage.bucket", "vdoc"},
@@ -61,12 +66,15 @@ func TestSetDefaults(t *testing.T) {
 		{"initial admin email", "initial_admin.email", ""},
 		{"initial admin name", "initial_admin.name", ""},
 		{"initial admin password", "initial_admin.password", ""},
+		{"public registration disabled", "auth.allow_registration", false},
+		{"auth rate limit", "auth.rate_limit", 2},
+		{"auth rate burst", "auth.rate_burst", 5},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := v.Get(tt.key)
-			if got != tt.want {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("default %s = %v, want %v", tt.key, got, tt.want)
 			}
 		})
@@ -101,6 +109,10 @@ func TestApplyConfig(t *testing.T) {
 		t.Errorf("LogMaxSize = %d, want 50", LogMaxSize)
 	}
 
+	if len(CORSAllowedOrigins) != 4 {
+		t.Errorf("CORSAllowedOrigins = %v, want four local development origins", CORSAllowedOrigins)
+	}
+
 }
 
 func TestLoadConfigWithEnv(t *testing.T) {
@@ -119,8 +131,13 @@ func TestLoadConfigWithEnv(t *testing.T) {
 	t.Setenv("VDOC_INITIAL_ADMIN_EMAIL", "admin@example.com")
 	t.Setenv("VDOC_INITIAL_ADMIN_NAME", "Root Admin")
 	t.Setenv("VDOC_INITIAL_ADMIN_PASSWORD", "Password123456")
+	t.Setenv("VDOC_AUTH_ALLOW_REGISTRATION", "true")
+	t.Setenv("VDOC_AUTH_RATE_LIMIT", "3")
+	t.Setenv("VDOC_AUTH_RATE_BURST", "7")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KID", "local-aes-gcm-v1")
+	t.Setenv("VDOC_SERVER_CORS_ALLOWED_ORIGINS", "https://admin.example.test,https://share.example.test")
+	t.Setenv("VDOC_SERVER_TRUSTED_PROXIES", "127.0.0.1,10.0.0.0/8")
 
 	// 重新加载配置
 	err := LoadConfig()
@@ -156,6 +173,19 @@ func TestLoadConfigWithEnv(t *testing.T) {
 	if InitialAdminEmail != "admin@example.com" || InitialAdminName != "Root Admin" || InitialAdminPassword != "Password123456" {
 		t.Errorf("initial admin env override failed")
 	}
+	if !AllowRegistration {
+		t.Errorf("auth registration env override failed")
+	}
+	if AuthRateLimit != 3 || AuthRateBurst != 7 {
+		t.Errorf("auth rate limit env override failed: %d/%d", AuthRateLimit, AuthRateBurst)
+	}
+
+	if len(CORSAllowedOrigins) != 2 || CORSAllowedOrigins[0] != "https://admin.example.test" || CORSAllowedOrigins[1] != "https://share.example.test" {
+		t.Errorf("cors origins env override failed: %v", CORSAllowedOrigins)
+	}
+	if len(TrustedProxies) != 2 || TrustedProxies[0] != "127.0.0.1" || TrustedProxies[1] != "10.0.0.0/8" {
+		t.Errorf("trusted proxies env override failed: %v", TrustedProxies)
+	}
 
 }
 
@@ -167,5 +197,26 @@ func TestGetViper(t *testing.T) {
 	}
 	if viper != v {
 		t.Error("GetViper() did not return the expected viper instance")
+	}
+}
+
+func TestValidatedReloadCandidateDoesNotMutateRunningConfig(t *testing.T) {
+	if err := LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	originalPort := ListenPort
+	originalJWTKey := JWTKey
+	v.Set("server.port", originalPort+1)
+	v.Set("jwt.key", "abcdef0123456789abcdef0123456789")
+
+	candidate, err := validatedReloadCandidate()
+	if err != nil {
+		t.Fatalf("validatedReloadCandidate() error = %v", err)
+	}
+	if candidate.ListenPort != originalPort+1 {
+		t.Fatalf("candidate port = %d, want %d", candidate.ListenPort, originalPort+1)
+	}
+	if ListenPort != originalPort || JWTKey != originalJWTKey {
+		t.Fatalf("running config changed: port=%d jwt_changed=%v", ListenPort, JWTKey != originalJWTKey)
 	}
 }

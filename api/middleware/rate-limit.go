@@ -34,6 +34,7 @@ type RateLimiter struct {
 	ttl      time.Duration // 限流器过期时间
 	ticker   *time.Ticker  // 清理定时器
 	stopChan chan struct{} // 停止信号
+	stopOnce sync.Once     // Stop 可被关闭流程安全重复调用
 }
 
 // NewRateLimiter 创建新的限流管理器
@@ -144,7 +145,12 @@ func (rl *RateLimiter) startCleanup(interval time.Duration) {
 
 // Stop 停止限流器的清理任务
 func (rl *RateLimiter) Stop() {
-	close(rl.stopChan)
+	if rl == nil {
+		return
+	}
+	rl.stopOnce.Do(func() {
+		close(rl.stopChan)
+	})
 }
 
 // Stats 限流器统计信息
@@ -222,6 +228,11 @@ func getLimiterFromCache(r, b int) *RateLimiter {
 	limiter := NewRateLimiter(r, b)
 	limiterCache[key] = limiter
 	return limiter
+}
+
+// AllowRateLimit 对非中间件场景执行共享限流检查。
+func AllowRateLimit(r, b int, key string) bool {
+	return getLimiterFromCache(r, b).allow(key)
 }
 
 // RateLimitOptions 限流配置选项

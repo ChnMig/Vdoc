@@ -1,6 +1,9 @@
 package document
 
 import (
+	"strconv"
+	"strings"
+
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/response"
 
@@ -46,7 +49,16 @@ func listDocuments(c *gin.Context) {
 	if !ok {
 		return
 	}
-	documents, err := shared.Store().ListDocuments(userID, c.Param("project_id"))
+	documentType := 0
+	if raw := strings.TrimSpace(c.Query("document_type")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 {
+			response.ReturnError(c, response.INVALID_ARGUMENT, "document_type must be a positive integer")
+			return
+		}
+		documentType = parsed
+	}
+	documents, err := shared.Store().ListDocuments(userID, c.Param("project_id"), documentType)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

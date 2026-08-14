@@ -5,6 +5,17 @@ import "testing"
 func TestValidateConfig(t *testing.T) {
 	valid := func() loadedConfig {
 		return loadedConfig{
+			ListenPort:          8080,
+			MaxBodySize:         10 * 1024 * 1024,
+			MaxHeaderBytes:      1 << 20,
+			ShutdownTimeout:     10,
+			ReadTimeout:         30,
+			WriteTimeout:        30,
+			IdleTimeout:         120,
+			GlobalRateLimit:     100,
+			GlobalRateBurst:     200,
+			AuthRateLimit:       2,
+			AuthRateBurst:       5,
 			JWTKey:              "0123456789abcdef0123456789abcdef",
 			JWTExpiration:       12,
 			DatabaseMaxOpenConn: 20,
@@ -20,6 +31,100 @@ func TestValidateConfig(t *testing.T) {
 	}{
 		{
 			name: "valid config",
+		},
+		{
+			name:    "invalid server port",
+			mutate:  func(cfg *loadedConfig) { cfg.ListenPort = 65536 },
+			wantErr: true,
+		},
+		{
+			name:    "zero max body size",
+			mutate:  func(cfg *loadedConfig) { cfg.MaxBodySize = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "zero max header bytes",
+			mutate:  func(cfg *loadedConfig) { cfg.MaxHeaderBytes = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "negative read timeout",
+			mutate:  func(cfg *loadedConfig) { cfg.ReadTimeout = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "zero global rate limit",
+			mutate:  func(cfg *loadedConfig) { cfg.GlobalRateLimit = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "negative global rate burst",
+			mutate:  func(cfg *loadedConfig) { cfg.GlobalRateBurst = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "zero auth rate limit",
+			mutate:  func(cfg *loadedConfig) { cfg.AuthRateLimit = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "negative auth rate burst",
+			mutate:  func(cfg *loadedConfig) { cfg.AuthRateBurst = -1 },
+			wantErr: true,
+		},
+		{
+			name: "valid cors origins",
+			mutate: func(cfg *loadedConfig) {
+				cfg.CORSAllowedOrigins = []string{"https://admin.example.test", "http://127.0.0.1:5173"}
+			},
+		},
+		{
+			name: "valid trusted proxy addresses",
+			mutate: func(cfg *loadedConfig) {
+				cfg.TrustedProxies = []string{"127.0.0.1", "10.0.0.0/8", "2001:db8::/32"}
+			},
+		},
+		{
+			name: "invalid trusted proxy hostname",
+			mutate: func(cfg *loadedConfig) {
+				cfg.TrustedProxies = []string{"proxy.internal"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "trust all IPv4 proxy range",
+			mutate: func(cfg *loadedConfig) {
+				cfg.TrustedProxies = []string{"0.0.0.0/0"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "trust all IPv6 proxy range",
+			mutate: func(cfg *loadedConfig) {
+				cfg.TrustedProxies = []string{"::/0"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "wildcard cors origin",
+			mutate: func(cfg *loadedConfig) {
+				cfg.CORSAllowedOrigins = []string{"*"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "cors origin with path",
+			mutate: func(cfg *loadedConfig) {
+				cfg.CORSAllowedOrigins = []string{"https://admin.example.test/path"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote plaintext cors origin",
+			mutate: func(cfg *loadedConfig) {
+				cfg.CORSAllowedOrigins = []string{"http://admin.example.test"}
+			},
+			wantErr: true,
 		},
 		{
 			name:    "empty key",
@@ -44,6 +149,11 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name:    "missing expiration",
 			mutate:  func(cfg *loadedConfig) { cfg.JWTExpiration = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "negative expiration",
+			mutate:  func(cfg *loadedConfig) { cfg.JWTExpiration = -1 },
 			wantErr: true,
 		},
 		{
@@ -143,6 +253,14 @@ func TestValidateConfig(t *testing.T) {
 			mutate: func(cfg *loadedConfig) {
 				cfg.InitialAdminEmail = "admin@example.com"
 				cfg.InitialAdminPassword = "short"
+			},
+			wantErr: true,
+		},
+		{
+			name: "initial admin password exceeds bcrypt limit",
+			mutate: func(cfg *loadedConfig) {
+				cfg.InitialAdminEmail = "admin@example.com"
+				cfg.InitialAdminPassword = string(make([]byte, maxInitialAdminPasswordBytes+1))
 			},
 			wantErr: true,
 		},

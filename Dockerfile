@@ -38,6 +38,6 @@ EXPOSE 8080
 USER vdoc
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD wget -q -O /dev/null "http://127.0.0.1:${VDOC_SERVER_PORT}/api/v1/open/health" || exit 1
+    CMD wget -q -O - "http://127.0.0.1:${VDOC_SERVER_PORT}/api/v1/open/health" | grep -q '"healthy":true'
 
 ENTRYPOINT ["/app/vdoc"]

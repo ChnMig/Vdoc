@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"vdoc/api/app/v1/open/auth"
 	"vdoc/api/app/v1/open/docs"
+	"vdoc/api/app/v1/open/documentshare"
 	health "vdoc/api/app/v1/open/health"
 	"vdoc/api/app/v1/open/mcp"
 )
@@ -17,5 +18,6 @@ func RegisterRoutes(open *gin.RouterGroup) {
 	health.RegisterOpenRoutes(open)
 	auth.RegisterOpenRoutes(open)
 	docs.RegisterOpenRoutes(open)
+	documentshare.RegisterOpenRoutes(open)
 	mcp.RegisterOpenRoutes(open)
 }

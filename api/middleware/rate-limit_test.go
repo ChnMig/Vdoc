@@ -160,8 +160,9 @@ func TestRateLimiterCleanup(t *testing.T) {
 
 	// 停止限流器
 	rl.Stop()
+	rl.Stop()
 
-	// 验证 goroutine 已停止（通过检查是否可以再次调用 Stop 而不会 panic）
+	// 验证重复停止不会 panic。
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("Panic occurred: %v", r)

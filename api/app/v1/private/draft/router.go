@@ -73,7 +73,7 @@ func listDrafts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	drafts, err := shared.Store().ListDrafts(userID, c.Param("project_id"), c.Param("document_id"))
+	drafts, err := shared.Store().ListDrafts(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

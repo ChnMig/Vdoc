@@ -29,12 +29,87 @@ func setupAuthRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	config.JWTKey = "test-secret-key-for-auth-routes-32chars"
 	config.JWTExpiration = time.Hour
+	oldAllowRegistration := config.AllowRegistration
+	config.AllowRegistration = true
+	t.Cleanup(func() { config.AllowRegistration = oldAllowRegistration })
+	middleware.CleanupAllLimiters()
+	t.Cleanup(middleware.CleanupAllLimiters)
 	app.ResetDefaultStoreForTest()
 	t.Cleanup(app.ResetDefaultStoreForTest)
 
 	router := gin.New()
 	RegisterOpenRoutes(router.Group("/api/v1/open"))
 	return router
+}
+
+func TestAuthRoutesEnforceIndependentIPRateLimit(t *testing.T) {
+	oldRate, oldBurst := config.AuthRateLimit, config.AuthRateBurst
+	config.AuthRateLimit, config.AuthRateBurst = 1, 1
+	t.Cleanup(func() {
+		config.AuthRateLimit, config.AuthRateBurst = oldRate, oldBurst
+	})
+	router := setupAuthRouter(t)
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/open/auth/login", bytes.NewBufferString(`{}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.RemoteAddr = "198.51.100.10:12345"
+		router.ServeHTTP(recorder, request)
+		var envelope authTestEnvelope
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("attempt %d decode response: %v", attempt, err)
+		}
+		if attempt == 1 && envelope.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d code = %d body %s, want invalid argument", attempt, envelope.Code, recorder.Body.String())
+		}
+		if attempt == 2 && (envelope.Code != http.StatusTooManyRequests || envelope.Status != "RESOURCE_EXHAUSTED") {
+			t.Fatalf("attempt %d response = code %d status %q body %s", attempt, envelope.Code, envelope.Status, recorder.Body.String())
+		}
+	}
+}
+
+func TestRegisterIsDisabledByDefault(t *testing.T) {
+	router := setupAuthRouter(t)
+	config.AllowRegistration = false
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/open/auth/register", bytes.NewBufferString(`{"email":"blocked@example.com","name":"Blocked","password":"correct horse battery staple"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	var envelope authTestEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if envelope.Code != http.StatusForbidden || envelope.Status != "PERMISSION_DENIED" {
+		t.Fatalf("register response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
+	}
+	if logs := app.DefaultStore().AuditLogsForTest(); len(logs) != 0 {
+		t.Fatalf("disabled registration wrote audit logs: %+v", logs)
+	}
+}
+
+func TestAuthConfigReportsRegistrationState(t *testing.T) {
+	router := setupAuthRouter(t)
+	for _, enabled := range []bool{false, true} {
+		config.AllowRegistration = enabled
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/open/auth/config", nil)
+		router.ServeHTTP(recorder, request)
+		var envelope struct {
+			Code   int `json:"code"`
+			Detail struct {
+				RegistrationEnabled bool `json:"registration_enabled"`
+			} `json:"detail"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode config response: %v", err)
+		}
+		if envelope.Code != 200 || envelope.Detail.RegistrationEnabled != enabled {
+			t.Fatalf("config response enabled=%v body=%s", enabled, recorder.Body.String())
+		}
+	}
 }
 
 func TestLoginRejectsDisabledUserWithEnvelope(t *testing.T) {
@@ -75,6 +150,11 @@ func TestAuthAuditCapturesTraceContextWithoutPassword(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	config.JWTKey = "test-secret-key-for-auth-routes-32chars"
 	config.JWTExpiration = time.Hour
+	oldAllowRegistration := config.AllowRegistration
+	config.AllowRegistration = true
+	t.Cleanup(func() { config.AllowRegistration = oldAllowRegistration })
+	middleware.CleanupAllLimiters()
+	t.Cleanup(middleware.CleanupAllLimiters)
 	app.ResetDefaultStoreForTest()
 	t.Cleanup(app.ResetDefaultStoreForTest)
 

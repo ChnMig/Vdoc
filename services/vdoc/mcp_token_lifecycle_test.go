@@ -25,6 +25,13 @@ func TestMCPTokenCreateRevealListRedactionAndDefaultScope(t *testing.T) {
 	if token.CipherKID == "" || len(token.TokenCiphertext) == 0 {
 		t.Fatalf("cipher fields missing: kid=%q ciphertext=%d", token.CipherKID, len(token.TokenCiphertext))
 	}
+	stored := store.tokens[token.ID]
+	if stored == nil {
+		t.Fatal("created token missing from store")
+	}
+	if stored.Token != "" {
+		t.Fatalf("stored token plaintext = %q, want empty immediately after creation", stored.Token)
+	}
 
 	listed, err := store.ListMCPTokens("owner")
 	if err != nil {
@@ -51,6 +58,15 @@ func TestMCPTokenRejectsInvalidScope(t *testing.T) {
 
 	if _, err := store.CreateMCPToken("owner", "invalid", []int{ScopeAPIRead, 99}, nil); !Is(err, ErrInvalidArgument) {
 		t.Fatalf("CreateMCPToken(invalid scope) error = %v, want invalid argument", err)
+	}
+}
+
+func TestMCPTokenListRejectsDisabledOwner(t *testing.T) {
+	store := newMCPTokenTestStore()
+	store.users["owner"].Status = UserStatusDisabled
+
+	if _, err := store.ListMCPTokens("owner"); !Is(err, ErrUnauthenticated) {
+		t.Fatalf("ListMCPTokens(disabled owner) error = %v, want unauthenticated", err)
 	}
 }
 

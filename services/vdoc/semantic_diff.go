@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"vdoc/utils/id"
 )
@@ -85,7 +86,7 @@ func (b *semanticDiffBuilder) compareRequestBody(from, to Endpoint) {
 	}
 	for _, media := range sortedStringKeys(fs) {
 		if _, ok := ts[media]; !ok {
-			b.add(ChangeRequestBodyChanged, SeverityWarning, to, "requestBody."+media, "Request body media type removed", false, compactSchemaValue(fs[media]), nil)
+			b.add(ChangeRequestBodyChanged, SeverityBreaking, to, "requestBody."+media, "Request body media type removed", true, compactSchemaValue(fs[media]), nil)
 		}
 	}
 }
@@ -100,7 +101,12 @@ func (b *semanticDiffBuilder) compareResponses(from, to Endpoint) {
 	}
 	for _, status := range sortedStringKeys(fs) {
 		if _, ok := ts[status]; !ok {
-			b.add(ChangeResponseChanged, SeverityWarning, to, "responses."+status, "Response status removed", false, fs[status], nil)
+			breaking := strings.HasPrefix(status, "2")
+			severity := SeverityWarning
+			if breaking {
+				severity = SeverityBreaking
+			}
+			b.add(ChangeResponseChanged, severity, to, "responses."+status, "Response status removed", breaking, fs[status], nil)
 		}
 	}
 	oldSchemas := responseSchemas(from.Responses)
@@ -144,12 +150,7 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 			continue
 		}
 		if oldField.Type != newField.Type {
-			breaking := response
-			severity := SeverityWarning
-			if breaking {
-				severity = SeverityBreaking
-			}
-			b.add(change, severity, endpoint, location, fieldTypeChangeMessage(response), breaking, oldField.Type, newField.Type)
+			b.add(change, SeverityBreaking, endpoint, location, fieldTypeChangeMessage(response), true, oldField.Type, newField.Type)
 		}
 		if oldField.Required != newField.Required {
 			breaking := !response && newField.Required
@@ -180,12 +181,7 @@ func (b *semanticDiffBuilder) compareSchemaRootType(change int, endpoint Endpoin
 	if oldType == "" || newType == "" || oldType == newType {
 		return
 	}
-	breaking := response
-	severity := SeverityWarning
-	if breaking {
-		severity = SeverityBreaking
-	}
-	b.add(change, severity, endpoint, prefix+".type", schemaTypeChangeMessage(response), breaking, oldType, newType)
+	b.add(change, SeverityBreaking, endpoint, prefix+".type", schemaTypeChangeMessage(response), true, oldType, newType)
 }
 
 func (b *semanticDiffBuilder) compareEnumValues(change int, endpoint Endpoint, location string, oldSchema, newSchema any, message string) {

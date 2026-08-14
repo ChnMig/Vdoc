@@ -43,29 +43,33 @@ func (AIPromptOverride) TableName() string { return TableNameAIPromptOverrides }
 
 type AISummary struct {
 	pgdb.Base
-	ProjectID    string     `gorm:"column:project_id;type:uuid;not null"`
-	DocumentID   string     `gorm:"column:document_id;type:uuid;not null"`
-	OwnerType    string     `gorm:"column:owner_type;type:text;not null"`
-	OwnerID      string     `gorm:"column:owner_id;type:uuid;not null"`
-	PromptKey    string     `gorm:"column:prompt_key;type:text;not null"`
-	ProviderID   *string    `gorm:"column:provider_id;type:uuid"`
-	Status       string     `gorm:"column:status;type:text;not null"`
-	Content      *string    `gorm:"column:content;type:text"`
-	ErrorMessage *string    `gorm:"column:error_message;type:text"`
-	GeneratedBy  string     `gorm:"column:generated_by;type:uuid;not null"`
-	GeneratedAt  *time.Time `gorm:"column:generated_at;type:timestamptz"`
+	ProjectID           string     `gorm:"column:project_id;type:uuid;not null"`
+	DocumentID          string     `gorm:"column:document_id;type:uuid;not null"`
+	OwnerType           string     `gorm:"column:owner_type;type:text;not null"`
+	OwnerID             string     `gorm:"column:owner_id;type:uuid;not null"`
+	PromptKey           string     `gorm:"column:prompt_key;type:text;not null"`
+	ProviderID          *string    `gorm:"column:provider_id;type:uuid"`
+	Status              string     `gorm:"column:status;type:text;not null"`
+	Content             *string    `gorm:"column:content;type:text"`
+	ErrorMessage        *string    `gorm:"column:error_message;type:text"`
+	GeneratedBy         string     `gorm:"column:generated_by;type:uuid;not null"`
+	GeneratedAt         *time.Time `gorm:"column:generated_at;type:timestamptz"`
+	GenerationToken     string     `gorm:"column:generation_token;type:text;not null;default:''"`
+	GenerationStartedAt *time.Time `gorm:"column:generation_started_at;type:timestamptz"`
 }
 
 func (AISummary) TableName() string { return TableNameAISummaries }
 
 type AIChatSession struct {
 	pgdb.Base
-	ProjectID   string  `gorm:"column:project_id;type:uuid;not null"`
-	DocumentID  *string `gorm:"column:document_id;type:uuid"`
-	ContextType string  `gorm:"column:context_type;type:text;not null"`
-	ContextID   string  `gorm:"column:context_id;type:uuid;not null"`
-	Title       string  `gorm:"column:title;type:text;not null"`
-	CreatedBy   string  `gorm:"column:created_by;type:uuid;not null"`
+	ProjectID           string     `gorm:"column:project_id;type:uuid;not null"`
+	DocumentID          *string    `gorm:"column:document_id;type:uuid"`
+	ContextType         string     `gorm:"column:context_type;type:text;not null"`
+	ContextID           string     `gorm:"column:context_id;type:uuid;not null"`
+	Title               string     `gorm:"column:title;type:text;not null"`
+	CreatedBy           string     `gorm:"column:created_by;type:uuid;not null"`
+	GenerationToken     string     `gorm:"column:generation_token;type:text;not null;default:''"`
+	GenerationStartedAt *time.Time `gorm:"column:generation_started_at;type:timestamptz"`
 }
 
 func (AIChatSession) TableName() string { return TableNameAIChatSessions }

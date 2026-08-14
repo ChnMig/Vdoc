@@ -118,6 +118,28 @@ func TestMCPTokenLifecycleAuditsDoNotExposeSecret(t *testing.T) {
 	}
 }
 
+func TestUnknownMCPTokenDoesNotCreatePersistentAuditAmplification(t *testing.T) {
+	store := NewStore()
+	before := len(store.AuditLogsForTest())
+	if _, _, err := store.AuthenticateMCPToken("vdoc_unknown_token"); !Is(err, ErrUnauthenticated) {
+		t.Fatalf("AuthenticateMCPToken(unknown) error = %v, want unauthenticated", err)
+	}
+	if after := len(store.AuditLogsForTest()); after != before {
+		t.Fatalf("unknown token audits = %d, want unchanged %d", after, before)
+	}
+}
+
+func TestUnknownLoginDoesNotCreatePersistentAuditAmplification(t *testing.T) {
+	store := NewStore()
+	before := len(store.AuditLogsForTest())
+	if _, err := store.Login("attacker-controlled@example.test", "not-the-password"); !Is(err, ErrUnauthenticated) {
+		t.Fatalf("Login(unknown) error = %v, want unauthenticated", err)
+	}
+	if after := len(store.AuditLogsForTest()); after != before {
+		t.Fatalf("unknown login audits = %d, want unchanged %d", after, before)
+	}
+}
+
 func TestTask12PublishAuditEvidenceWriter(t *testing.T) {
 	evidenceDir := os.Getenv("VDOC_TASK12_EVIDENCE_DIR")
 	if evidenceDir == "" {

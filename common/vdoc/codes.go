@@ -34,6 +34,13 @@ const (
 
 	VersionStatusPublished = 1
 
+	DocumentShareScopeLatest      = 1
+	DocumentShareScopeAllVersions = 2
+
+	DocumentShareStatusActive  = 1
+	DocumentShareStatusRevoked = 2
+	DocumentShareStatusExpired = 3
+
 	SchemaFormatOpenAPI30 = 1
 	SchemaFormatOpenAPI31 = 2
 
@@ -75,9 +82,10 @@ const (
 	ScopeDocRead  = 3
 	ScopeDocDraft = 4
 
-	AuditActorUser     = 1
-	AuditActorMCPToken = 2
-	AuditActorSystem   = 3
+	AuditActorUser      = 1
+	AuditActorMCPToken  = 2
+	AuditActorSystem    = 3
+	AuditActorAnonymous = 4
 )
 
 var UserStatusNames = map[int]string{
@@ -131,6 +139,17 @@ var DraftStatusNames = map[int]string{
 
 var VersionStatusNames = map[int]string{
 	VersionStatusPublished: "published",
+}
+
+var DocumentShareScopeNames = map[int]string{
+	DocumentShareScopeLatest:      "latest",
+	DocumentShareScopeAllVersions: "all_versions",
+}
+
+var DocumentShareStatusNames = map[int]string{
+	DocumentShareStatusActive:  "active",
+	DocumentShareStatusRevoked: "revoked",
+	DocumentShareStatusExpired: "expired",
 }
 
 var SchemaFormatNames = map[int]string{

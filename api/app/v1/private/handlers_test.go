@@ -162,6 +162,10 @@ func TestProjectMemberRoutesEnforceProjectRBAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create writer: %v", err)
 	}
+	candidateUser, err := store.CreateUser(superUser.ID, "candidate@example.com", "Candidate", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create candidate: %v", err)
+	}
 	team, err := store.CreateTeam(superUser.ID, "Team", "")
 	if err != nil {
 		t.Fatalf("create team: %v", err)
@@ -186,6 +190,20 @@ func TestProjectMemberRoutesEnforceProjectRBAC(t *testing.T) {
 	listEnvelope := decodePrivateEnvelope(t, listRecorder)
 	if listEnvelope.Code != 200 || listEnvelope.Total == nil || *listEnvelope.Total != 2 {
 		t.Fatalf("member list response = code %d total %v body %s", listEnvelope.Code, listEnvelope.Total, listRecorder.Body.String())
+	}
+	if !strings.Contains(string(listEnvelope.Detail), adminUser.Email) || !strings.Contains(string(listEnvelope.Detail), writerUser.Email) {
+		t.Fatalf("member list response is missing display identities: %s", listRecorder.Body.String())
+	}
+
+	candidatesRecorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/member-candidates", adminToken, "")
+	candidatesEnvelope := decodePrivateEnvelope(t, candidatesRecorder)
+	if candidatesEnvelope.Code != 200 || candidatesEnvelope.Total == nil || *candidatesEnvelope.Total != 1 || !strings.Contains(string(candidatesEnvelope.Detail), candidateUser.Email) {
+		t.Fatalf("member candidates response = code %d total %v body %s", candidatesEnvelope.Code, candidatesEnvelope.Total, candidatesRecorder.Body.String())
+	}
+	deniedCandidatesRecorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/member-candidates", writerToken, "")
+	deniedCandidatesEnvelope := decodePrivateEnvelope(t, deniedCandidatesRecorder)
+	if deniedCandidatesEnvelope.Code != 403 || deniedCandidatesEnvelope.Status != "PERMISSION_DENIED" {
+		t.Fatalf("writer candidates response = code %d status %q body %s", deniedCandidatesEnvelope.Code, deniedCandidatesEnvelope.Status, deniedCandidatesRecorder.Body.String())
 	}
 
 	removeRecorder := performPrivateJSON(router, http.MethodDelete, "/api/v1/private/projects/"+project.ID+"/members/"+writerUser.ID, adminToken, "")
@@ -507,6 +525,10 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 	if devBranch == nil {
 		t.Fatalf("dev branch missing from %+v", branches)
 	}
+	testBranch := branchesByName(branches)["test"]
+	if testBranch == nil {
+		t.Fatalf("test branch missing from %+v", branches)
+	}
 
 	teamRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/teams/"+fixture.team.ID, fixture.superToken, `{"name":"Platform Updated","description":"team description"}`)
 	teamEnvelope := decodePrivateEnvelope(t, teamRecorder)
@@ -537,19 +559,25 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 		t.Fatalf("document patch response = code %d status %q body %s", documentEnvelope.Code, documentEnvelope.Status, documentRecorder.Body.String())
 	}
 
-	branchDetailRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID, fixture.adminToken, "")
+	branchDetailRecorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+testBranch.ID, fixture.adminToken, "")
 	branchDetailEnvelope := decodePrivateEnvelope(t, branchDetailRecorder)
 	if branchDetailEnvelope.Code != 200 || branchDetailEnvelope.Status != "OK" {
 		t.Fatalf("branch detail response = code %d status %q body %s", branchDetailEnvelope.Code, branchDetailEnvelope.Status, branchDetailRecorder.Body.String())
 	}
 
-	branchRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID, fixture.adminToken, `{"description":"development","is_protected":true}`)
+	branchRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+testBranch.ID, fixture.adminToken, `{"description":"testing","is_protected":true}`)
 	branchEnvelope := decodePrivateEnvelope(t, branchRecorder)
 	if branchEnvelope.Code != 200 || branchEnvelope.Status != "OK" {
 		t.Fatalf("branch patch response = code %d status %q body %s", branchEnvelope.Code, branchEnvelope.Status, branchRecorder.Body.String())
 	}
 
-	archiveBranchRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID+"/archive", fixture.adminToken, "")
+	archiveDefaultRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+devBranch.ID+"/archive", fixture.adminToken, "")
+	archiveDefaultEnvelope := decodePrivateEnvelope(t, archiveDefaultRecorder)
+	if archiveDefaultEnvelope.Code != 400 || archiveDefaultEnvelope.Status != "FAILED_PRECONDITION" {
+		t.Fatalf("default branch archive response = code %d status %q body %s", archiveDefaultEnvelope.Code, archiveDefaultEnvelope.Status, archiveDefaultRecorder.Body.String())
+	}
+
+	archiveBranchRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+testBranch.ID+"/archive", fixture.adminToken, "")
 	archiveBranchEnvelope := decodePrivateEnvelope(t, archiveBranchRecorder)
 	if archiveBranchEnvelope.Code != 200 || archiveBranchEnvelope.Status != "OK" {
 		t.Fatalf("branch archive response = code %d status %q body %s", archiveBranchEnvelope.Code, archiveBranchEnvelope.Status, archiveBranchRecorder.Body.String())
@@ -808,6 +836,15 @@ func TestDiffRoutesExposeSemanticSummaryAndItems(t *testing.T) {
 	}
 	assertPrivateDiffItem(t, fetched.Items, app.ChangeResponseChanged, "responses.200.application/json.properties.name", app.SeverityBreaking, true)
 
+	listEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/diffs?from_version_id="+from.ID+"&to_version_id="+to.ID, fixture.adminToken, ""))
+	if listEnvelope.Code != 200 || listEnvelope.Total == nil || *listEnvelope.Total != 1 {
+		t.Fatalf("list diff response = code %d total %v body %s", listEnvelope.Code, listEnvelope.Total, listEnvelope.Detail)
+	}
+	var listed []app.Diff
+	if err := json.Unmarshal(listEnvelope.Detail, &listed); err != nil || len(listed) != 1 || listed[0].ID != created.ID {
+		t.Fatalf("decode listed diffs = %+v error=%v body=%s", listed, err, listEnvelope.Detail)
+	}
+
 	summaryEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/diffs/"+created.ID+"/summary", fixture.adminToken, ""))
 	var summary app.DiffSummary
 	if err := json.Unmarshal(summaryEnvelope.Detail, &summary); err != nil {
@@ -815,6 +852,68 @@ func TestDiffRoutesExposeSemanticSummaryAndItems(t *testing.T) {
 	}
 	if summary != created.Summary {
 		t.Fatalf("summary route = %+v, want %+v", summary, created.Summary)
+	}
+}
+
+func TestAuditLogRoutesEnforceRoleScopeAndFilters(t *testing.T) {
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("audit-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	adminUser, err := store.CreateUser(superUser.ID, "audit-admin@example.com", "Admin", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	readerUser, err := store.CreateUser(superUser.ID, "audit-reader@example.com", "Reader", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create reader: %v", err)
+	}
+	team, err := store.CreateTeam(superUser.ID, "Audit Team", "")
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	projectA, err := store.CreateProject(superUser.ID, team.ID, "Audit A", "", adminUser.ID)
+	if err != nil {
+		t.Fatalf("create project A: %v", err)
+	}
+	projectB, err := store.CreateProject(superUser.ID, team.ID, "Audit B", "", superUser.ID)
+	if err != nil {
+		t.Fatalf("create project B: %v", err)
+	}
+	if _, err := store.AddProjectMember(adminUser.ID, projectA.ID, readerUser.ID, app.MemberRoleReader); err != nil {
+		t.Fatalf("add reader: %v", err)
+	}
+	if _, err := store.CreateDocument(adminUser.ID, projectA.ID, "audit-a", app.DocumentTypeMarkdown, "docs/a.md", ""); err != nil {
+		t.Fatalf("create document A: %v", err)
+	}
+	if _, err := store.CreateDocument(superUser.ID, projectB.ID, "audit-b", app.DocumentTypeMarkdown, "docs/b.md", ""); err != nil {
+		t.Fatalf("create document B: %v", err)
+	}
+
+	superToken := issuePrivateTestToken(t, superUser.ID)
+	adminToken := issuePrivateTestToken(t, adminUser.ID)
+	readerToken := issuePrivateTestToken(t, readerUser.ID)
+	readerEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs?project_id="+projectA.ID, readerToken, ""))
+	if readerEnvelope.Code != 403 {
+		t.Fatalf("reader audit response = code %d body %s", readerEnvelope.Code, readerEnvelope.Detail)
+	}
+	missingProject := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs", adminToken, ""))
+	if missingProject.Code != 400 {
+		t.Fatalf("admin missing project response = code %d body %s", missingProject.Code, missingProject.Detail)
+	}
+	adminEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs?project_id="+projectA.ID+"&action=document.create&limit=200", adminToken, ""))
+	if adminEnvelope.Code != 200 || adminEnvelope.Total == nil || *adminEnvelope.Total != 1 {
+		t.Fatalf("admin audit response = code %d total %v body %s", adminEnvelope.Code, adminEnvelope.Total, adminEnvelope.Detail)
+	}
+	var adminLogs []app.AuditLog
+	if err := json.Unmarshal(adminEnvelope.Detail, &adminLogs); err != nil || len(adminLogs) != 1 || adminLogs[0].ProjectID != projectA.ID {
+		t.Fatalf("admin audit logs = %+v error=%v", adminLogs, err)
+	}
+	superEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs?action=document.create", superToken, ""))
+	if superEnvelope.Code != 200 || superEnvelope.Total == nil || *superEnvelope.Total != 2 {
+		t.Fatalf("super audit response = code %d total %v body %s", superEnvelope.Code, superEnvelope.Total, superEnvelope.Detail)
 	}
 }
 
@@ -858,8 +957,8 @@ func TestPrivateMCPTokenCreateListGetAndRevokeRedaction(t *testing.T) {
 	if err := json.Unmarshal(ownerGetEnvelope.Detail, &ownerFetched); err != nil {
 		t.Fatalf("decode owner token: %v", err)
 	}
-	if ownerFetched.Token != "" || ownerFetched.CipherKID != "" || ownerFetched.TokenHash != "" || len(ownerFetched.TokenCiphertext) != 0 {
-		t.Fatalf("owner fetched token = %+v, want redacted storage fields", ownerFetched)
+	if ownerFetched.Token != created.Token || ownerFetched.CipherKID != "" || ownerFetched.TokenHash != "" || len(ownerFetched.TokenCiphertext) != 0 {
+		t.Fatalf("owner fetched token = %+v, want repeatable active secret with redacted storage fields", ownerFetched)
 	}
 
 	superGetRecorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-tokens/"+created.ID, superJWT, "")

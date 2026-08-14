@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
+	"strings"
 
+	"vdoc/config"
 	domainvdoc "vdoc/domain/vdoc"
 
 	"github.com/minio/minio-go/v7"
@@ -13,24 +16,26 @@ import (
 )
 
 type RuntimeConfig struct {
-	DatabaseEnabled      bool
-	DatabaseDSN          string
-	DatabaseMaxOpenConn  int
-	DatabaseMaxIdleConn  int
-	DatabaseRepository   domainvdoc.Repository
-	DatabaseClose        func() error
-	StorageEnabled       bool
-	StorageEndpoint      string
-	StorageBucket        string
-	StorageAccessKey     string
-	StorageSecretKey     string
-	StorageRegion        string
-	StorageUseSSL        bool
-	StoragePathStyle     bool
-	ObjectStorage        ObjectStorage
-	InitialAdminEmail    string
-	InitialAdminName     string
-	InitialAdminPassword string
+	DatabaseEnabled        bool
+	DatabaseDSN            string
+	DatabaseMaxOpenConn    int
+	DatabaseMaxIdleConn    int
+	DatabaseRepository     domainvdoc.Repository
+	DatabaseClose          func() error
+	StorageEnabled         bool
+	StorageEndpoint        string
+	StorageBucket          string
+	StorageAccessKey       string
+	StorageSecretKey       string
+	StorageRegion          string
+	StorageUseSSL          bool
+	StoragePathStyle       bool
+	ObjectStorage          ObjectStorage
+	InitialAdminEmail      string
+	InitialAdminName       string
+	InitialAdminPassword   string
+	AllowRegistration      bool
+	RequireBootstrapAccess bool
 }
 
 type postgresPersistence struct {
@@ -54,7 +59,32 @@ type ObjectInfo struct {
 type ObjectStorage interface {
 	PutObject(ctx context.Context, write ObjectWrite) (ObjectInfo, error)
 	GetObject(ctx context.Context, key string) ([]byte, error)
+	DeleteObject(ctx context.Context, key string) error
 	HealthCheck(ctx context.Context) error
+}
+
+const defaultMaxStoredObjectBytes int64 = 10 << 20
+
+func maxStoredObjectBytes() int64 {
+	if config.MaxBodySize > 0 {
+		return config.MaxBodySize
+	}
+	return defaultMaxStoredObjectBytes
+}
+
+func readStoredObjectBody(reader io.Reader) ([]byte, error) {
+	limit := maxStoredObjectBytes()
+	if limit >= math.MaxInt64 {
+		return nil, fmt.Errorf("stored object read limit is too large")
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("stored object exceeds %d byte limit", limit)
+	}
+	return body, nil
 }
 
 type objectStorage struct {
@@ -85,6 +115,7 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 			}
 			return fmt.Errorf("load database-backed Vdoc state: %w", err)
 		}
+		store.persisted = store.cloneStateLocked()
 	}
 	if err := store.SeedInitialAdmin(cfg.InitialAdminEmail, cfg.InitialAdminName, cfg.InitialAdminPassword); err != nil {
 		if cfg.DatabaseClose != nil {
@@ -92,8 +123,23 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 		}
 		return fmt.Errorf("seed initial admin: %w", err)
 	}
+	if cfg.RequireBootstrapAccess && !hasBootstrapAccess(store.users, cfg.AllowRegistration) {
+		if cfg.DatabaseClose != nil {
+			_ = cfg.DatabaseClose()
+		}
+		return fmt.Errorf("bootstrap access unavailable: configure an active initial_admin, or enable registration only for an empty trusted pilot deployment")
+	}
 	defaultStore = store
 	return nil
+}
+
+func hasBootstrapAccess(users map[string]*User, allowRegistration bool) bool {
+	for _, user := range users {
+		if user != nil && user.Status == UserStatusActive && user.IsSuperAdmin {
+			return true
+		}
+	}
+	return allowRegistration && len(users) == 0
 }
 
 func CheckDefaultObjectStorage(ctx context.Context) error {
@@ -165,9 +211,12 @@ func (o *objectStorage) GetObject(ctx context.Context, key string) ([]byte, erro
 		return nil, err
 	}
 	defer object.Close()
-	return io.ReadAll(object)
+	return readStoredObjectBody(object)
 }
 
-func (p *postgresPersistence) recordObject(ctx context.Context, ref domainvdoc.ObjectRef) error {
-	return p.repo.RecordObject(ctx, ref)
+func (o *objectStorage) DeleteObject(ctx context.Context, key string) error {
+	if strings.TrimSpace(key) == "" {
+		return nil
+	}
+	return o.client.RemoveObject(ctx, o.bucket, key, minio.RemoveObjectOptions{})
 }

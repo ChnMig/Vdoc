@@ -98,6 +98,43 @@ func TestMarkdownDocumentDiffNoChangeAndImmutability(t *testing.T) {
 	}
 }
 
+func TestMarkdownPromoteSubmitApprovePublishesTargetVersion(t *testing.T) {
+	store, projectID, documentID, sourceBranchID := newMarkdownDocumentFlowStore(t)
+	branches, err := store.ListBranches("admin", projectID, documentID)
+	if err != nil {
+		t.Fatalf("ListBranches() error = %v", err)
+	}
+	var targetBranchID string
+	for _, branch := range branches {
+		if branch.Name == "test" {
+			targetBranchID = branch.ID
+		}
+	}
+	if targetBranchID == "" {
+		t.Fatal("test branch not found")
+	}
+	source := publishMarkdownDocumentDraft(t, store, projectID, documentID, sourceBranchID, "1.0.0", markdownV1(), "md-source")
+
+	promoted, err := store.PromoteDraft("admin", projectID, documentID, PromoteInput{SourceBranchID: sourceBranchID, TargetBranchID: targetBranchID, VersionName: "1.0.0-test", Changelog: "promote markdown"})
+	if err != nil {
+		t.Fatalf("PromoteDraft(markdown) error = %v", err)
+	}
+	if promoted.SchemaFormat != DocumentFormatMarkdown || promoted.SourceType != SourceTypePromote || promoted.SourceVersionID != source.ID || promoted.BranchID != targetBranchID {
+		t.Fatalf("promoted markdown draft = %+v", promoted)
+	}
+	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, promoted.ID); err != nil {
+		t.Fatalf("SubmitMarkdownDraft(promoted) error = %v", err)
+	}
+	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, promoted.ID, "approve")
+	if err != nil {
+		t.Fatalf("ReviewMarkdownDraft(promoted) error = %v", err)
+	}
+	version := published.(*ContractVersion)
+	if version.SchemaFormat != DocumentFormatMarkdown || version.BranchID != targetBranchID || version.SourceVersionID != source.ID || version.RawSchema != markdownV1() {
+		t.Fatalf("published markdown promote = %+v", version)
+	}
+}
+
 func TestMarkdownDocumentEntrypointsValidateDocumentTypeAndPath(t *testing.T) {
 	store, projectID, documentID, branchID := newMarkdownDocumentFlowStore(t)
 
@@ -169,8 +206,11 @@ func assertMarkdownObjectWrite(t *testing.T, write ObjectWrite, projectID, docum
 
 func assertMarkdownLineDiff(t *testing.T, diff *Diff) {
 	t.Helper()
-	if diff.Summary.AddedEndpoints == 0 || diff.Summary.RemovedEndpoints == 0 || diff.Summary.ModifiedEndpoints == 0 {
-		t.Fatalf("markdown diff summary = %+v, want added/removed/changed line counts", diff.Summary)
+	if diff.Summary.DocumentFormat != DocumentFormatMarkdown || diff.Summary.AddedLines+diff.Summary.RemovedLines+diff.Summary.ModifiedLines == 0 || diff.Summary.ModifiedBlocks == 0 {
+		t.Fatalf("markdown diff summary = %+v, want changed line and block counts", diff.Summary)
+	}
+	if diff.Summary.AddedEndpoints != 0 || diff.Summary.RemovedEndpoints != 0 || diff.Summary.ModifiedEndpoints != 0 {
+		t.Fatalf("markdown diff summary = %+v, must not report endpoint counts", diff.Summary)
 	}
 	seenUnified := false
 	for _, item := range diff.Items {

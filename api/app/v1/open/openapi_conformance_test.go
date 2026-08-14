@@ -29,25 +29,32 @@ var openAPIMethods = map[string]struct{}{
 }
 
 var listRouteKeys = map[string]struct{}{
+	"GET /api/v1/private/audit-logs":                                                                    {},
+	"GET /api/v1/open/document-shares/{share_id}/versions":                                              {},
 	"GET /api/v1/private/system/users":                                                                  {},
 	"GET /api/v1/private/system/users/{user_id}/mcp-tokens":                                             {},
 	"GET /api/v1/private/teams":                                                                         {},
 	"GET /api/v1/private/projects":                                                                      {},
 	"GET /api/v1/private/projects/{project_id}/members":                                                 {},
+	"GET /api/v1/private/projects/{project_id}/member-candidates":                                       {},
 	"GET /api/v1/private/projects/{project_id}/documents":                                               {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                        {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                          {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                          {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/versions":                        {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/diffs":                           {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/endpoints": {},
 	"GET /api/v1/private/mcp-tokens":                                                                    {},
 	"GET /api/v1/private/ai/prompts":                                                                    {},
 	"GET /api/v1/private/projects/{project_id}/ai/prompts":                                              {},
+	"GET /api/v1/private/projects/{project_id}/ai/chat-sessions":                                        {},
 }
 
 var requiredMCPTools = []string{
 	"list_projects",
 	"list_documents",
 	"list_api_versions",
+	"list_doc_versions",
 	"get_latest_schema",
 	"get_endpoint_detail",
 	"compare_api_versions",
@@ -113,6 +120,10 @@ func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
 		switch key {
 		case "GET /api/v1/open/docs/openapi.yaml":
 			if response != "#/components/responses/OpenAPISpecResponse" {
+				t.Fatalf("%s response = %q", key, response)
+			}
+		case "GET /api/v1/open/document-shares/{share_id}/versions/{version_id}/download":
+			if response != "#/components/responses/PublicDocumentDownloadResponse" {
 				t.Fatalf("%s response = %q", key, response)
 			}
 		case "POST /api/v1/open/mcp":
@@ -218,7 +229,7 @@ func assertOpenAPICurrentDescriptions(t *testing.T) {
 		"Projects own typed Documents",
 		"document_type 1 is OpenAPI and 2 is Markdown",
 		"relative_path is the stored project-local path identity",
-		"one time copyable token value only on create",
+		"owner can reveal an active token again",
 	}
 	for _, phrase := range requiredPhrases {
 		if !strings.Contains(document, phrase) {

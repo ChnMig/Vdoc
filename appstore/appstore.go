@@ -45,6 +45,13 @@ const (
 
 	VersionStatusPublished = app.VersionStatusPublished
 
+	DocumentShareScopeLatest      = app.DocumentShareScopeLatest
+	DocumentShareScopeAllVersions = app.DocumentShareScopeAllVersions
+
+	DocumentShareStatusActive  = app.DocumentShareStatusActive
+	DocumentShareStatusRevoked = app.DocumentShareStatusRevoked
+	DocumentShareStatusExpired = app.DocumentShareStatusExpired
+
 	DocumentFormatOpenAPI30 = app.DocumentFormatOpenAPI30
 	DocumentFormatOpenAPI31 = app.DocumentFormatOpenAPI31
 	DocumentFormatMarkdown  = app.DocumentFormatMarkdown
@@ -78,9 +85,10 @@ const (
 	ScopeDocRead  = app.ScopeDocRead
 	ScopeDocDraft = app.ScopeDocDraft
 
-	AuditActorUser     = app.AuditActorUser
-	AuditActorMCPToken = app.AuditActorMCPToken
-	AuditActorSystem   = app.AuditActorSystem
+	AuditActorUser      = app.AuditActorUser
+	AuditActorMCPToken  = app.AuditActorMCPToken
+	AuditActorSystem    = app.AuditActorSystem
+	AuditActorAnonymous = app.AuditActorAnonymous
 )
 
 type Store = app.Store
@@ -92,6 +100,8 @@ type APIService = app.APIService
 type ContractBranch = app.ContractBranch
 type ContractDraft = app.ContractDraft
 type ContractVersion = app.ContractVersion
+type DocumentShare = app.DocumentShare
+type DocumentShareExpiryPreset = app.DocumentShareExpiryPreset
 type SchemaDocument = app.SchemaDocument
 type Endpoint = app.Endpoint
 type Diff = app.Diff
@@ -99,6 +109,7 @@ type DiffSummary = app.DiffSummary
 type DiffItem = app.DiffItem
 type MCPToken = app.MCPToken
 type AuditLog = app.AuditLog
+type AuditLogQuery = app.AuditLogQuery
 type AIProviderConfig = app.AIProviderConfig
 type AIProviderInput = app.AIProviderInput
 type AIPromptOverride = app.AIPromptOverride
@@ -111,6 +122,12 @@ type AIChatSessionInput = app.AIChatSessionInput
 type AuditContext = app.AuditContext
 type DraftInput = app.DraftInput
 type PromoteInput = app.PromoteInput
+type DocumentShareInput = app.DocumentShareInput
+type DocumentShareSecret = app.DocumentShareSecret
+type PublicShareVersion = app.PublicShareVersion
+type PublicShareMetadata = app.PublicShareMetadata
+type PublicShareContent = app.PublicShareContent
+type PublicShareDownload = app.PublicShareDownload
 
 func Is(err, target error) bool { return app.Is(err, target) }
 

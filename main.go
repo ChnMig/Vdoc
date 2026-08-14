@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,10 +41,15 @@ var (
 )
 
 func main() {
-	if email, password, ok, err := parseResetAdminArgs(os.Args[1:]); err != nil {
+	if email, ok, err := parseResetAdminArgs(os.Args[1:]); err != nil {
 		fmt.Printf("Failed to parse reset admin command: %v\n", err)
 		os.Exit(1)
 	} else if ok {
+		password, err := readResetAdminPassword(os.Stdin)
+		if err != nil {
+			fmt.Printf("Failed to read reset admin password from stdin: %v\n", err)
+			os.Exit(1)
+		}
 		if err := config.LoadConfig(); err != nil {
 			fmt.Printf("Failed to load configuration: %v\n", err)
 			os.Exit(1)
@@ -87,15 +94,8 @@ func main() {
 	log.GetLogger()
 	log.StartMonitor() // 启动日志文件监控
 
-	// 启动配置热重载（在日志初始化之后）
-	config.WatchConfig(func() {
-		log.SetLogger()
-		zap.L().Info("Configuration reloaded",
-			zap.Int("port", config.ListenPort),
-			zap.Duration("jwt_expiration", config.JWTExpiration),
-			zap.Bool("rate_limit_enabled", config.EnableRateLimit),
-		)
-	})
+	// 运行配置保持不可变；文件变化只校验并提示安全重启。
+	config.WatchConfig()
 
 	// 校验配置
 	config.CheckConfig(
@@ -127,17 +127,19 @@ func main() {
 			}
 			return databaseClient.Close()
 		},
-		StorageEnabled:       config.StorageEnabled,
-		StorageEndpoint:      config.StorageEndpoint,
-		StorageBucket:        config.StorageBucket,
-		StorageAccessKey:     config.StorageAccessKey,
-		StorageSecretKey:     config.StorageSecretKey,
-		StorageRegion:        config.StorageRegion,
-		StorageUseSSL:        config.StorageUseSSL,
-		StoragePathStyle:     config.StoragePathStyle,
-		InitialAdminEmail:    config.InitialAdminEmail,
-		InitialAdminName:     config.InitialAdminName,
-		InitialAdminPassword: config.InitialAdminPassword,
+		StorageEnabled:         config.StorageEnabled,
+		StorageEndpoint:        config.StorageEndpoint,
+		StorageBucket:          config.StorageBucket,
+		StorageAccessKey:       config.StorageAccessKey,
+		StorageSecretKey:       config.StorageSecretKey,
+		StorageRegion:          config.StorageRegion,
+		StorageUseSSL:          config.StorageUseSSL,
+		StoragePathStyle:       config.StoragePathStyle,
+		InitialAdminEmail:      config.InitialAdminEmail,
+		InitialAdminName:       config.InitialAdminName,
+		InitialAdminPassword:   config.InitialAdminPassword,
+		AllowRegistration:      config.AllowRegistration,
+		RequireBootstrapAccess: true,
 	}); err != nil {
 		if databaseClient != nil {
 			_ = databaseClient.Close()
@@ -240,14 +242,39 @@ func main() {
 	ctx.Exit(exitCode)
 }
 
-func parseResetAdminArgs(args []string) (email, password string, ok bool, err error) {
+func parseResetAdminArgs(args []string) (email string, ok bool, err error) {
 	if len(args) == 0 || args[0] != "--resetadmin" {
-		return "", "", false, nil
+		return "", false, nil
 	}
-	if len(args) != 3 {
-		return "", "", false, fmt.Errorf("usage: vdoc --resetadmin <email> <password>")
+	if len(args) != 2 {
+		return "", false, fmt.Errorf("usage: printf '%%s\\n' \"$NEW_PASSWORD\" | vdoc --resetadmin <email>")
 	}
-	return args[1], args[2], true, nil
+	return args[1], true, nil
+}
+
+const resetAdminPasswordMaxBytes = 4096
+
+func readResetAdminPassword(input io.Reader) (string, error) {
+	if input == nil {
+		return "", fmt.Errorf("password input is required")
+	}
+	line, err := bufio.NewReader(io.LimitReader(input, resetAdminPasswordMaxBytes+1)).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("read password: %w", err)
+	}
+	if len(line) > resetAdminPasswordMaxBytes {
+		return "", fmt.Errorf("password input exceeds %d bytes", resetAdminPasswordMaxBytes)
+	}
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		line = line[:len(line)-1]
+	}
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	if line == "" {
+		return "", fmt.Errorf("password input is empty")
+	}
+	return line, nil
 }
 
 func runResetAdmin(ctx context.Context, email, password string) error {

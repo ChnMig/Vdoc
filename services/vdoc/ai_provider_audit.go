@@ -7,6 +7,14 @@ func (s *Store) auditAIProviderTest(actorID, projectID string, provider *AIProvi
 	if err := s.refreshLocked(); err != nil {
 		return err
 	}
+	if projectID != "" {
+		if !s.canManageProjectLocked(actorID, projectID) {
+			return ErrFailedPrecondition
+		}
+		if err := s.ensureActiveProjectLocked(projectID); err != nil {
+			return ErrFailedPrecondition
+		}
+	}
 	metadata := auditMetadata("result", "success", "provider_id", provider.ID, "api_mode", provider.APIMode, "scope", provider.Scope)
 	if callErr != nil {
 		metadata["result"] = "failed"

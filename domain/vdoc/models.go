@@ -8,6 +8,7 @@ import (
 	domainbranch "vdoc/domain/documentbranch"
 	domaindiff "vdoc/domain/documentdiff"
 	domaindraft "vdoc/domain/documentdraft"
+	domainshare "vdoc/domain/documentshare"
 	domainversion "vdoc/domain/documentversion"
 	domainmcp "vdoc/domain/mcp"
 	domainproject "vdoc/domain/project"
@@ -51,6 +52,13 @@ const (
 
 	VersionStatusPublished = commonvdoc.VersionStatusPublished
 
+	DocumentShareScopeLatest      = commonvdoc.DocumentShareScopeLatest
+	DocumentShareScopeAllVersions = commonvdoc.DocumentShareScopeAllVersions
+
+	DocumentShareStatusActive  = commonvdoc.DocumentShareStatusActive
+	DocumentShareStatusRevoked = commonvdoc.DocumentShareStatusRevoked
+	DocumentShareStatusExpired = commonvdoc.DocumentShareStatusExpired
+
 	SchemaFormatOpenAPI30 = commonvdoc.SchemaFormatOpenAPI30
 	SchemaFormatOpenAPI31 = commonvdoc.SchemaFormatOpenAPI31
 
@@ -92,9 +100,10 @@ const (
 	ScopeDocRead  = commonvdoc.ScopeDocRead
 	ScopeDocDraft = commonvdoc.ScopeDocDraft
 
-	AuditActorUser     = commonvdoc.AuditActorUser
-	AuditActorMCPToken = commonvdoc.AuditActorMCPToken
-	AuditActorSystem   = commonvdoc.AuditActorSystem
+	AuditActorUser      = commonvdoc.AuditActorUser
+	AuditActorMCPToken  = commonvdoc.AuditActorMCPToken
+	AuditActorSystem    = commonvdoc.AuditActorSystem
+	AuditActorAnonymous = commonvdoc.AuditActorAnonymous
 )
 
 type User = domainuser.User
@@ -105,6 +114,7 @@ type APIService = domaindocument.Document
 type ContractBranch = domainbranch.ContractBranch
 type ContractDraft = domaindraft.ContractDraft
 type ContractVersion = domainversion.ContractVersion
+type DocumentShare = domainshare.DocumentShare
 type SchemaDocument = domainversion.SchemaDocument
 type Endpoint = domaindiff.Endpoint
 type Diff = domaindiff.Diff

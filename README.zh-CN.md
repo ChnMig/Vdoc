@@ -64,7 +64,7 @@ scripts/vdoc-release-dry-run.sh
 v0.1 已经实现：
 
 - `/api/v1` 版本化路由树
-- 公开注册、登录和私有 JWT 路由
+- 公开登录、显式开启的注册和私有 JWT 路由
 - SuperAdmin 用户生命周期、Team、Project、Member、Document 和 Document Branch
 - OpenAPI 和 Markdown 草稿上传、审核和不可变版本发布
 - 草稿和已发布版本的 raw、normalized、stable 内容查询
@@ -96,7 +96,7 @@ v0.1 不包含：
 | Endpoint Index | 从 OpenAPI 解析出的结构化索引，包括路径、方法、参数、请求体、响应、标签和 operationId。 |
 | Semantic Diff | 面向接口契约的版本比较，而不是原始文本 diff。 |
 | Breaking Change | 可能破坏前端消费方的变更，例如字段删除、类型变化、新增必填参数、接口删除。 |
-| MCP Token | 用户绑定的 AI 工具访问 token。创建时返回一次性可复制 token 值，后续列表和详情响应会脱敏；权限由 token scopes 与用户在目标 Project 的角色共同决定。 |
+| MCP Token | 用户绑定的 AI 工具访问 token。创建时返回可复制 token 值，所属用户可在 active 期间再次查看；列表、已撤销和已过期响应脱敏。权限由 token scopes 与用户在目标 Project 的角色共同决定。 |
 
 ## MVP 使用流程
 
@@ -215,7 +215,7 @@ vdoc/
 ├── Makefile                 # 构建、运行、测试、格式化、检查、验证
 ├── api/                     # 传输层：Gin 路由、中间件、请求/响应 DTO、领域错误映射
 ├── common/                  # 跨模块共享业务语义：枚举、常量、跨模块 DTO、事件定义
-├── config/                  # Viper 配置加载、默认值、热重载、安全校验
+├── config/                  # Viper 配置加载、默认值、重启候选校验、安全校验
 ├── db/                      # 持久化适配层：GORM/PostgreSQL 模型、查询、迁移、RustFS/S3 适配
 ├── domain/                  # 业务规则层：领域模型、状态流转、领域错误、repository/storage ports
 ├── services/                # 长驻服务和后台任务层，只放 cron、worker、consumer 生命周期管理
@@ -287,6 +287,7 @@ make build CROSS=1
 export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
+export VDOC_AUTH_ALLOW_REGISTRATION=false
 export VDOC_INITIAL_ADMIN_EMAIL="admin@example.com"
 export VDOC_INITIAL_ADMIN_NAME="Vdoc Admin"
 export VDOC_INITIAL_ADMIN_PASSWORD="<initial-admin-password>"
@@ -299,15 +300,20 @@ export VDOC_STORAGE_ACCESS_KEY="<access-key>"
 export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 ```
 
-配置 `initial_admin.email` 和 `initial_admin.password` 后，Vdoc 仅在已加载用户表为空时创建该 SuperAdmin 账号，密码入库前会使用 bcrypt 哈希。配置 `database.enabled=true` 后，服务启动时会连接 PostgreSQL、自动创建 Vdoc 运行表并加载已有状态；连接失败会直接启动失败，避免静默退回本地内存模式。配置 `storage.enabled=true` 后，OpenAPI raw / normalized schema 会写入 RustFS 或任意 S3-compatible 对象存储；bucket 不存在时会自动创建。
+匿名 HTTP 注册默认关闭。生产环境保持 `auth.allow_registration=false`，并为新部署配置 `initial_admin.email` 和 `initial_admin.password`。只有可信的一次性或试点环境才应通过 `VDOC_AUTH_ALLOW_REGISTRATION=true` 显式开启注册；开启期间，任何能访问服务的调用方都可创建启用状态账号。初始管理员仅在已加载用户表为空时创建，密码入库前会使用 bcrypt 哈希。配置 `database.enabled=true` 后，服务启动时会连接 PostgreSQL、自动创建 Vdoc 运行表并加载已有状态；连接失败会直接启动失败，避免静默退回本地内存模式。配置 `storage.enabled=true` 后，OpenAPI raw / normalized schema 会写入 RustFS 或任意 S3-compatible 对象存储；bucket 不存在时会自动创建。
+
+即使可选的全局 server 限流关闭，register/login 仍始终启用独立的每 IP 限流，由 `auth.rate_limit` 和 `auth.rate_burst` 配置。
 
 如果忘记 SuperAdmin 密码，可以直接用已打包二进制连接配置中的 PostgreSQL，并在不启动 HTTP 服务的情况下重置：
 
 ```bash
-./vdoc --resetadmin admin@example.com "<new-admin-password>"
+set +x
+read -r -s NEW_PASSWORD
+printf '%s\n' "$NEW_PASSWORD" | ./vdoc --resetadmin admin@example.com
+unset NEW_PASSWORD
 ```
 
-目标用户必须已经存在、处于启用状态，并且是 SuperAdmin。新密码强度规则与 `initial_admin.password` 保持一致。
+密码只从标准输入读取，不会出现在 shell history 或进程参数列表中。目标用户必须已经存在、处于启用状态，并且是 SuperAdmin。新密码强度规则与 `initial_admin.password` 保持一致。
 
 配置文件查找顺序：
 

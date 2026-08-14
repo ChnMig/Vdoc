@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,7 +27,12 @@ type loadedConfig struct {
 	EnableRateLimit      bool
 	GlobalRateLimit      int
 	GlobalRateBurst      int
+	CORSAllowedOrigins   []string
+	TrustedProxies       []string
 	PidFile              string
+	AllowRegistration    bool
+	AuthRateLimit        int
+	AuthRateBurst        int
 	JWTKey               string
 	JWTExpiration        time.Duration
 	LogMaxSize           int
@@ -101,7 +107,17 @@ func setDefaults() {
 	v.SetDefault("server.enable_rate_limit", false)
 	v.SetDefault("server.global_rate_limit", 100)
 	v.SetDefault("server.global_rate_burst", 200)
+	v.SetDefault("server.cors_allowed_origins", []string{
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"http://localhost:4173",
+		"http://127.0.0.1:4173",
+	})
+	v.SetDefault("server.trusted_proxies", []string{})
 	v.SetDefault("server.pid_file", "vdoc.pid")
+	v.SetDefault("auth.allow_registration", false)
+	v.SetDefault("auth.rate_limit", 2)
+	v.SetDefault("auth.rate_burst", 5)
 
 	// JWT 默认配置
 	v.SetDefault("jwt.expiration", "12h")
@@ -143,16 +159,15 @@ func applyConfig() error {
 	return nil
 }
 
-func applyValidatedConfig() error {
+func validatedReloadCandidate() (loadedConfig, error) {
 	cfg, err := readConfig()
 	if err != nil {
-		return err
+		return loadedConfig{}, err
 	}
 	if err := validateConfig(cfg); err != nil {
-		return err
+		return loadedConfig{}, err
 	}
-	applyLoadedConfig(cfg)
-	return nil
+	return cfg, nil
 }
 
 func readConfig() (loadedConfig, error) {
@@ -181,12 +196,17 @@ func readConfig() (loadedConfig, error) {
 	cfg.EnableRateLimit = v.GetBool("server.enable_rate_limit")
 	cfg.GlobalRateLimit = v.GetInt("server.global_rate_limit")
 	cfg.GlobalRateBurst = v.GetInt("server.global_rate_burst")
+	cfg.CORSAllowedOrigins = splitConfigValues(v.GetStringSlice("server.cors_allowed_origins"))
+	cfg.TrustedProxies = splitConfigValues(v.GetStringSlice("server.trusted_proxies"))
 
 	// pid 文件（相对路径基于程序所在目录）
 	cfg.PidFile = v.GetString("server.pid_file")
 	if cfg.PidFile != "" && !filepath.IsAbs(cfg.PidFile) {
 		cfg.PidFile = filepath.Join(AbsPath, cfg.PidFile)
 	}
+	cfg.AllowRegistration = v.GetBool("auth.allow_registration")
+	cfg.AuthRateLimit = v.GetInt("auth.rate_limit")
+	cfg.AuthRateBurst = v.GetInt("auth.rate_burst")
 
 	// JWT 配置
 	cfg.JWTKey = v.GetString("jwt.key")
@@ -231,7 +251,12 @@ func applyLoadedConfig(cfg loadedConfig) {
 	EnableRateLimit = cfg.EnableRateLimit
 	GlobalRateLimit = cfg.GlobalRateLimit
 	GlobalRateBurst = cfg.GlobalRateBurst
+	CORSAllowedOrigins = append([]string(nil), cfg.CORSAllowedOrigins...)
+	TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
 	PidFile = cfg.PidFile
+	AllowRegistration = cfg.AllowRegistration
+	AuthRateLimit = cfg.AuthRateLimit
+	AuthRateBurst = cfg.AuthRateBurst
 	JWTKey = cfg.JWTKey
 	JWTExpiration = cfg.JWTExpiration
 	LogMaxSize = cfg.LogMaxSize
@@ -257,27 +282,35 @@ func applyLoadedConfig(cfg loadedConfig) {
 	MCPTokenCipherKID = cfg.MCPTokenCipherKID
 }
 
-// WatchConfig 监听配置文件变化并自动重新加载（热重载）
-func WatchConfig(onChange func()) {
+func splitConfigValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if normalized := strings.TrimSpace(part); normalized != "" {
+				out = append(out, normalized)
+			}
+		}
+	}
+	return out
+}
+
+// WatchConfig 监听配置文件变化并校验候选配置。运行配置在进程生命周期内
+// 保持不可变，避免只有部分组件热更新以及请求与配置写入之间的数据竞争。
+// 校验通过后也必须重启进程才能生效。
+func WatchConfig() {
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
-		zap.L().Info("Config file changed, reloading...",
+		zap.L().Info("Config file changed, validating restart candidate...",
 			zap.String("file", e.Name),
 			zap.String("op", e.Op.String()),
 		)
 
-		// 重新应用配置前先通过安全校验，避免热重载接受无效密钥。
-		if err := applyValidatedConfig(); err != nil {
-			zap.L().Error("Failed to reload config", zap.Error(err))
+		if _, err := validatedReloadCandidate(); err != nil {
+			zap.L().Error("Config change rejected; running configuration is unchanged", zap.Error(err))
 			return
 		}
 
-		// 执行回调
-		if onChange != nil {
-			onChange()
-		}
-
-		zap.L().Info("Config reloaded successfully")
+		zap.L().Warn("Config change is valid but not applied; restart Vdoc to activate it")
 	})
 }
 
@@ -294,17 +327,25 @@ func parseSize(sizeStr string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	if size <= 0 {
+		return 0, fmt.Errorf("size must be positive")
+	}
 
+	var multiplier int64
 	switch strings.ToUpper(unit) {
 	case "B", "":
-		return size, nil
+		multiplier = 1
 	case "KB", "K":
-		return size * 1024, nil
+		multiplier = 1024
 	case "MB", "M":
-		return size * 1024 * 1024, nil
+		multiplier = 1024 * 1024
 	case "GB", "G":
-		return size * 1024 * 1024 * 1024, nil
+		multiplier = 1024 * 1024 * 1024
 	default:
 		return 0, fmt.Errorf("unknown size unit: %s", unit)
 	}
+	if size > math.MaxInt64/multiplier {
+		return 0, fmt.Errorf("size overflows int64")
+	}
+	return size * multiplier, nil
 }

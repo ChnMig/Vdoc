@@ -190,6 +190,42 @@ func TestAIClient_RejectsUnsafeBaseURLBeforeTransport_whenProviderTargetsLoopbac
 	}
 }
 
+func TestAIClient_RejectsProviderRedirectWithoutFollowing(t *testing.T) {
+	store := NewStore()
+	calls := 0
+	store.SetAIHTTPClient(&http.Client{Transport: aiRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     http.Header{"Location": []string{"http://api.example.test/insecure"}},
+			Body:       io.NopCloser(strings.NewReader("redirect")),
+			Request:    r,
+		}, nil
+	})})
+	provider := &AIProviderConfig{BaseURL: testAIProviderBaseURL, Model: "gpt-test", APIMode: domainai.ProviderModeChatCompletions}
+
+	_, err := store.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: "test-key", System: "system", User: "user"})
+	if calls != 1 {
+		t.Fatalf("provider transport calls = %d, want 1 without following redirect", calls)
+	}
+	if !errors.Is(err, ErrFailedPrecondition) {
+		t.Fatalf("completeAI() redirect error = %v, want failed precondition", err)
+	}
+}
+
+func TestAIClient_RejectsOversizedProviderResponse(t *testing.T) {
+	store := NewStore()
+	store.SetAIHTTPClient(&http.Client{Transport: aiRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return aiJSONResponse(strings.Repeat("x", aiProviderMaxResponseBytes+1)), nil
+	})})
+	provider := &AIProviderConfig{BaseURL: testAIProviderBaseURL, Model: "gpt-test", APIMode: domainai.ProviderModeResponses}
+
+	_, err := store.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: "test-key", System: "system", User: "user"})
+	if !errors.Is(err, ErrFailedPrecondition) {
+		t.Fatalf("completeAI() oversized response error = %v, want failed precondition", err)
+	}
+}
+
 type aiRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f aiRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

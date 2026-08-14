@@ -11,6 +11,7 @@ const (
 	TableNameDocuments            = "documents"
 	TableNameDocumentBranches     = "document_branches"
 	TableNameMCPTokens            = "mcp_tokens"
+	TableNameDocumentShares       = "document_shares"
 	TableNameDocumentDrafts       = "document_drafts"
 	TableNameDocumentVersions     = "document_versions"
 	TableNameAPIEndpoints         = "api_endpoints"

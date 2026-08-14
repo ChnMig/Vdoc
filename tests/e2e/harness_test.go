@@ -202,6 +202,7 @@ func configureE2EConfig() func() {
 	oldJWTExpiration := config.JWTExpiration
 	oldMaxBodySize := config.MaxBodySize
 	oldEnableRateLimit := config.EnableRateLimit
+	oldAllowRegistration := config.AllowRegistration
 	oldMCPTokenCipherKey := config.MCPTokenCipherKey
 	oldMCPTokenCipherKID := config.MCPTokenCipherKID
 
@@ -209,6 +210,7 @@ func configureE2EConfig() func() {
 	config.JWTExpiration = time.Hour
 	config.MaxBodySize = 10 * 1024 * 1024
 	config.EnableRateLimit = false
+	config.AllowRegistration = true
 	config.MCPTokenCipherKey = e2eJWTKey
 	config.MCPTokenCipherKID = "e2e-aes-gcm-v1"
 
@@ -217,6 +219,7 @@ func configureE2EConfig() func() {
 		config.JWTExpiration = oldJWTExpiration
 		config.MaxBodySize = oldMaxBodySize
 		config.EnableRateLimit = oldEnableRateLimit
+		config.AllowRegistration = oldAllowRegistration
 		config.MCPTokenCipherKey = oldMCPTokenCipherKey
 		config.MCPTokenCipherKID = oldMCPTokenCipherKID
 	}

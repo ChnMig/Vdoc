@@ -23,8 +23,11 @@ func InitApi() *gin.Engine {
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	// https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies
-	router.SetTrustedProxies(nil)
+	// 默认不信任代理，避免客户端伪造 X-Forwarded-For。反向代理部署只信任
+	// server.trusted_proxies 中显式配置的 IP/CIDR。
+	if err := router.SetTrustedProxies(config.TrustedProxies); err != nil {
+		panic("invalid trusted proxy configuration: " + err.Error())
+	}
 
 	// 全局中间件：先注入 trace_id，再让 access log 包住 recovery。
 	// handler panic 时 Recovery 先写统一响应，AccessLog 的 defer 再记录最终状态。
@@ -46,7 +49,7 @@ func InitApi() *gin.Engine {
 	router.Use(middleware.BodySizeLimit(config.MaxBodySize))
 
 	// 6. 跨域处理 - 在业务逻辑前处理
-	router.Use(middleware.CorsDomainHandler())
+	router.Use(middleware.CorsDomainHandler(config.CORSAllowedOrigins...))
 
 	// 健康检查端点已移动到 openRouter（/api/v1/open/health）
 

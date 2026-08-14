@@ -20,6 +20,7 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	private.GET("/projects/:project_id/documents/:document_id/diffs/:diff_id/ai-summary", getDiffSummary)
 	private.POST("/projects/:project_id/documents/:document_id/diffs/:diff_id/ai-summary/regenerate", regenerateDiffSummary)
 	private.POST("/projects/:project_id/ai/chat-sessions", createChatSession)
+	private.GET("/projects/:project_id/ai/chat-sessions", listChatSessions)
 	private.GET("/projects/:project_id/ai/chat-sessions/:session_id", getChatSession)
 	private.POST("/projects/:project_id/ai/chat-sessions/:session_id/messages", sendChatMessage)
 }

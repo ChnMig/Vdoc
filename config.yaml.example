@@ -34,17 +34,32 @@ server:
   global_rate_limit: 100          # 全局限流速率（每秒请求数）
   global_rate_burst: 200          # 全局限流突发容量
 
+  # 精确列出允许访问 API 的 Admin Origin；生产环境不要使用通配符。
+  cors_allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+  # 仅在 Caddy/Nginx/Ingress 反向代理 backend 时填写其精确 IP/CIDR。
+  # 直连部署保持为空；禁止信任 0.0.0.0/0 或 ::/0。
+  trusted_proxies: []
+
 jwt:
   key: ""  # 必须设置为至少32字符的强密钥，可用 openssl rand -base64 32 生成
   expiration: "12h"  # JWT token 过期时间，格式: 12h, 24h, 30m 等
 
+# 匿名 HTTP 注册默认关闭。生产环境应通过 initial_admin 引导首个管理员。
+auth:
+  allow_registration: false  # 环境变量：VDOC_AUTH_ALLOW_REGISTRATION
+  rate_limit: 2              # register/login 每 IP 每秒请求数
+  rate_burst: 5              # register/login 每 IP 突发容量
+
 # 初始管理员账号。仅用户表为空时自动创建；email/password 留空则不创建。
 # 环境变量：VDOC_INITIAL_ADMIN_EMAIL、VDOC_INITIAL_ADMIN_NAME、VDOC_INITIAL_ADMIN_PASSWORD
-# 忘记密码时可执行：./vdoc --resetadmin <email> <new-password>
+# 忘记密码时通过 stdin 执行，禁止把密码放进 argv：printf '%s\n' "$NEW_PASSWORD" | ./vdoc --resetadmin <email>
 initial_admin:
   email: ""
   name: ""
-  password: ""  # 明文密码仅用于首次启动创建账号；至少 12 位，入库前会 bcrypt 哈希
+  password: ""  # 明文密码仅用于首次启动创建账号；12–72 bytes，入库前会 bcrypt 哈希
 
 log:
   max_size: 50      # 单个日志文件最大大小（MB）

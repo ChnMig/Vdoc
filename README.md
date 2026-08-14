@@ -64,7 +64,7 @@ Do not commit `.env` or expose raw JWTs, MCP tokens, DB passwords, storage secre
 Implemented in v0.1:
 
 - Versioned route tree under `/api/v1`
-- Public register/login and private JWT routes
+- Public login, opt-in registration, and private JWT routes
 - SuperAdmin user lifecycle, teams, projects, members, documents, and document branches
 - OpenAPI and Markdown draft upload, review, and immutable version publishing
 - Raw, normalized, and stable content retrieval for drafts and published versions
@@ -96,7 +96,7 @@ Not in v0.1:
 | Endpoint Index | A structured database index of paths, methods, parameters, request bodies, responses, tags, and operation IDs. |
 | Semantic Diff | Contract-aware comparison between two versions, not raw text diff. |
 | Breaking Change | A change that can break frontend consumers, such as field removal, type change, new required parameter, or endpoint removal. |
-| MCP Token | A user-bound AI tool token. Creation returns the one-time copyable token value, while later list/get responses are redacted. Effective permissions come from token scopes plus the user's role on the target project. |
+| MCP Token | A user-bound AI tool token. Creation returns a copyable value; its owner may reveal it again while active, while list/revoked/expired responses are redacted. Effective permissions come from token scopes plus the user's role on the target project. |
 
 ## MVP Workflow
 
@@ -215,7 +215,7 @@ vdoc/
 ├── Makefile                 # Build, run, test, format, lint, verify
 ├── api/                     # Transport layer: Gin routes, middleware, request/response DTOs, error mapping
 ├── common/                  # Shared business semantics: enums, constants, DTOs used across modules, events
-├── config/                  # Viper config loading, defaults, hot reload, safety checks
+├── config/                  # Viper config loading, defaults, restart validation, safety checks
 ├── db/                      # Persistence adapters: GORM/PostgreSQL models, queries, migrations, RustFS/S3 adapters
 ├── domain/                  # Business rules, state transitions, domain errors, repository and storage ports
 ├── services/                # Long running cron, worker, and consumer lifecycle tasks
@@ -306,6 +306,7 @@ Examples:
 export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
+export VDOC_AUTH_ALLOW_REGISTRATION=false
 export VDOC_INITIAL_ADMIN_EMAIL="admin@example.com"
 export VDOC_INITIAL_ADMIN_NAME="Vdoc Admin"
 export VDOC_INITIAL_ADMIN_PASSWORD="<initial-admin-password>"
@@ -318,15 +319,20 @@ export VDOC_STORAGE_ACCESS_KEY="<access-key>"
 export VDOC_STORAGE_SECRET_KEY="<secret-key>"
 ```
 
-When `initial_admin.email` and `initial_admin.password` are configured, Vdoc creates that SuperAdmin account only if the loaded user table is empty. The password is bcrypt-hashed before persistence. When `database.enabled=true`, Vdoc connects to PostgreSQL during startup, creates its runtime tables, and loads existing state. Connection or migration failure aborts startup instead of silently falling back to memory. When `storage.enabled=true`, raw and normalized OpenAPI schemas are written to RustFS or any S3-compatible object storage; the bucket is created automatically when missing.
+Anonymous HTTP registration is disabled by default. Keep `auth.allow_registration=false` in production and configure `initial_admin.email` plus `initial_admin.password` for a fresh deployment. Registration may be explicitly enabled only for a trusted disposable or pilot environment with `VDOC_AUTH_ALLOW_REGISTRATION=true`; while enabled, any network caller can create an active account. The initial admin is created only when the loaded user table is empty, and its password is bcrypt-hashed before persistence. When `database.enabled=true`, Vdoc connects to PostgreSQL during startup, creates its runtime tables, and loads existing state. Connection or migration failure aborts startup instead of silently falling back to memory. When `storage.enabled=true`, raw and normalized OpenAPI schemas are written to RustFS or any S3-compatible object storage; the bucket is created automatically when missing.
+
+Register and login always have an independent per-IP limiter, configured by `auth.rate_limit` and `auth.rate_burst`, even when the optional global server limiter is disabled.
 
 If a SuperAdmin password is lost, run the built binary against the configured PostgreSQL database without starting the HTTP server:
 
 ```bash
-./vdoc --resetadmin admin@example.com "<new-admin-password>"
+set +x
+read -r -s NEW_PASSWORD
+printf '%s\n' "$NEW_PASSWORD" | ./vdoc --resetadmin admin@example.com
+unset NEW_PASSWORD
 ```
 
-The target user must already exist, be active, and be a SuperAdmin. The new password follows the same strength rule as `initial_admin.password`.
+The password is read from standard input so it does not appear in shell history or the process argument list. The target user must already exist, be active, and be a SuperAdmin. The new password follows the same strength rule as `initial_admin.password`.
 
 Config file lookup order:
 

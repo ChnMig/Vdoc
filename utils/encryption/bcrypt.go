@@ -11,7 +11,11 @@ const (
 
 // HashPasswordWithBcrypt 使用bcrypt算法对密码进行哈希
 func HashPasswordWithBcrypt(password string) (string, error) {
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), BCryptCost)
+	return HashPasswordBytesWithBcrypt([]byte(password))
+}
+
+func HashPasswordBytesWithBcrypt(password []byte) (string, error) {
+	hashedBytes, err := bcrypt.GenerateFromPassword(password, BCryptCost)
 	if err != nil {
 		return "", err
 	}
@@ -22,6 +26,14 @@ func HashPasswordWithBcrypt(password string) (string, error) {
 func VerifyBcryptPassword(password, hashedPassword string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 	return err == nil
+}
+
+func VerifyBcryptPasswordBytes(password []byte, hashedPassword string) bool {
+	cost, err := bcrypt.Cost([]byte(hashedPassword))
+	if err != nil || cost != BCryptCost {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), password) == nil
 }
 
 // IsBcryptHash 检查是否为bcrypt哈希格式

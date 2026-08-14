@@ -19,7 +19,7 @@ func listVersions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	versions, err := shared.Store().ListDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"))
+	versions, err := shared.Store().ListDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

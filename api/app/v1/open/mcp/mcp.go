@@ -114,6 +114,7 @@ type mcpDraftDTO struct {
 	StableContentHash      string      `json:"stable_content_hash,omitempty"`
 	Status                 int         `json:"status"`
 	DiffPreview            *mcpDiffDTO `json:"diff_preview,omitempty"`
+	ReviewComment          string      `json:"review_comment,omitempty"`
 	CreatedBy              string      `json:"created_by"`
 	SubmittedAt            *time.Time  `json:"submitted_at,omitempty"`
 	CreatedAt              time.Time   `json:"created_at"`
@@ -204,6 +205,11 @@ type mcpDiffSummary struct {
 	RemovedEndpoints  int `json:"removed_endpoints"`
 	ModifiedEndpoints int `json:"modified_endpoints"`
 	BreakingChanges   int `json:"breaking_changes"`
+	DocumentFormat    int `json:"document_format,omitempty"`
+	AddedLines        int `json:"added_lines,omitempty"`
+	RemovedLines      int `json:"removed_lines,omitempty"`
+	ModifiedLines     int `json:"modified_lines,omitempty"`
+	ModifiedBlocks    int `json:"modified_blocks,omitempty"`
 }
 
 type mcpDiffItemDTO struct {
@@ -227,6 +233,7 @@ var toolDefinitions = []toolDefinition{
 	{Name: "list_projects", Description: "List projects visible to the authenticated MCP token user.", InputSchema: inputSchema(nil, nil)},
 	{Name: "list_documents", Description: "List documents in a project.", InputSchema: inputSchema([]string{"project_id"}, gin.H{"project_id": stringProperty("Project ID.")})},
 	{Name: "list_api_versions", Description: "List published API document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
+	{Name: "list_doc_versions", Description: "List published Markdown document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
 	{Name: "get_latest_schema", Description: "Get the latest raw OpenAPI document content, optionally limited to a branch.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "branch_id": stringProperty("Optional branch ID.")})},
 	{Name: "get_endpoint_detail", Description: "Get stored parsed endpoint detail for a published API version endpoint.", InputSchema: inputSchema([]string{"project_id", "document_id", "version_id", "endpoint_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "version_id": stringProperty("Published version ID."), "endpoint_id": stringProperty("Endpoint ID.")})},
 	{Name: "compare_api_versions", Description: "Compare two published API versions and return semantic diff details.", InputSchema: inputSchema([]string{"project_id", "document_id", "from_version_id", "to_version_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "from_version_id": stringProperty("Base version ID."), "to_version_id": stringProperty("Target version ID.")})},
@@ -247,7 +254,15 @@ func RegisterOpenRoutes(open *gin.RouterGroup) {
 	if open == nil {
 		return
 	}
-	open.POST("/mcp", Call)
+	mcpRateLimit := middleware.RateLimitWithOptions(middleware.RateLimitOptions{
+		Rate:  10,
+		Burst: 30,
+		KeyFunc: func(c *gin.Context) string {
+			return "mcp:" + c.ClientIP()
+		},
+		Message: "MCP rate limit exceeded",
+	})
+	open.POST("/mcp", mcpRateLimit, Call)
 }
 
 func Call(c *gin.Context) {
@@ -389,6 +404,32 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		}
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
 			return nil, err
+		}
+		versions, err := store.ListDocumentVersions(userID, a.ProjectID, a.DocumentID)
+		if err != nil {
+			return nil, err
+		}
+		return mcpVersions(versions), nil
+	case "list_doc_versions":
+		if !hasScope(scopes, app.ScopeDocRead) {
+			return nil, app.ErrPermissionDenied
+		}
+		var a struct {
+			ProjectID  string `json:"project_id"`
+			DocumentID string `json:"document_id"`
+		}
+		if err := decodeArguments(raw, &a); err != nil {
+			return nil, err
+		}
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
+			return nil, err
+		}
+		document, err := store.Document(userID, a.ProjectID, a.DocumentID)
+		if err != nil {
+			return nil, err
+		}
+		if document.DocumentType != app.DocumentTypeMarkdown {
+			return nil, app.ErrNotFound
 		}
 		versions, err := store.ListDocumentVersions(userID, a.ProjectID, a.DocumentID)
 		if err != nil {
@@ -965,7 +1006,7 @@ func mcpDraft(value *app.ContractDraft) mcpDraftDTO {
 	if value == nil {
 		return mcpDraftDTO{}
 	}
-	dto := mcpDraftDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContent: value.RawSchema, RawContentObjectKey: value.RawSchemaObjectKey, RawContentHash: value.RawSchemaHash, Status: value.Status, DiffPreview: mcpDiffPointer(value.DiffPreview), CreatedBy: value.CreatedBy, SubmittedAt: value.SubmittedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	dto := mcpDraftDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContent: value.RawSchema, RawContentObjectKey: value.RawSchemaObjectKey, RawContentHash: value.RawSchemaHash, Status: value.Status, DiffPreview: mcpDiffPointer(value.DiffPreview), ReviewComment: value.ReviewComment, CreatedBy: value.CreatedBy, SubmittedAt: value.SubmittedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 	setNormalizedOrStableDraftContent(&dto, value.SchemaFormat, value.NormalizedSchema, value.NormalizedObjectKey, value.NormalizedSchemaHash)
 	return dto
 }
@@ -1059,7 +1100,7 @@ func mcpDiff(value *app.Diff) mcpDiffDTO {
 }
 
 func mcpDiffSummaryDTO(value app.DiffSummary) mcpDiffSummary {
-	return mcpDiffSummary{AddedEndpoints: value.AddedEndpoints, RemovedEndpoints: value.RemovedEndpoints, ModifiedEndpoints: value.ModifiedEndpoints, BreakingChanges: value.BreakingChanges}
+	return mcpDiffSummary{AddedEndpoints: value.AddedEndpoints, RemovedEndpoints: value.RemovedEndpoints, ModifiedEndpoints: value.ModifiedEndpoints, BreakingChanges: value.BreakingChanges, DocumentFormat: value.DocumentFormat, AddedLines: value.AddedLines, RemovedLines: value.RemovedLines, ModifiedLines: value.ModifiedLines, ModifiedBlocks: value.ModifiedBlocks}
 }
 
 func mcpDiffItem(value app.DiffItem) mcpDiffItemDTO {

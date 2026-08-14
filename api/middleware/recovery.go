@@ -19,7 +19,7 @@ func Recovery() gin.HandlerFunc {
 					zap.Any("panic", recovered),
 					zap.String("method", c.Request.Method),
 					zap.String("path", c.Request.URL.Path),
-					zap.String("raw_query", c.Request.URL.RawQuery),
+					zap.Strings("query_keys", httplog.QueryKeys(c.Request.URL.RawQuery)),
 					zap.String("client_ip", c.ClientIP()),
 					zap.String("user_agent", c.Request.UserAgent()),
 					zap.String("trace_id", traceIDFromContext(c)),

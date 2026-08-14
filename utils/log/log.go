@@ -2,9 +2,10 @@ package log
 
 import (
 	"fmt"
-	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -377,15 +378,8 @@ func FromContext(c *gin.Context) *zap.Logger {
 	return GetLogger()
 }
 
-// WithRequest 从 gin.Context 中获取带请求参数信息的 logger。
-// 仅在需要排查问题时调用，避免对所有请求都记录参数。
-// 注意：为避免影响后续绑定与大体积请求处理，这里只记录：
-//   - 查询参数（query）
-//   - 已解析的表单参数（PostForm / MultipartForm.Value）
-//   - 路径参数（path params）
-//   - 通过中间件预绑定并挂载在 Context 上的业务参数（key: "__bound_params__"）
-//
-// 如需记录完整请求体（body），建议在专用中间件中提前拷贝并存入 context。
+// WithRequest 从 gin.Context 中提取不含值的请求摘要。禁止记录 query value、
+// form、multipart 或绑定后的业务参数，避免密码、token、API key 和文档正文落盘。
 func WithRequest(c *gin.Context) *zap.Logger {
 	base := FromContext(c)
 
@@ -401,21 +395,9 @@ func WithRequest(c *gin.Context) *zap.Logger {
 
 	if c.Request.URL != nil {
 		fields = append(fields, zap.String("path", c.Request.URL.Path))
-		// 查询参数
+		// 只记录 query key，避免 token、搜索内容或误传凭据进入日志。
 		if rawQuery := c.Request.URL.RawQuery; rawQuery != "" {
-			fields = append(fields, zap.String("query", rawQuery))
-		}
-	}
-
-	// 已解析的表单参数（不会主动触发 ParseForm，避免多次读取 Body）
-	if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch {
-		// 普通表单
-		if len(c.Request.PostForm) > 0 {
-			fields = append(fields, zap.Any("form", c.Request.PostForm))
-		}
-		// multipart 表单
-		if c.Request.MultipartForm != nil && len(c.Request.MultipartForm.Value) > 0 {
-			fields = append(fields, zap.Any("multipart_form", c.Request.MultipartForm.Value))
+			fields = append(fields, zap.Strings("query_keys", QueryKeys(rawQuery)))
 		}
 	}
 
@@ -428,12 +410,22 @@ func WithRequest(c *gin.Context) *zap.Logger {
 		fields = append(fields, zap.Any("path_params", pathParams))
 	}
 
-	// 已绑定的业务参数（例如通过 middleware.CheckParam 绑定的 JSON / 表单参数）
-	if bound, exists := c.Get(contextkey.BoundParams); exists && bound != nil {
-		fields = append(fields, zap.Any("params", bound))
-	}
-
 	return base.With(fields...)
+}
+
+// QueryKeys 解析并排序 query 参数名，不返回任何参数值。解析失败时仅返回
+// 固定标记，避免把无法安全解析的原始输入写入日志。
+func QueryKeys(rawQuery string) []string {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return []string{"<invalid>"}
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func parseLogLevel(levelStr string) zapcore.Level {

@@ -10,6 +10,7 @@ type ContractVersion struct {
 	BranchID             string    `json:"branch_id"`
 	DraftID              string    `json:"draft_id"`
 	VersionName          string    `json:"version_name"`
+	RelativePath         string    `json:"-"`
 	Changelog            string    `json:"changelog,omitempty"`
 	SourceGitCommitID    string    `json:"source_git_commit_id,omitempty"`
 	SchemaFormat         int       `json:"schema_format"`

@@ -61,6 +61,30 @@ func TestJWTDecryptInvalidToken(t *testing.T) {
 	}
 }
 
+func TestJWTDecryptRejectsWrongAlgorithmAndRegisteredClaims(t *testing.T) {
+	wrongAlgorithmClaims := &MapClaims{Data: map[string]any{"user_id": "123"}}
+	PrepareRegisteredClaims(&wrongAlgorithmClaims.RegisteredClaims)
+	wrongAlgorithmToken := jwt.NewWithClaims(jwt.SigningMethodHS512, wrongAlgorithmClaims)
+	signedWrongAlgorithm, err := wrongAlgorithmToken.SignedString([]byte(config.JWTKey))
+	if err != nil {
+		t.Fatalf("sign HS512 token: %v", err)
+	}
+	if _, err := JWTDecrypt(signedWrongAlgorithm); err == nil {
+		t.Fatal("JWTDecrypt accepted HS512 token")
+	}
+
+	wrongIssuerClaims := &MapClaims{Data: map[string]any{"user_id": "123"}}
+	PrepareRegisteredClaims(&wrongIssuerClaims.RegisteredClaims)
+	wrongIssuerClaims.Issuer = "another-service"
+	signedWrongIssuer, err := SignHS256(wrongIssuerClaims)
+	if err != nil {
+		t.Fatalf("sign wrong issuer token: %v", err)
+	}
+	if _, err := JWTDecrypt(signedWrongIssuer); err == nil {
+		t.Fatal("JWTDecrypt accepted token from wrong issuer")
+	}
+}
+
 func TestJWTDecryptExpiredToken(t *testing.T) {
 	// 创建一个已经过期的自定义 claims
 	claims := MapClaims{

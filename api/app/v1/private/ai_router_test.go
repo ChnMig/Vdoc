@@ -39,6 +39,7 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	// When
 	body := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-secret-1234","enabled":true,"temperature":0,"timeout_ms":45000,"max_output_tokens":2048}`
 	created := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/ai/provider", superToken, body))
+	deniedRead := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/ai/provider", writerToken, ""))
 	denied := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/projects/"+project.ID+"/ai/provider", writerToken, body))
 
 	// Then
@@ -68,6 +69,9 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	}
 	if denied.Code != 403 || denied.Status != "PERMISSION_DENIED" {
 		t.Fatalf("writer provider update response = code %d status %q", denied.Code, denied.Status)
+	}
+	if deniedRead.Code != 403 || deniedRead.Status != "PERMISSION_DENIED" {
+		t.Fatalf("writer provider read response = code %d status %q", deniedRead.Code, deniedRead.Status)
 	}
 }
 
@@ -99,6 +103,97 @@ func TestAIProviderRoutes_ReturnDefaultTuning_whenSystemProviderUnset(t *testing
 	}
 	if provider.APIKeySet || provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
 		t.Fatalf("provider defaults = %+v", provider)
+	}
+}
+
+func TestAIConfigurationRoutes_DenyReaderAndWriterReads_whenPageAIRemainsAvailable(t *testing.T) {
+	// Given
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("ai-config-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	readerUser, err := store.CreateUser(superUser.ID, "ai-config-reader@example.com", "Reader", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create reader: %v", err)
+	}
+	writerUser, err := store.CreateUser(superUser.ID, "ai-config-writer@example.com", "Writer", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create writer: %v", err)
+	}
+	team, err := store.CreateTeam(superUser.ID, "AI Configuration Team", "")
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	project, err := store.CreateProject(superUser.ID, team.ID, "AI Configuration Project", "", superUser.ID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if _, err := store.AddProjectMember(superUser.ID, project.ID, readerUser.ID, app.MemberRoleReader); err != nil {
+		t.Fatalf("add reader: %v", err)
+	}
+	if _, err := store.AddProjectMember(superUser.ID, project.ID, writerUser.ID, app.MemberRoleWriter); err != nil {
+		t.Fatalf("add writer: %v", err)
+	}
+
+	// When / Then
+	for role, userID := range map[string]string{"reader": readerUser.ID, "writer": writerUser.ID} {
+		token := issuePrivateTestToken(t, userID)
+		for _, path := range []string{
+			"/api/v1/private/projects/" + project.ID + "/ai/provider",
+			"/api/v1/private/projects/" + project.ID + "/ai/prompts",
+		} {
+			envelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, path, token, ""))
+			if envelope.Code != 403 || envelope.Status != "PERMISSION_DENIED" {
+				t.Fatalf("%s GET %s = code %d status %q detail %s", role, path, envelope.Code, envelope.Status, string(envelope.Detail))
+			}
+		}
+	}
+}
+
+func TestProjectAIProviderTest_UsesSystemFallback_whenProjectOverrideIsUnset(t *testing.T) {
+	// Given
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	var authorization string
+	store.SetAIHTTPClient(&http.Client{Transport: privateAIRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		defer r.Body.Close()
+		authorization = r.Header.Get("Authorization")
+		return privateAIJSONResponse(`{"choices":[{"message":{"content":"system fallback reached"}}]}`), nil
+	})})
+	superUser, err := store.Register("ai-fallback-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	team, err := store.CreateTeam(superUser.ID, "AI Fallback Team", "")
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	project, err := store.CreateProject(superUser.ID, team.ID, "AI Fallback Project", "", superUser.ID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	token := issuePrivateTestToken(t, superUser.ID)
+	providerBody := `{"name":"system","base_url":"https://ai.example.test","model":"gpt-system","api_mode":"chat_completions","api_key":"sk-system-fallback","enabled":true}`
+	providerEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/ai/provider", token, providerBody))
+	if providerEnvelope.Code != 200 {
+		t.Fatalf("system provider setup = code %d detail %s", providerEnvelope.Code, string(providerEnvelope.Detail))
+	}
+
+	// When
+	testEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/provider/test", token, ""))
+
+	// Then
+	if testEnvelope.Code != 200 || !strings.Contains(string(testEnvelope.Detail), "system fallback reached") {
+		t.Fatalf("project fallback test = code %d detail %s", testEnvelope.Code, string(testEnvelope.Detail))
+	}
+	if authorization != "Bearer sk-system-fallback" {
+		t.Fatalf("fallback Authorization = %q, want stored system key", authorization)
+	}
+	audit := requirePrivateAudit(t, store.AuditLogsForTest(), "ai.provider.test")
+	if audit.ProjectID != project.ID || audit.Metadata["scope"] != "system" {
+		t.Fatalf("fallback audit = project %q metadata %+v", audit.ProjectID, audit.Metadata)
 	}
 }
 
@@ -186,6 +281,36 @@ func TestAIPromptRoutes_ReturnDefaultsAndProjectOverride_whenAdminOverrides(t *t
 	}
 }
 
+func TestAIPromptRoutes_RejectTemplatesThatDropRequiredContext(t *testing.T) {
+	// Given
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("prompt-validation-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	team, err := store.CreateTeam(superUser.ID, "Prompt Validation Team", "")
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	project, err := store.CreateProject(superUser.ID, team.ID, "Prompt Validation Project", "", superUser.ID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	token := issuePrivateTestToken(t, superUser.ID)
+
+	// When
+	missingContext := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/projects/"+project.ID+"/ai/prompts/diff_change_summary", token, `{"system_prompt":"Summarize safely","user_prompt_template":"Ignore the document","enabled":true}`))
+	missingMessage := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/projects/"+project.ID+"/ai/prompts/page_chat", token, `{"system_prompt":"Answer safely","user_prompt_template":"Use {{context}}","enabled":true}`))
+
+	// Then
+	for name, envelope := range map[string]privateTestEnvelope{"missing context": missingContext, "missing message": missingMessage} {
+		if envelope.Code != 400 || envelope.Status != "INVALID_ARGUMENT" {
+			t.Fatalf("%s response = code %d status %q detail %s", name, envelope.Code, envelope.Status, string(envelope.Detail))
+		}
+	}
+}
+
 func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T) {
 	// Given
 	router := setupPrivateRouter(t)
@@ -248,6 +373,7 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 		t.Fatalf("decode chat session: %v", err)
 	}
 	message := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID+"/messages", readerToken, `{"content":"What changed?"}`))
+	chatHistory := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions?document_id="+document.ID+"&context_type=diff&context_id="+diff.ID, readerToken, ""))
 
 	// Then
 	if summary.Code != 200 || !strings.Contains(string(summary.Detail), "AI explains the scoped change") {
@@ -255,6 +381,9 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 	}
 	if chatSession.Code != 200 || message.Code != 200 || !strings.Contains(string(message.Detail), "AI explains the scoped change") {
 		t.Fatalf("chat response = session %d message %d detail %s", chatSession.Code, message.Code, string(message.Detail))
+	}
+	if chatHistory.Code != 200 || chatHistory.Total == nil || *chatHistory.Total != 1 || !strings.Contains(string(chatHistory.Detail), session.ID) {
+		t.Fatalf("chat history response = code %d total %v detail %s", chatHistory.Code, chatHistory.Total, string(chatHistory.Detail))
 	}
 }
 

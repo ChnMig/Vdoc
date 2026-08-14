@@ -60,7 +60,7 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 		response.ReturnSuccess(c)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/ok?foo=bar", bytes.NewBufferString("secret-body"))
+	req := httptest.NewRequest(http.MethodPost, "/ok?foo=bar&token=secret-query", bytes.NewBufferString("secret-body"))
 	req.Header.Set("User-Agent", "access-log-test")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -79,7 +79,9 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 	for _, want := range []string{
 		`"method": "POST"`,
 		`"path": "/ok"`,
-		`"raw_query": "foo=bar"`,
+		`"query_keys": [`,
+		`"foo"`,
+		`"token"`,
 		`"status": 200`,
 		`"latency":`,
 		`"client_ip":`,
@@ -93,5 +95,8 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 	}
 	if strings.Contains(output, "secret-body") {
 		t.Fatalf("access log output should not contain request body: %s", output)
+	}
+	if strings.Contains(output, "secret-query") || strings.Contains(output, "foo=bar") {
+		t.Fatalf("access log output should not contain query values: %s", output)
 	}
 }

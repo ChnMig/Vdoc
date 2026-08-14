@@ -30,11 +30,11 @@ func TestPublishFromDraftRequiresSubmittedDraft(t *testing.T) {
 	if !errors.Is(err, commonvdoc.ErrFailedPrecondition) {
 		t.Fatalf("PublishFromDraft(draft) error = %v, want failed precondition", err)
 	}
-	version, err := PublishFromDraft(PublishParams{ID: "version-a", Draft: DraftSnapshot{ID: "draft-a", ProjectID: "project-a", DocumentID: "doc-a", BranchID: "branch-a", VersionName: "1.0.0", Status: commonvdoc.DraftStatusSubmitted}, PublishedBy: "admin", Now: now})
+	version, err := PublishFromDraft(PublishParams{ID: "version-a", Draft: DraftSnapshot{ID: "draft-a", ProjectID: "project-a", DocumentID: "doc-a", BranchID: "branch-a", VersionName: "1.0.0", RelativePath: "apis/checkout.yaml", Status: commonvdoc.DraftStatusSubmitted}, PublishedBy: "admin", Now: now})
 	if err != nil {
 		t.Fatalf("PublishFromDraft(submitted) error = %v", err)
 	}
-	if version.Status != commonvdoc.VersionStatusPublished || version.DraftID != "draft-a" || version.ServiceID != "doc-a" || version.PublishedBy != "admin" {
+	if version.Status != commonvdoc.VersionStatusPublished || version.DraftID != "draft-a" || version.ServiceID != "doc-a" || version.RelativePath != "apis/checkout.yaml" || version.PublishedBy != "admin" {
 		t.Fatalf("version = %+v", version)
 	}
 }

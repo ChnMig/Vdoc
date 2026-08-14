@@ -45,8 +45,8 @@ func TestBranchCreateAndArchiveRules(t *testing.T) {
 	if feature.Status != commonvdoc.BranchStatusArchived {
 		t.Fatalf("feature status = %d", feature.Status)
 	}
-	if err := Archive(existing[0], now); err != nil {
-		t.Fatalf("Archive(default dev) error = %v", err)
+	if err := Archive(existing[0], now); err != commonvdoc.ErrFailedPrecondition {
+		t.Fatalf("Archive(default dev) error = %v, want failed precondition", err)
 	}
 	if err := Archive(existing[2], now); err != nil {
 		t.Fatalf("Archive(protected prod) error = %v", err)

@@ -37,7 +37,11 @@ func newAIHTTPClient() *http.Client {
 		}
 		return nil, lastErr
 	}
-	return &http.Client{Timeout: 30 * time.Second, Transport: transport}
+	return &http.Client{Timeout: 30 * time.Second, Transport: transport, CheckRedirect: rejectAIProviderRedirect}
+}
+
+func rejectAIProviderRedirect(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func normalizeAIProviderBaseURL(raw string) (string, error) {

@@ -111,6 +111,25 @@ type MCPToken struct {
 
 func (MCPToken) TableName() string { return TableNameMCPTokens }
 
+type DocumentShare struct {
+	pgdb.Base
+	ProjectID        string     `gorm:"column:project_id;type:uuid;not null"`
+	DocumentID       string     `gorm:"column:document_id;type:uuid;not null"`
+	BranchID         string     `gorm:"column:branch_id;type:uuid;not null"`
+	TokenHash        string     `gorm:"column:token_hash;type:text;not null"`
+	TokenCiphertext  []byte     `gorm:"column:token_ciphertext;type:bytea;not null"`
+	CipherKID        string     `gorm:"column:cipher_kid;type:text;not null"`
+	PasswordVerifier *string    `gorm:"column:password_verifier;type:text"`
+	VersionScope     int        `gorm:"column:version_scope;type:smallint;not null"`
+	Status           int        `gorm:"column:status;type:smallint;not null;default:1"`
+	ExpiresAt        *time.Time `gorm:"column:expires_at;type:timestamptz"`
+	CreatedBy        string     `gorm:"column:created_by;type:uuid;not null"`
+	RevokedBy        *string    `gorm:"column:revoked_by;type:uuid"`
+	RevokedAt        *time.Time `gorm:"column:revoked_at;type:timestamptz"`
+}
+
+func (DocumentShare) TableName() string { return TableNameDocumentShares }
+
 type DocumentDraft struct {
 	pgdb.Base
 	ProjectID                 string     `gorm:"column:project_id;type:uuid;not null"`

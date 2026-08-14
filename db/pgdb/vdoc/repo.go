@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +22,29 @@ import (
 
 type Repository struct{ database *gorm.DB }
 
+const (
+	vdocInvariantLockNamespace int32 = 0x56444f43 // "VDOC"
+	superAdminInvariantLock    int32 = 1
+	projectAdminInvariantLock  int32 = 2
+)
+
 func NewRepository(database *gorm.DB) *Repository { return &Repository{database: database} }
+
+// WithinTransaction executes one service persistence unit against a single
+// PostgreSQL transaction. The callback receives a repository bound to the
+// transaction so business rows and their audit rows commit or roll back
+// together.
+func (r *Repository) WithinTransaction(ctx context.Context, fn func(domainvdoc.Repository) error) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	if fn == nil {
+		return fmt.Errorf("%w: transaction callback is required", domainvdoc.ErrInvalidArgument)
+	}
+	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(&Repository{database: tx})
+	}))
+}
 
 func (r *Repository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
 	if r == nil || r.database == nil {
@@ -47,6 +70,9 @@ func (r *Repository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
 		return nil, err
 	}
 	if err := r.loadTokens(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := r.loadDocumentShares(ctx, state); err != nil {
 		return nil, err
 	}
 	if err := r.loadDrafts(ctx, state); err != nil {
@@ -80,6 +106,157 @@ func (r *Repository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
 		return nil, err
 	}
 	return state, nil
+}
+
+func (r *Repository) LoadUser(ctx context.Context, userID string) (*domainvdoc.User, error) {
+	if r == nil || r.database == nil {
+		return nil, fmt.Errorf("postgres repository is not initialized")
+	}
+	var model User
+	if err := r.database.WithContext(ctx).First(&model, "id = ?", userID).Error; err != nil {
+		return nil, mapRecordLookupError(err)
+	}
+	return domainUserFromModel(model), nil
+}
+
+// ArchiveTeam serializes against project creation by locking the parent team,
+// re-checks the active-project invariant, and commits the soft delete together
+// with its audit record.
+func (r *Repository) ArchiveTeam(ctx context.Context, teamID string, audit *domainvdoc.AuditLog) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	if strings.TrimSpace(teamID) == "" {
+		return fmt.Errorf("%w: team id is required", domainvdoc.ErrInvalidArgument)
+	}
+	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		writer := &Repository{database: tx}
+		var team Team
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&team, "id = ?", teamID).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		var activeProjects int64
+		if err := tx.WithContext(ctx).Model(&Project{}).Where("team_id = ? AND status <> ?", teamID, domainvdoc.ProjectStatusArchived).Count(&activeProjects).Error; err != nil {
+			return err
+		}
+		if activeProjects != 0 {
+			return fmt.Errorf("%w: team has active projects", domainvdoc.ErrFailedPrecondition)
+		}
+		result := tx.WithContext(ctx).Delete(&team)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return domainvdoc.ErrNotFound
+		}
+		return writer.RecordAudit(ctx, audit)
+	}))
+}
+
+// LoadPublicDocumentShareSnapshot loads only the rows needed to authorize and
+// serve an anonymous share request. Keeping this read model separate prevents
+// public traffic from loading and later upserting the entire Vdoc state.
+func (r *Repository) LoadPublicDocumentShareSnapshot(ctx context.Context, shareID string) (*domainvdoc.PublicDocumentShareSnapshot, error) {
+	if r == nil || r.database == nil {
+		return nil, fmt.Errorf("postgres repository is not initialized")
+	}
+	var shareModel DocumentShare
+	if err := r.database.WithContext(ctx).First(&shareModel, "id = ?", shareID).Error; err != nil {
+		return nil, err
+	}
+	var projectModel Project
+	if err := r.database.WithContext(ctx).First(&projectModel, "id = ?", shareModel.ProjectID).Error; err != nil {
+		return nil, err
+	}
+	var documentModel Document
+	if err := r.database.WithContext(ctx).First(&documentModel, "id = ?", shareModel.DocumentID).Error; err != nil {
+		return nil, err
+	}
+	var branchModel DocumentBranch
+	if err := r.database.WithContext(ctx).First(&branchModel, "id = ?", shareModel.BranchID).Error; err != nil {
+		return nil, err
+	}
+	var versionModels []DocumentVersion
+	if err := r.database.WithContext(ctx).
+		Where("document_id = ? AND branch_id = ? AND status = ?", shareModel.DocumentID, shareModel.BranchID, domainvdoc.VersionStatusPublished).
+		Order("published_at DESC, id DESC").
+		Find(&versionModels).Error; err != nil {
+		return nil, err
+	}
+	versions := make([]*domainvdoc.ContractVersion, 0, len(versionModels))
+	for _, model := range versionModels {
+		versions = append(versions, domainDocumentVersionFromModel(model))
+	}
+	return &domainvdoc.PublicDocumentShareSnapshot{
+		Share: domainDocumentShareFromModel(shareModel),
+		Project: &domainvdoc.Project{
+			ID: domainID(projectModel.ID), TeamID: domainID(projectModel.TeamID), Name: projectModel.Name,
+			Description: stringValue(projectModel.Description), Status: projectModel.Status, CreatedBy: domainID(projectModel.CreatedBy),
+			CreatedAt: projectModel.CreatedAt, UpdatedAt: projectModel.UpdatedAt,
+		},
+		Document: &domainvdoc.APIService{
+			ID: domainID(documentModel.ID), ProjectID: domainID(documentModel.ProjectID), Name: documentModel.Name,
+			DocumentType: documentModel.DocumentType, RelativePath: documentModel.RelativePath, BasePath: documentModel.RelativePath,
+			Description: stringValue(documentModel.Description), Status: documentModel.Status, CreatedBy: domainID(documentModel.CreatedBy),
+			CreatedAt: documentModel.CreatedAt, UpdatedAt: documentModel.UpdatedAt,
+		},
+		Branch: &domainvdoc.ContractBranch{
+			ID: domainID(branchModel.ID), DocumentID: domainID(branchModel.DocumentID), ServiceID: domainID(branchModel.DocumentID),
+			Name: branchModel.Name, Kind: branchModel.Kind, Description: stringValue(branchModel.Description),
+			IsDefault: branchModel.IsDefault, IsProtected: branchModel.IsProtected, Status: branchModel.Status,
+			CreatedBy: domainID(branchModel.CreatedBy), CreatedAt: branchModel.CreatedAt, UpdatedAt: branchModel.UpdatedAt,
+		},
+		Versions: versions,
+	}, nil
+}
+
+// RecordPublicDocumentShareAccess linearizes a successful anonymous access
+// against share revocation and parent-resource archival. The unlocked first
+// read only discovers the lock keys; every row is then re-read under a shared
+// lock in the same order used by normal persistence writes.
+func (r *Repository) RecordPublicDocumentShareAccess(ctx context.Context, shareID string, audit *domainvdoc.AuditLog) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	if strings.TrimSpace(shareID) == "" || audit == nil {
+		return fmt.Errorf("%w: share id and audit are required", domainvdoc.ErrInvalidArgument)
+	}
+	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var discovered DocumentShare
+		if err := tx.WithContext(ctx).
+			Select("id", "project_id", "document_id", "branch_id").
+			First(&discovered, "id = ?", shareID).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+
+		var project Project
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).First(&project, "id = ?", discovered.ProjectID).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		var document Document
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).First(&document, "id = ?", discovered.DocumentID).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		var branch DocumentBranch
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).First(&branch, "id = ?", discovered.BranchID).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		var share DocumentShare
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).First(&share, "id = ?", shareID).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+
+		now := time.Now().UTC()
+		shareActive := share.Status == domainvdoc.DocumentShareStatusActive && (share.ExpiresAt == nil || now.Before(*share.ExpiresAt))
+		parentsActive := project.Status == domainvdoc.ProjectStatusActive &&
+			document.ProjectID == project.ID && document.Status == domainvdoc.DocumentStatusActive &&
+			branch.DocumentID == document.ID && branch.Status == domainvdoc.BranchStatusActive
+		identitiesMatch := share.ProjectID == project.ID && share.DocumentID == document.ID && share.BranchID == branch.ID
+		if !shareActive || !parentsActive || !identitiesMatch {
+			return fmt.Errorf("%w: public document share is no longer available", domainvdoc.ErrFailedPrecondition)
+		}
+		return (&Repository{database: tx}).RecordAudit(ctx, audit)
+	}))
 }
 
 func (r *Repository) RecordObject(ctx context.Context, ref domainvdoc.ObjectRef) error {
@@ -117,6 +294,14 @@ func (r *Repository) UpsertUser(ctx context.Context, user *domainvdoc.User) erro
 	return r.upsertByID(ctx, model)
 }
 
+func (r *Repository) UpsertUserIfUnchanged(ctx context.Context, user, previous *domainvdoc.User) error {
+	model := userModelFromDomain(user)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
 func (r *Repository) ResetSuperAdminPassword(ctx context.Context, email, passwordHash string) error {
 	if r == nil || r.database == nil {
 		return fmt.Errorf("postgres repository is not initialized")
@@ -148,6 +333,14 @@ func (r *Repository) UpsertTeam(ctx context.Context, team *domainvdoc.Team) erro
 	return r.upsertByID(ctx, model)
 }
 
+func (r *Repository) UpsertTeamIfUnchanged(ctx context.Context, team, previous *domainvdoc.Team) error {
+	model := teamModelFromDomain(team)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
 func (r *Repository) UpsertProject(ctx context.Context, project *domainvdoc.Project) error {
 	if r == nil || r.database == nil {
 		return fmt.Errorf("postgres repository is not initialized")
@@ -159,6 +352,14 @@ func (r *Repository) UpsertProject(ctx context.Context, project *domainvdoc.Proj
 	return r.upsertByID(ctx, model)
 }
 
+func (r *Repository) UpsertProjectIfUnchanged(ctx context.Context, project, previous *domainvdoc.Project) error {
+	model := projectModelFromDomain(project)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
 func (r *Repository) UpsertProjectMember(ctx context.Context, member *domainvdoc.ProjectMember) error {
 	if r == nil || r.database == nil {
 		return fmt.Errorf("postgres repository is not initialized")
@@ -168,6 +369,171 @@ func (r *Repository) UpsertProjectMember(ctx context.Context, member *domainvdoc
 		return nil
 	}
 	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertProjectMemberIfUnchanged(ctx context.Context, member, previous *domainvdoc.ProjectMember) error {
+	model := projectMemberModelFromDomain(member)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
+// LockCollaborationInvariants serializes the cross-row administrator checks.
+// These locks must be acquired from the transaction-bound repository passed to
+// postgresPersistence.saveLockedWithRepository and in this fixed order.
+func (r *Repository) LockCollaborationInvariants(ctx context.Context, superAdmin, projectAdmin bool) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	locks := make([]int32, 0, 2)
+	if superAdmin {
+		locks = append(locks, superAdminInvariantLock)
+	}
+	if projectAdmin {
+		locks = append(locks, projectAdminInvariantLock)
+	}
+	for _, lockID := range locks {
+		if err := r.database.WithContext(ctx).Exec(
+			"SELECT pg_advisory_xact_lock(?, ?)",
+			vdocInvariantLockNamespace,
+			lockID,
+		).Error; err != nil {
+			return fmt.Errorf("lock collaboration invariant %d: %w", lockID, err)
+		}
+	}
+	return nil
+}
+
+// ValidateCollaborationInvariants re-reads PostgreSQL after the pending writes
+// have been applied. userIDs are resolved to their current admin memberships
+// only after the advisory lock is held, which closes the race between creating
+// a project for a user and disabling that user on another application instance.
+func (r *Repository) ValidateCollaborationInvariants(ctx context.Context, superAdmin bool, projectIDs, userIDs []string) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	database := r.database.WithContext(ctx)
+	if superAdmin {
+		var activeSuperAdmins int64
+		if err := database.Model(&User{}).
+			Where("status = ? AND is_super_admin = ?", domainvdoc.UserStatusActive, true).
+			Count(&activeSuperAdmins).Error; err != nil {
+			return fmt.Errorf("count active SuperAdmins: %w", err)
+		}
+		if activeSuperAdmins == 0 {
+			return fmt.Errorf("%w: cannot remove the last active SuperAdmin", domainvdoc.ErrFailedPrecondition)
+		}
+	}
+
+	affectedProjects := make(map[string]struct{}, len(projectIDs))
+	for _, projectID := range projectIDs {
+		if strings.TrimSpace(projectID) != "" {
+			affectedProjects[projectID] = struct{}{}
+		}
+	}
+	if len(userIDs) > 0 {
+		var membershipProjectIDs []string
+		if err := database.Model(&ProjectMember{}).
+			Distinct("project_id").
+			Where("user_id IN ?", userIDs).
+			Where("role = ? AND status = ?", domainvdoc.MemberRoleAdmin, domainvdoc.MemberStatusActive).
+			Pluck("project_id", &membershipProjectIDs).Error; err != nil {
+			return fmt.Errorf("list affected project admin memberships: %w", err)
+		}
+		for _, projectID := range membershipProjectIDs {
+			affectedProjects[projectID] = struct{}{}
+		}
+	}
+	if len(affectedProjects) == 0 {
+		return nil
+	}
+	candidates := make([]string, 0, len(affectedProjects))
+	for projectID := range affectedProjects {
+		candidates = append(candidates, projectID)
+	}
+	sort.Strings(candidates)
+
+	var projectsWithoutAdmin []string
+	if err := database.Table(TableNameProjects+" AS candidate_project").
+		Where("candidate_project.id IN ?", candidates).
+		Where("candidate_project.status = ? AND candidate_project.deleted_at IS NULL", domainvdoc.ProjectStatusActive).
+		Where(`NOT EXISTS (
+			SELECT 1
+			FROM project_members AS active_member
+			JOIN users AS active_user ON active_user.id = active_member.user_id
+			WHERE active_member.project_id = candidate_project.id
+			  AND active_member.role = ?
+			  AND active_member.status = ?
+			  AND active_member.deleted_at IS NULL
+			  AND active_user.status = ?
+			  AND active_user.deleted_at IS NULL
+		)`, domainvdoc.MemberRoleAdmin, domainvdoc.MemberStatusActive, domainvdoc.UserStatusActive).
+		Order("candidate_project.id").
+		Limit(1).
+		Pluck("candidate_project.id", &projectsWithoutAdmin).Error; err != nil {
+		return fmt.Errorf("validate active project administrators: %w", err)
+	}
+	if len(projectsWithoutAdmin) > 0 {
+		return fmt.Errorf("%w: cannot leave active project %s without an active admin", domainvdoc.ErrFailedPrecondition, projectsWithoutAdmin[0])
+	}
+	return nil
+}
+
+func (r *Repository) UpsertDocumentShare(ctx context.Context, share *domainvdoc.DocumentShare) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	model := documentShareModelFromDomain(share)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertDocumentShareIfUnchanged(ctx context.Context, share, previous *domainvdoc.DocumentShare) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	model := documentShareModelFromDomain(share)
+	if model == nil {
+		return nil
+	}
+	if previous == nil {
+		return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			writer := &Repository{database: tx}
+			if err := writer.lockActiveDocumentShareParents(ctx, model); err != nil {
+				return err
+			}
+			return writer.upsertByIDIfUnchanged(ctx, model, model.ID, nil)
+		}))
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
+func (r *Repository) lockActiveDocumentShareParents(ctx context.Context, share *DocumentShare) error {
+	var project Project
+	if err := r.database.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "SHARE"}).
+		Where("id = ? AND status = ?", share.ProjectID, domainvdoc.ProjectStatusActive).
+		First(&project).Error; err != nil {
+		return mapRecordLookupError(err)
+	}
+	var document Document
+	if err := r.database.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "SHARE"}).
+		Where("id = ? AND project_id = ? AND status = ?", share.DocumentID, share.ProjectID, domainvdoc.DocumentStatusActive).
+		First(&document).Error; err != nil {
+		return mapRecordLookupError(err)
+	}
+	var branch DocumentBranch
+	if err := r.database.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "SHARE"}).
+		Where("id = ? AND document_id = ? AND status = ?", share.BranchID, share.DocumentID, domainvdoc.BranchStatusActive).
+		First(&branch).Error; err != nil {
+		return mapRecordLookupError(err)
+	}
+	return nil
 }
 
 func (r *Repository) UpsertDocumentDiff(ctx context.Context, diff *domainvdoc.Diff, fromVersion, toVersion *domainvdoc.ContractVersion) error {
@@ -202,6 +568,14 @@ func (r *Repository) UpsertDocument(ctx context.Context, document *domainvdoc.AP
 	return r.upsertByID(ctx, model)
 }
 
+func (r *Repository) UpsertDocumentIfUnchanged(ctx context.Context, document, previous *domainvdoc.APIService) error {
+	model := documentModelFromDomain(document)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
 func (r *Repository) UpsertDocumentBranch(ctx context.Context, branch *domainvdoc.ContractBranch) error {
 	if r == nil || r.database == nil {
 		return fmt.Errorf("postgres repository is not initialized")
@@ -211,6 +585,14 @@ func (r *Repository) UpsertDocumentBranch(ctx context.Context, branch *domainvdo
 		return nil
 	}
 	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertDocumentBranchIfUnchanged(ctx context.Context, branch, previous *domainvdoc.ContractBranch) error {
+	model := documentBranchModelFromDomain(branch)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
 }
 
 func (r *Repository) UpsertDocumentDraft(ctx context.Context, draft *domainvdoc.ContractDraft, document *domainvdoc.APIService) error {
@@ -224,6 +606,14 @@ func (r *Repository) UpsertDocumentDraft(ctx context.Context, draft *domainvdoc.
 	return r.upsertByID(ctx, model)
 }
 
+func (r *Repository) UpsertDocumentDraftIfUnchanged(ctx context.Context, draft, previous *domainvdoc.ContractDraft, document *domainvdoc.APIService) error {
+	model := documentDraftModelFromDomain(draft, document)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+}
+
 func (r *Repository) UpsertMCPToken(ctx context.Context, token *domainvdoc.MCPToken) error {
 	if r == nil || r.database == nil {
 		return fmt.Errorf("postgres repository is not initialized")
@@ -233,6 +623,14 @@ func (r *Repository) UpsertMCPToken(ctx context.Context, token *domainvdoc.MCPTo
 		return nil
 	}
 	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) UpsertMCPTokenIfUnchanged(ctx context.Context, token, previous *domainvdoc.MCPToken) error {
+	model := mcpTokenModelFromDomain(token)
+	if model == nil {
+		return nil
+	}
+	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
 }
 
 func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishStateInput) error {
@@ -277,8 +675,7 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 		if err != nil {
 			return err
 		}
-		document := input.State.APIServices[domainDocumentID(version.DocumentID, version.ServiceID)]
-		if err := writer.insertPublishedVersion(ctx, version, document, versionNo, endpointCount(input.State.Endpoints, version.ID)); err != nil {
+		if err := writer.insertPublishedVersion(ctx, version, versionNo, endpointCount(input.State.Endpoints, version.ID)); err != nil {
 			return err
 		}
 		if err := writer.insertPublishedEndpoints(ctx, input.State.Endpoints, input.State.Versions, version.ID); err != nil {
@@ -296,6 +693,130 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 
 func (r *Repository) upsertByID(ctx context.Context, value any) error {
 	return mapPostgresError(r.database.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).Create(value).Error)
+}
+
+func (r *Repository) upsertByIDIfUnchanged(ctx context.Context, value any, id string, expectedUpdatedAt *time.Time) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
+	if value == nil || strings.TrimSpace(id) == "" {
+		return fmt.Errorf("%w: optimistic upsert value and id are required", domainvdoc.ErrInvalidArgument)
+	}
+	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if expectedUpdatedAt == nil {
+			touchModelUpdatedAt(value, time.Now().UTC())
+			result := tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(value)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("%w: row %s already exists", domainvdoc.ErrAlreadyExists, id)
+			}
+			return nil
+		}
+
+		var current struct {
+			UpdatedAt time.Time `gorm:"column:updated_at"`
+		}
+		if err := tx.WithContext(ctx).
+			Model(value).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("updated_at").
+			Where("id = ?", id).
+			Take(&current).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		if !current.UpdatedAt.Equal(*expectedUpdatedAt) {
+			return fmt.Errorf("%w: row %s changed since it was loaded", domainvdoc.ErrFailedPrecondition, id)
+		}
+		touchModelUpdatedAt(value, time.Now().UTC())
+		return tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).Create(value).Error
+	}))
+}
+
+func touchModelUpdatedAt(value any, updatedAt time.Time) {
+	model := reflect.ValueOf(value)
+	if model.Kind() != reflect.Pointer || model.IsNil() {
+		return
+	}
+	field := model.Elem().FieldByName("UpdatedAt")
+	if field.IsValid() && field.CanSet() && field.Type() == reflect.TypeOf(time.Time{}) {
+		field.Set(reflect.ValueOf(updatedAt))
+	}
+}
+
+func domainUpdatedAt(value any) *time.Time {
+	var updatedAt time.Time
+	switch model := value.(type) {
+	case *domainvdoc.User:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.Team:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.Project:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.ProjectMember:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.APIService:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.ContractBranch:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.ContractDraft:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.MCPToken:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.DocumentShare:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.AIProviderConfig:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.AIPromptOverride:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.AISummary:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	case *domainvdoc.AIChatSession:
+		if model == nil {
+			return nil
+		}
+		updatedAt = model.UpdatedAt
+	default:
+		return nil
+	}
+	return &updatedAt
 }
 
 func (r *Repository) insertByIDIgnoreConflict(ctx context.Context, value any) error {
@@ -359,19 +880,15 @@ func (r *Repository) nextVersionNo(ctx context.Context, serviceID, branchID stri
 	return int(count) + 1, nil
 }
 
-func (r *Repository) insertPublishedVersion(ctx context.Context, version *domainvdoc.ContractVersion, document *domainvdoc.APIService, versionNo, endpoints int) error {
-	return r.database.WithContext(ctx).Create(documentVersionModelFromDomain(version, document, versionNo, endpoints)).Error
+func (r *Repository) insertPublishedVersion(ctx context.Context, version *domainvdoc.ContractVersion, versionNo, endpoints int) error {
+	return r.database.WithContext(ctx).Create(documentVersionModelFromDomain(version, versionNo, endpoints)).Error
 }
 
-func documentVersionModelFromDomain(version *domainvdoc.ContractVersion, document *domainvdoc.APIService, versionNo, endpoints int) *DocumentVersion {
+func documentVersionModelFromDomain(version *domainvdoc.ContractVersion, versionNo, endpoints int) *DocumentVersion {
 	if version == nil {
 		return nil
 	}
-	projectID := version.ProjectID
-	if projectID == "" && document != nil {
-		projectID = document.ProjectID
-	}
-	return &DocumentVersion{Base: pgdb.Base{ID: version.ID, CreatedAt: nonZeroTime(version.CreatedAt), UpdatedAt: nonZeroTime(version.UpdatedAt)}, ProjectID: projectID, DocumentID: domainDocumentID(version.DocumentID, version.ServiceID), BranchID: version.BranchID, VersionName: version.VersionName, VersionNo: versionNo, RelativePath: documentRelativePath(document), Status: version.Status, SourceDraftID: version.DraftID, SourceType: version.SourceType, SourceBranchID: stringPtr(version.SourceBranchID), SourceVersionID: stringPtr(version.SourceVersionID), BaseVersionID: stringPtr(version.BaseVersionID), DocumentFormat: version.SchemaFormat, RawSchemaObjectKey: version.RawSchemaObjectKey, NormalizedSchemaObjectKey: version.NormalizedObjectKey, RawSchemaHash: version.RawSchemaHash, NormalizedSchemaHash: version.NormalizedSchemaHash, SchemaSizeBytes: int64(len(version.RawSchema)), SchemaMetadata: pgdb.JSONB(`{}`), Changelog: stringPtr(version.Changelog), SourceGitCommitID: stringPtr(version.SourceGitCommitID), EndpointCount: endpoints, PublishedBy: version.PublishedBy, PublishedAt: nonZeroTime(version.PublishedAt)}
+	return &DocumentVersion{Base: pgdb.Base{ID: version.ID, CreatedAt: nonZeroTime(version.CreatedAt), UpdatedAt: nonZeroTime(version.UpdatedAt)}, ProjectID: version.ProjectID, DocumentID: domainDocumentID(version.DocumentID, version.ServiceID), BranchID: version.BranchID, VersionName: version.VersionName, VersionNo: versionNo, RelativePath: version.RelativePath, Status: version.Status, SourceDraftID: version.DraftID, SourceType: version.SourceType, SourceBranchID: stringPtr(version.SourceBranchID), SourceVersionID: stringPtr(version.SourceVersionID), BaseVersionID: stringPtr(version.BaseVersionID), DocumentFormat: version.SchemaFormat, RawSchemaObjectKey: version.RawSchemaObjectKey, NormalizedSchemaObjectKey: version.NormalizedObjectKey, RawSchemaHash: version.RawSchemaHash, NormalizedSchemaHash: version.NormalizedSchemaHash, SchemaSizeBytes: int64(len(version.RawSchema)), SchemaMetadata: pgdb.JSONB(`{}`), Changelog: stringPtr(version.Changelog), SourceGitCommitID: stringPtr(version.SourceGitCommitID), EndpointCount: endpoints, PublishedBy: version.PublishedBy, PublishedAt: nonZeroTime(version.PublishedAt)}
 }
 
 func (r *Repository) insertPublishedEndpoints(ctx context.Context, endpoints map[string]*domainvdoc.Endpoint, versions map[string]*domainvdoc.ContractVersion, versionID string) error {
@@ -440,7 +957,11 @@ func (r *Repository) upsertDocumentDiffItem(ctx context.Context, diff *domainvdo
 }
 
 func (r *Repository) markDraftPublished(ctx context.Context, input domainvdoc.PublishStateInput, updatedAt time.Time) error {
-	result := r.database.WithContext(ctx).Model(&DocumentDraft{}).Where("id = ? AND status = ?", input.DraftID, domainvdoc.DraftStatusSubmitted).Updates(map[string]any{"status": domainvdoc.DraftStatusPublished, "reviewed_by": input.ActorID, "reviewed_at": nonZeroTime(updatedAt), "published_version_id": input.VersionID, "updated_at": nonZeroTime(updatedAt)})
+	reviewComment := ""
+	if input.State != nil && input.State.Drafts[input.DraftID] != nil {
+		reviewComment = input.State.Drafts[input.DraftID].ReviewComment
+	}
+	result := r.database.WithContext(ctx).Model(&DocumentDraft{}).Where("id = ? AND status = ?", input.DraftID, domainvdoc.DraftStatusSubmitted).Updates(map[string]any{"status": domainvdoc.DraftStatusPublished, "review_comment": nullIfEmpty(reviewComment), "reviewed_by": input.ActorID, "reviewed_at": nonZeroTime(updatedAt), "published_version_id": input.VersionID, "updated_at": nonZeroTime(updatedAt)})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -483,9 +1004,13 @@ func (r *Repository) loadUsers(ctx context.Context, loaded *domainvdoc.State) er
 	}
 	for _, model := range models {
 		userID := domainID(model.ID)
-		loaded.Users[userID] = &domainvdoc.User{ID: userID, Email: model.Email, Name: model.DisplayName, PasswordHash: model.PasswordHash, IsSuperAdmin: model.IsSuperAdmin, Status: model.Status, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		loaded.Users[userID] = domainUserFromModel(model)
 	}
 	return nil
+}
+
+func domainUserFromModel(model User) *domainvdoc.User {
+	return &domainvdoc.User{ID: domainID(model.ID), Email: model.Email, Name: model.DisplayName, PasswordHash: model.PasswordHash, IsSuperAdmin: model.IsSuperAdmin, Status: model.Status, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
 func (r *Repository) loadTeams(ctx context.Context, loaded *domainvdoc.State) error {
@@ -572,6 +1097,41 @@ func domainMCPTokenFromModel(model MCPToken) *domainvdoc.MCPToken {
 	return &domainvdoc.MCPToken{ID: domainID(model.ID), UserID: domainID(model.UserID), Name: model.Name, TokenHash: model.TokenHash, TokenCiphertext: append([]byte(nil), model.TokenCiphertext...), CipherKID: model.CipherKID, Scopes: []int(model.Scopes), Status: model.Status, ExpiresAt: model.ExpiresAt, RevokedAt: model.RevokedAt, RevokedBy: stringPtrID(model.RevokedBy), LastUsedAt: model.LastUsedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
+func (r *Repository) loadDocumentShares(ctx context.Context, loaded *domainvdoc.State) error {
+	var models []DocumentShare
+	if err := r.database.WithContext(ctx).Find(&models).Error; err != nil {
+		return err
+	}
+	for _, model := range models {
+		share := domainDocumentShareFromModel(model)
+		loaded.Shares[share.ID] = share
+	}
+	return nil
+}
+
+func documentShareModelFromDomain(share *domainvdoc.DocumentShare) *DocumentShare {
+	if share == nil {
+		return nil
+	}
+	return &DocumentShare{
+		Base:      pgdb.Base{ID: share.ID, CreatedAt: nonZeroTime(share.CreatedAt), UpdatedAt: nonZeroTime(share.UpdatedAt)},
+		ProjectID: share.ProjectID, DocumentID: share.DocumentID, BranchID: share.BranchID,
+		TokenHash: share.TokenHash, TokenCiphertext: append([]byte(nil), share.TokenCiphertext...), CipherKID: share.CipherKID,
+		PasswordVerifier: stringPtr(share.PasswordVerifier), VersionScope: share.VersionScope, Status: share.Status,
+		ExpiresAt: share.ExpiresAt, CreatedBy: share.CreatedBy, RevokedBy: stringPtr(share.RevokedBy), RevokedAt: share.RevokedAt,
+	}
+}
+
+func domainDocumentShareFromModel(model DocumentShare) *domainvdoc.DocumentShare {
+	return &domainvdoc.DocumentShare{
+		ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: domainID(model.DocumentID), BranchID: domainID(model.BranchID),
+		TokenHash: model.TokenHash, TokenCiphertext: append([]byte(nil), model.TokenCiphertext...), CipherKID: model.CipherKID,
+		PasswordVerifier: cloneOptionalString(model.PasswordVerifier), VersionScope: model.VersionScope, Status: model.Status,
+		ExpiresAt: cloneOptionalTime(model.ExpiresAt), CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt,
+		RevokedBy: stringPtrID(model.RevokedBy), RevokedAt: cloneOptionalTime(model.RevokedAt),
+	}
+}
+
 func (r *Repository) loadDrafts(ctx context.Context, loaded *domainvdoc.State) error {
 	var models []DocumentDraft
 	if err := r.database.WithContext(ctx).Find(&models).Error; err != nil {
@@ -579,7 +1139,7 @@ func (r *Repository) loadDrafts(ctx context.Context, loaded *domainvdoc.State) e
 	}
 	for _, model := range models {
 		documentID := domainID(model.DocumentID)
-		draft := &domainvdoc.ContractDraft{ID: domainID(model.ID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, DiffPreview: diffPreviewFromJSON(model.DiffPreviewJSON), CreatedBy: domainID(model.CreatedByUserID), SubmittedAt: model.SubmittedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		draft := &domainvdoc.ContractDraft{ID: domainID(model.ID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, DiffPreview: diffPreviewFromJSON(model.DiffPreviewJSON), ReviewComment: stringValue(model.ReviewComment), CreatedBy: domainID(model.CreatedByUserID), SubmittedAt: model.SubmittedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 		if draft.DiffPreview != nil {
 			draft.DiffPreview.ObjectKey = stringValue(model.DiffPreviewObjectKey)
 		}
@@ -597,14 +1157,15 @@ func (r *Repository) loadVersions(ctx context.Context, loaded *domainvdoc.State)
 		return err
 	}
 	for _, model := range models {
-		documentID := domainID(model.DocumentID)
-		version := &domainvdoc.ContractVersion{ID: domainID(model.ID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), DraftID: domainID(model.SourceDraftID), VersionName: model.VersionName, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: domainID(model.PublishedBy), PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
-		if service := loaded.APIServices[version.ServiceID]; service != nil {
-			version.ProjectID = service.ProjectID
-		}
+		version := domainDocumentVersionFromModel(model)
 		loaded.Versions[version.ID] = version
 	}
 	return nil
+}
+
+func domainDocumentVersionFromModel(model DocumentVersion) *domainvdoc.ContractVersion {
+	documentID := domainID(model.DocumentID)
+	return &domainvdoc.ContractVersion{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), DraftID: domainID(model.SourceDraftID), VersionName: model.VersionName, RelativePath: model.RelativePath, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: domainID(model.PublishedBy), PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
 func (r *Repository) loadEndpoints(ctx context.Context, loaded *domainvdoc.State) error {
@@ -646,7 +1207,13 @@ func (r *Repository) loadDiffs(ctx context.Context, loaded *domainvdoc.State) er
 		// Persisted diff identity is sourced from DocumentID: model.DocumentID and ServiceID: model.DocumentID.
 		documentID := domainID(model.DocumentID)
 		diffID := domainID(model.ID)
-		loaded.Diffs[diffID] = &domainvdoc.Diff{ID: diffID, DocumentID: documentID, ServiceID: documentID, FromVersionID: domainID(model.FromVersionID), ToVersionID: domainID(model.ToVersionID), ObjectKey: stringValue(model.DiffObjectKey), Hash: stringValue(model.DiffHash), DiffStatus: model.DiffStatus, Summary: domainvdoc.DiffSummary{AddedEndpoints: model.AddedCount, RemovedEndpoints: model.RemovedCount, ModifiedEndpoints: model.ModifiedCount, BreakingChanges: model.BreakingCount}, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		summary := domainvdoc.DiffSummary{AddedEndpoints: model.AddedCount, RemovedEndpoints: model.RemovedCount, ModifiedEndpoints: model.ModifiedCount, BreakingChanges: model.BreakingCount}
+		if len(model.DiffSummaryJSON) > 0 {
+			if err := json.Unmarshal(model.DiffSummaryJSON, &summary); err != nil {
+				return fmt.Errorf("decode diff summary %s: %w", diffID, err)
+			}
+		}
+		loaded.Diffs[diffID] = &domainvdoc.Diff{ID: diffID, DocumentID: documentID, ServiceID: documentID, FromVersionID: domainID(model.FromVersionID), ToVersionID: domainID(model.ToVersionID), ObjectKey: stringValue(model.DiffObjectKey), Hash: stringValue(model.DiffHash), DiffStatus: model.DiffStatus, Summary: summary, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	var items []DocumentDiffItem
 	if err := r.database.WithContext(ctx).Order("sort_order").Find(&items).Error; err != nil {
@@ -740,7 +1307,7 @@ func documentDraftModelFromDomain(draft *domainvdoc.ContractDraft, document *dom
 	if projectID == "" && document != nil {
 		projectID = document.ProjectID
 	}
-	return &DocumentDraft{Base: pgdb.Base{ID: draft.ID, CreatedAt: nonZeroTime(draft.CreatedAt), UpdatedAt: nonZeroTime(draft.UpdatedAt)}, ProjectID: projectID, DocumentID: documentID, BranchID: draft.BranchID, VersionName: draft.VersionName, RelativePath: documentRelativePath(document), Status: draft.Status, DocumentFormat: draft.SchemaFormat, RawSchemaObjectKey: draft.RawSchemaObjectKey, NormalizedSchemaObjectKey: draft.NormalizedObjectKey, RawSchemaHash: draft.RawSchemaHash, NormalizedSchemaHash: draft.NormalizedSchemaHash, SchemaSizeBytes: int64(len(draft.RawSchema)), SchemaMetadata: pgdb.JSONB(`{}`), Changelog: stringPtr(draft.Changelog), SourceGitCommitID: stringPtr(draft.SourceGitCommitID), SourceType: draft.SourceType, SourceBranchID: stringPtr(draft.SourceBranchID), SourceVersionID: stringPtr(draft.SourceVersionID), BaseVersionID: stringPtr(draft.BaseVersionID), DiffPreviewJSON: diffPreviewJSON(draft.DiffPreview), CreatedByActorType: domainvdoc.AuditActorUser, CreatedByUserID: draft.CreatedBy, SubmittedAt: draft.SubmittedAt}
+	return &DocumentDraft{Base: pgdb.Base{ID: draft.ID, CreatedAt: nonZeroTime(draft.CreatedAt), UpdatedAt: nonZeroTime(draft.UpdatedAt)}, ProjectID: projectID, DocumentID: documentID, BranchID: draft.BranchID, VersionName: draft.VersionName, RelativePath: documentRelativePath(document), Status: draft.Status, DocumentFormat: draft.SchemaFormat, RawSchemaObjectKey: draft.RawSchemaObjectKey, NormalizedSchemaObjectKey: draft.NormalizedObjectKey, RawSchemaHash: draft.RawSchemaHash, NormalizedSchemaHash: draft.NormalizedSchemaHash, SchemaSizeBytes: int64(len(draft.RawSchema)), SchemaMetadata: pgdb.JSONB(`{}`), Changelog: stringPtr(draft.Changelog), SourceGitCommitID: stringPtr(draft.SourceGitCommitID), SourceType: draft.SourceType, SourceBranchID: stringPtr(draft.SourceBranchID), SourceVersionID: stringPtr(draft.SourceVersionID), BaseVersionID: stringPtr(draft.BaseVersionID), DiffPreviewJSON: diffPreviewJSON(draft.DiffPreview), ReviewComment: stringPtr(draft.ReviewComment), CreatedByActorType: domainvdoc.AuditActorUser, CreatedByUserID: draft.CreatedBy, SubmittedAt: draft.SubmittedAt}
 }
 
 func documentRelativePath(document *domainvdoc.APIService) string {
@@ -804,6 +1371,22 @@ func stringPtr(value any) *string {
 		return nil
 	}
 	return &text
+}
+
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func cloneOptionalTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func stringValue(value *string) string {

@@ -31,6 +31,25 @@ func createChatSession(c *gin.Context) {
 	response.ReturnOk(c, session)
 }
 
+func listChatSessions(c *gin.Context) {
+	userID, ok := shared.CurrentUserID(c)
+	if !ok {
+		return
+	}
+	target := app.AISummaryTarget{
+		ProjectID:  c.Param("project_id"),
+		DocumentID: c.Query("document_id"),
+		OwnerType:  c.Query("context_type"),
+		OwnerID:    c.Query("context_id"),
+	}
+	sessions, err := shared.Store().ListAIChatSessions(userID, target)
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	response.ReturnOkWithTotal(c, len(sessions), sessions)
+}
+
 func getChatSession(c *gin.Context) {
 	userID, ok := shared.CurrentUserID(c)
 	if !ok {

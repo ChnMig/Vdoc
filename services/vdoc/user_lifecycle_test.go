@@ -1,13 +1,32 @@
 package vdoc
 
-import "testing"
+import (
+	"testing"
+
+	"vdoc/utils/encryption"
+
+	"golang.org/x/crypto/bcrypt"
+)
 
 const lifecycleTestPassword = "correct horse battery staple"
+
+func TestUnknownLoginDummyHashMatchesProductionBcryptCost(t *testing.T) {
+	cost, err := bcrypt.Cost([]byte(dummyLoginPasswordHash))
+	if err != nil {
+		t.Fatalf("dummy login hash is invalid: %v", err)
+	}
+	if cost != encryption.BCryptCost {
+		t.Fatalf("dummy login bcrypt cost = %d, want production cost %d", cost, encryption.BCryptCost)
+	}
+}
 
 func TestRegisterAndCreateUserNormalizeEmailAndValidatePassword(t *testing.T) {
 	store := NewStore()
 	if _, err := store.Register("short@example.com", "Short", "short"); !Is(err, ErrInvalidArgument) {
 		t.Fatalf("Register short password error = %v, want invalid argument", err)
+	}
+	if _, err := store.Register("long@example.com", "Long", string(make([]byte, maxUserPasswordBytes+1))); !Is(err, ErrInvalidArgument) {
+		t.Fatalf("Register long password error = %v, want invalid argument", err)
 	}
 
 	adminUser, err := store.Register("  Admin@Example.COM  ", "Admin", lifecycleTestPassword)
@@ -51,5 +70,34 @@ func TestPatchUserRejectsInvalidStatusWithoutPersisting(t *testing.T) {
 	}
 	if storedUser.Status != UserStatusActive {
 		t.Fatalf("status after invalid patch = %d, want %d", storedUser.Status, UserStatusActive)
+	}
+}
+
+func TestPatchUserPreservesAtLeastOneActiveSuperAdmin(t *testing.T) {
+	store := NewStore()
+	adminUser, err := store.Register("admin@example.com", "Admin", lifecycleTestPassword)
+	if err != nil {
+		t.Fatalf("register admin: %v", err)
+	}
+
+	disabled := UserStatusDisabled
+	if _, err := store.PatchUser(adminUser.ID, adminUser.ID, &disabled, nil); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("disable last active SuperAdmin error = %v, want failed precondition", err)
+	}
+	notSuper := false
+	if _, err := store.PatchUser(adminUser.ID, adminUser.ID, nil, &notSuper); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("demote last active SuperAdmin error = %v, want failed precondition", err)
+	}
+	unchanged, err := store.ActiveUser(adminUser.ID)
+	if err != nil || !unchanged.IsSuperAdmin {
+		t.Fatalf("last admin changed after rejected patches: user=%+v err=%v", unchanged, err)
+	}
+
+	secondAdmin, err := store.CreateUser(adminUser.ID, "second-admin@example.com", "Second Admin", lifecycleTestPassword, true)
+	if err != nil {
+		t.Fatalf("create second admin: %v", err)
+	}
+	if _, err := store.PatchUser(secondAdmin.ID, adminUser.ID, &disabled, nil); err != nil {
+		t.Fatalf("disable admin when another active SuperAdmin exists: %v", err)
 	}
 }

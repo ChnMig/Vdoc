@@ -74,3 +74,59 @@ func TestInitApiMiddlewareOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestInitApiUsesOnlyExplicitTrustedProxiesForClientIP(t *testing.T) {
+	originalProxies := append([]string(nil), config.TrustedProxies...)
+	originalMaxBodySize := config.MaxBodySize
+	t.Cleanup(func() {
+		config.TrustedProxies = originalProxies
+		config.MaxBodySize = originalMaxBodySize
+	})
+	config.MaxBodySize = 10 << 20
+
+	for _, tc := range []struct {
+		name           string
+		trustedProxies []string
+		remoteAddr     string
+		forwardedFor   string
+		want           string
+	}{
+		{
+			name:           "trusted reverse proxy",
+			trustedProxies: []string{"192.0.2.10"},
+			remoteAddr:     "192.0.2.10:443",
+			forwardedFor:   "198.51.100.25",
+			want:           "198.51.100.25",
+		},
+		{
+			name:           "untrusted direct client cannot spoof header",
+			trustedProxies: []string{"192.0.2.10"},
+			remoteAddr:     "203.0.113.30:443",
+			forwardedFor:   "198.51.100.25",
+			want:           "203.0.113.30",
+		},
+		{
+			name:         "direct deployment defaults to remote address",
+			remoteAddr:   "203.0.113.40:443",
+			forwardedFor: "198.51.100.25",
+			want:         "203.0.113.40",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config.TrustedProxies = append([]string(nil), tc.trustedProxies...)
+			router := InitApi()
+			router.GET("/_test/client-ip", func(c *gin.Context) {
+				c.String(http.StatusOK, c.ClientIP())
+			})
+			request := httptest.NewRequest(http.MethodGet, "/_test/client-ip", nil)
+			request.RemoteAddr = tc.remoteAddr
+			request.Header.Set("X-Forwarded-For", tc.forwardedFor)
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+			if got := recorder.Body.String(); got != tc.want {
+				t.Fatalf("ClientIP() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

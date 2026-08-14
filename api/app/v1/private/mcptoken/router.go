@@ -61,7 +61,7 @@ func getMCPToken(c *gin.Context) {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	response.ReturnOk(c, shared.MCPTokenRedacted(token))
+	response.ReturnOk(c, shared.MCPToken(token))
 }
 
 func revokeMCPToken(c *gin.Context) {

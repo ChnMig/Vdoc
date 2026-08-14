@@ -1,6 +1,9 @@
 package vdoc
 
-import domainvdoc "vdoc/domain/vdoc"
+import (
+	domainshare "vdoc/domain/documentshare"
+	domainvdoc "vdoc/domain/vdoc"
+)
 
 const (
 	UserStatusActive   = domainvdoc.UserStatusActive
@@ -38,6 +41,13 @@ const (
 	DraftStatusPublished        = domainvdoc.DraftStatusPublished
 
 	VersionStatusPublished = domainvdoc.VersionStatusPublished
+
+	DocumentShareScopeLatest      = domainvdoc.DocumentShareScopeLatest
+	DocumentShareScopeAllVersions = domainvdoc.DocumentShareScopeAllVersions
+
+	DocumentShareStatusActive  = domainvdoc.DocumentShareStatusActive
+	DocumentShareStatusRevoked = domainvdoc.DocumentShareStatusRevoked
+	DocumentShareStatusExpired = domainvdoc.DocumentShareStatusExpired
 
 	SchemaFormatOpenAPI30 = domainvdoc.SchemaFormatOpenAPI30
 	SchemaFormatOpenAPI31 = domainvdoc.SchemaFormatOpenAPI31
@@ -80,9 +90,10 @@ const (
 	ScopeDocRead  = domainvdoc.ScopeDocRead
 	ScopeDocDraft = domainvdoc.ScopeDocDraft
 
-	AuditActorUser     = domainvdoc.AuditActorUser
-	AuditActorMCPToken = domainvdoc.AuditActorMCPToken
-	AuditActorSystem   = domainvdoc.AuditActorSystem
+	AuditActorUser      = domainvdoc.AuditActorUser
+	AuditActorMCPToken  = domainvdoc.AuditActorMCPToken
+	AuditActorSystem    = domainvdoc.AuditActorSystem
+	AuditActorAnonymous = domainvdoc.AuditActorAnonymous
 )
 
 type User = domainvdoc.User
@@ -93,6 +104,8 @@ type APIService = domainvdoc.APIService
 type ContractBranch = domainvdoc.ContractBranch
 type ContractDraft = domainvdoc.ContractDraft
 type ContractVersion = domainvdoc.ContractVersion
+type DocumentShare = domainvdoc.DocumentShare
+type DocumentShareExpiryPreset = domainshare.ExpiryPreset
 type SchemaDocument = domainvdoc.SchemaDocument
 type Endpoint = domainvdoc.Endpoint
 type Diff = domainvdoc.Diff
@@ -100,6 +113,14 @@ type DiffSummary = domainvdoc.DiffSummary
 type DiffItem = domainvdoc.DiffItem
 type MCPToken = domainvdoc.MCPToken
 type AuditLog = domainvdoc.AuditLog
+
+type AuditLogQuery struct {
+	ProjectID    string
+	Action       string
+	ResourceType string
+	ResourceID   string
+	Limit        int
+}
 type AIProviderConfig = domainvdoc.AIProviderConfig
 type AIProviderInput = domainvdoc.AIProviderInput
 type AIPromptOverride = domainvdoc.AIPromptOverride

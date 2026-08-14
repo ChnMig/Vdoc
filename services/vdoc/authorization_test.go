@@ -81,6 +81,45 @@ func TestSuperAdminBypassesProjectMembership(t *testing.T) {
 	}
 }
 
+func TestListProjectMemberCandidatesRequiresProjectAdminAndFiltersUsers(t *testing.T) {
+	store := newProjectRoleAuthorizationStore()
+	store.users["candidate"] = &User{ID: "candidate", Email: "candidate@example.test", Status: UserStatusActive}
+	store.users["disabled"] = &User{ID: "disabled", Email: "disabled@example.test", Status: UserStatusDisabled}
+
+	candidates, err := store.ListProjectMemberCandidates("admin", "project-a")
+	if err != nil {
+		t.Fatalf("admin ListProjectMemberCandidates error = %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].ID != "candidate" {
+		t.Fatalf("candidates = %+v, want only active non-member candidate", candidates)
+	}
+	if _, err := store.ListProjectMemberCandidates("writer", "project-a"); !Is(err, ErrPermissionDenied) {
+		t.Fatalf("writer ListProjectMemberCandidates error = %v, want permission denied", err)
+	}
+	if _, err := store.ListProjectMemberCandidates("admin", "missing"); !Is(err, ErrPermissionDenied) && !Is(err, ErrNotFound) {
+		t.Fatalf("missing project error = %v, want a scoped denial or not found", err)
+	}
+}
+
+func TestArchivedProjectRejectsMemberManagement(t *testing.T) {
+	store := newProjectRoleAuthorizationStore()
+	store.users["candidate"] = &User{ID: "candidate", Email: "candidate@example.test", Status: UserStatusActive}
+	store.projects["project-a"].Status = ProjectStatusArchived
+
+	if _, err := store.ListProjectMemberCandidates("admin", "project-a"); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("archived candidates error = %v, want failed precondition", err)
+	}
+	if _, err := store.AddProjectMember("admin", "project-a", "candidate", MemberRoleReader); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("archived add member error = %v, want failed precondition", err)
+	}
+	if _, err := store.PatchProjectMemberRole("admin", "project-a", "writer", MemberRoleReader); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("archived patch role error = %v, want failed precondition", err)
+	}
+	if _, err := store.RemoveProjectMember("admin", "project-a", "writer"); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("archived remove member error = %v, want failed precondition", err)
+	}
+}
+
 func TestProjectScopedListRoutesRejectCrossProjectParents(t *testing.T) {
 	store := newCrossProjectAuthorizationStore()
 

@@ -157,7 +157,8 @@ func TestAPIDocsRequiredPhrases(t *testing.T) {
 		"compare_doc_versions",
 		"create_doc_draft",
 		"markdown_content",
-		"one time copyable",
+		"may be revealed again by the token owner",
+		"Public Document Shares",
 		"Direct publish tools are intentionally not exposed in v0.1",
 	}
 	missing := make([]string, 0)
@@ -352,12 +353,15 @@ func newDocsSmokeRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	previousJWTKey := config.JWTKey
 	previousJWTExpiration := config.JWTExpiration
+	previousAllowRegistration := config.AllowRegistration
 	config.JWTKey = "docs-test-secret-key-for-task-14-32chars"
 	config.JWTExpiration = time.Hour
+	config.AllowRegistration = true
 	app.ResetDefaultStoreForTest()
 	t.Cleanup(func() {
 		config.JWTKey = previousJWTKey
 		config.JWTExpiration = previousJWTExpiration
+		config.AllowRegistration = previousAllowRegistration
 		app.ResetDefaultStoreForTest()
 	})
 

@@ -11,26 +11,26 @@ services:
     volumes:
       - ./data/docker/postgres:/var/lib/postgresql
     ports:
-      - 5432:5432
+      - "${VDOC_DOCKER_PUBLISH_ADDRESS:-127.0.0.1}:${VDOC_DOCKER_POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
   rustfs:
-    image: rustfs/rustfs:latest
+    image: rustfs/rustfs:1.0.0-beta.10@sha256:60f4f2f41ce95216f8cac676e69f9d90c0bfec458a3bc7fd7fb9b7c2452ac57a
     restart: unless-stopped
     container_name: rustfs
     ports:
-      - "9000:9000" # S3 API port
-      - "9001:9001" # Console port
+      - "${VDOC_DOCKER_PUBLISH_ADDRESS:-127.0.0.1}:${VDOC_DOCKER_RUSTFS_HOST_PORT:-9000}:9000" # S3 API port
+      - "${VDOC_DOCKER_PUBLISH_ADDRESS:-127.0.0.1}:${VDOC_DOCKER_RUSTFS_CONSOLE_HOST_PORT:-9001}:9001" # Console port
     environment:
       - RUSTFS_VOLUMES=/data
       - RUSTFS_ADDRESS=0.0.0.0:9000
       - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
       - RUSTFS_CONSOLE_ENABLE=true
-      - RUSTFS_CORS_ALLOWED_ORIGINS=*
-      - RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=*
+      - RUSTFS_CORS_ALLOWED_ORIGINS=${VDOC_DOCKER_RUSTFS_CORS_ALLOWED_ORIGINS:-http://127.0.0.1:9001,http://localhost:9001}
+      - RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=${VDOC_DOCKER_RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS:-http://127.0.0.1:9001,http://localhost:9001}
       - RUSTFS_ACCESS_KEY=${VDOC_DOCKER_RUSTFS_ACCESS_KEY:?set VDOC_DOCKER_RUSTFS_ACCESS_KEY}
       - RUSTFS_SECRET_KEY=${VDOC_DOCKER_RUSTFS_SECRET_KEY:?set VDOC_DOCKER_RUSTFS_SECRET_KEY}
       - RUSTFS_OBS_LOGGER_LEVEL=info

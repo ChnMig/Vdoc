@@ -45,6 +45,20 @@ func TestCreateServiceInitializesDefaultBranches(t *testing.T) {
 	}
 }
 
+func TestTeamReadsRequireSuperAdmin(t *testing.T) {
+	store := newTask5Store()
+
+	if _, err := store.ListTeams("admin"); !Is(err, ErrPermissionDenied) {
+		t.Fatalf("ListTeams(project admin) error = %v, want permission denied", err)
+	}
+	if _, err := store.Team("admin", "team-a"); !Is(err, ErrPermissionDenied) {
+		t.Fatalf("Team(project admin) error = %v, want permission denied", err)
+	}
+	if teams, err := store.ListTeams("super"); err != nil || len(teams) != 1 {
+		t.Fatalf("ListTeams(super admin) = %v, %v, want one team", teams, err)
+	}
+}
+
 func TestServiceNamesAreUniqueWithinProject(t *testing.T) {
 	store := newTask5Store()
 	if _, err := store.CreateService("admin", "project-a", "checkout", "", "", ""); err != nil {
@@ -132,6 +146,27 @@ func TestProjectServiceAndBranchUpdateArchiveBehavior(t *testing.T) {
 	}
 	if _, err := store.UpdateBranch("admin", "project-a", service.ID, branch.ID, "dev", "", nil, nil); !Is(err, ErrAlreadyExists) {
 		t.Fatalf("duplicate UpdateBranch() error = %v, want already exists", err)
+	}
+	branches, err := store.ListBranches("admin", "project-a", service.ID)
+	if err != nil {
+		t.Fatalf("ListBranches() error = %v", err)
+	}
+	var defaultBranch *ContractBranch
+	for _, candidate := range branches {
+		if candidate.IsDefault {
+			defaultBranch = candidate
+			break
+		}
+	}
+	if defaultBranch == nil {
+		t.Fatal("default branch not found")
+	}
+	disableDefault := false
+	if _, err := store.UpdateBranch("admin", "project-a", service.ID, defaultBranch.ID, defaultBranch.Name, defaultBranch.Description, &disableDefault, nil); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("unset default UpdateBranch() error = %v, want failed precondition", err)
+	}
+	if _, err := store.ArchiveBranch("admin", "project-a", service.ID, defaultBranch.ID); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("ArchiveBranch(default) error = %v, want failed precondition", err)
 	}
 
 	archivedBranch, err := store.ArchiveBranch("admin", "project-a", service.ID, branch.ID)

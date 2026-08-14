@@ -69,6 +69,45 @@ func TestAPIDocsOpenAPIProviderTuningSchema(t *testing.T) {
 	assertDocsTuningProperties(t, asDocsMap(t, response["properties"], "AIProviderResponse.properties"))
 }
 
+func TestAPIDocsOpenAIPromptRequestAndConfigurationPermissions(t *testing.T) {
+	root := parseDocsOpenAPI(t)
+	components := asDocsMap(t, root["components"], "components")
+	schemas := asDocsMap(t, components["schemas"], "components.schemas")
+	prompt := asDocsMap(t, schemas["AIPromptRequest"], "AIPromptRequest")
+	properties := asDocsMap(t, prompt["properties"], "AIPromptRequest.properties")
+	for _, property := range []string{"system_prompt", "user_prompt_template", "enabled"} {
+		if _, ok := properties[property]; !ok {
+			t.Fatalf("AIPromptRequest missing %s", property)
+		}
+	}
+	if _, ok := properties["prompt_key"]; ok {
+		t.Fatal("AIPromptRequest must take prompt_key from the route path")
+	}
+
+	paths := asDocsMap(t, root["paths"], "paths")
+	for _, route := range []string{
+		"/api/v1/private/ai/prompts/{prompt_key}",
+		"/api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}",
+	} {
+		operation := asDocsMap(t, asDocsMap(t, paths[route], route)["put"], route+" put")
+		if _, ok := operation["requestBody"]; !ok {
+			t.Fatalf("%s missing requestBody", route)
+		}
+	}
+
+	document := readDocsMarkdown(t, "openapi.yaml")
+	for _, phrase := range []string{
+		"Project Admin or SuperAdmin only; Reader and Writer are denied",
+		"falls back to the enabled system provider",
+		"Every user_prompt_template must contain {{context}}",
+		"page_chat must also contain {{message}}",
+	} {
+		if !strings.Contains(document, phrase) {
+			t.Fatalf("openapi.yaml missing AI configuration contract %q", phrase)
+		}
+	}
+}
+
 func TestAPIDocsDatabaseSchemaDescribesAILoopPersistence(t *testing.T) {
 	const documentPath = "../../../DATABASE_SCHEMA.md"
 	if missingOptionalWorkspaceDocument(t, documentPath) {
@@ -82,7 +121,7 @@ func TestAPIDocsDatabaseSchemaDescribesAILoopPersistence(t *testing.T) {
 		"`max_output_tokens`",
 		"draft_submit",
 		"version_publish",
-		"`skipped`、`succeeded`、`failed`",
+		"`pending`、`skipped`、`succeeded`、`failed`",
 		"token usage",
 		"API Key、JWT、MCP Token 和 Authorization header 不写入审计 metadata",
 	}

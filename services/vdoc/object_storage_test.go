@@ -1,12 +1,16 @@
 package vdoc
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"vdoc/config"
 	domainvdoc "vdoc/domain/vdoc"
 )
 
@@ -76,6 +80,12 @@ func TestCreateDraftObjectFailureDoesNotCommitDraft(t *testing.T) {
 	if repo.saves != 0 || len(repo.objects) != 0 {
 		t.Fatalf("repository saves=%d objects=%d, want no DB writes", repo.saves, len(repo.objects))
 	}
+	if len(objects.objects) != 0 {
+		t.Fatalf("objects after first write failure = %v, want none", objectKeys(objects.objects))
+	}
+	if len(objects.deletes) != 0 {
+		t.Fatalf("deleted objects = %v, want none when the first write failed", objects.deletes)
+	}
 }
 
 func TestCreateDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
@@ -93,11 +103,40 @@ func TestCreateDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	if len(objects.writes) != 2 {
 		t.Fatalf("object writes = %d, want raw succeeded then normalized failed", len(objects.writes))
 	}
+	if len(objects.objects) != 0 {
+		t.Fatalf("uncommitted objects after second write failure = %v, want none", objectKeys(objects.objects))
+	}
+	if len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
+		t.Fatalf("deleted objects = %v, want raw object %q", objects.deletes, objects.writes[0].Key)
+	}
 	if len(store.drafts) != 0 {
 		t.Fatalf("drafts committed after second object failure = %d, want 0", len(store.drafts))
 	}
 	if repo.saves != 0 || len(repo.objects) != 0 {
 		t.Fatalf("repository saves=%d objects=%d, want no DB writes", repo.saves, len(repo.objects))
+	}
+}
+
+func TestCreateDraftRepositoryFailureRollsBackMetadataAndDeletesObjects(t *testing.T) {
+	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
+	repo := newTransactionalRecordingRepository(store.stateLocked())
+	repo.auditErr = errors.New("database commit failed")
+	objects := newRecordingObjectStorage(nil)
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+
+	_, err := store.CreateDraft(actorID, projectID, serviceID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: testOpenAPI("failed-database-create")})
+	if err == nil || !strings.Contains(err.Error(), "database commit failed") {
+		t.Fatalf("CreateDraft() error = %v, want database commit failed", err)
+	}
+	if len(store.drafts) != 0 || len(repo.state.Drafts) != 0 || len(repo.objects) != 0 {
+		t.Fatalf("failed transaction committed store drafts=%d repository drafts=%d refs=%d", len(store.drafts), len(repo.state.Drafts), len(repo.objects))
+	}
+	if len(objects.objects) != 0 {
+		t.Fatalf("uncommitted objects after database failure = %v, want none", objectKeys(objects.objects))
+	}
+	if len(objects.writes) != 2 || len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want both objects deleted in reverse order", objectWriteKeys(objects.writes), objects.deletes)
 	}
 }
 
@@ -173,6 +212,7 @@ func TestPublishDraftObjectFailureDoesNotCommitVersion(t *testing.T) {
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
+	baselineObjects := objectKeySet(objects.objects)
 	repo.resetEvents()
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 1
@@ -190,6 +230,10 @@ func TestPublishDraftObjectFailureDoesNotCommitVersion(t *testing.T) {
 	if repo.saves != 0 || len(repo.objects) != 0 {
 		t.Fatalf("repository saves=%d objects=%d, want no DB writes", repo.saves, len(repo.objects))
 	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.deletes) != 0 {
+		t.Fatalf("deleted objects = %v, want none when the first publish write failed", objects.deletes)
+	}
 }
 
 func TestPublishDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
@@ -205,6 +249,7 @@ func TestPublishDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
+	baselineObjects := objectKeySet(objects.objects)
 	repo.resetEvents()
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 2
@@ -215,6 +260,10 @@ func TestPublishDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	}
 	if len(objects.writes) != 2 {
 		t.Fatalf("object writes = %d, want raw succeeded then normalized failed", len(objects.writes))
+	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
+		t.Fatalf("deleted objects = %v, want raw version object %q", objects.deletes, objects.writes[0].Key)
 	}
 	if len(store.versions) != 0 {
 		t.Fatalf("versions committed after second object failure = %d, want 0", len(store.versions))
@@ -253,6 +302,37 @@ func TestDatabaseBackedDraftPublishHydratesSchemasFromObjectStorage(t *testing.T
 	assertRichSchemaKey(t, version.NormalizedObjectKey, projectID, serviceID, branchID, "versions", version.ID, "normalized", version.NormalizedSchemaHash)
 	if stored := store.versions[version.ID]; stored == nil || stored.RawSchema == "" || stored.NormalizedSchema == "" {
 		t.Fatal("database-backed store did not hydrate version schemas from object storage")
+	}
+}
+
+func TestDatabaseBackedHydrationRejectsTamperedObject(t *testing.T) {
+	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
+	objects := newRecordingObjectStorage(nil)
+	store.objects = objects
+	draft, err := store.CreateDraft(actorID, projectID, serviceID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: testOpenAPI("integrity")})
+	if err != nil {
+		t.Fatalf("CreateDraft() error = %v", err)
+	}
+	repo := newRecordingRepository(store.stateLocked())
+	objects.objects[draft.RawSchemaObjectKey] = []byte(testOpenAPI("tampered"))
+	store.persistence = &postgresPersistence{repo: repo}
+
+	if _, err := store.Draft(actorID, projectID, serviceID, draft.ID); err == nil || !strings.Contains(err.Error(), "SHA-256 verification") {
+		t.Fatalf("Draft() tampered object error = %v, want SHA-256 verification failure", err)
+	}
+}
+
+func TestStoredObjectValidationRejectsOversizedBody(t *testing.T) {
+	originalMaxBodySize := config.MaxBodySize
+	config.MaxBodySize = 16
+	t.Cleanup(func() { config.MaxBodySize = originalMaxBodySize })
+	body := []byte("0123456789abcdefX")
+
+	if err := validateStoredObjectBody("oversized", sha(string(body)), body); err == nil || !strings.Contains(err.Error(), "exceeds 16 byte limit") {
+		t.Fatalf("validateStoredObjectBody() error = %v, want size failure", err)
+	}
+	if _, err := readStoredObjectBody(bytes.NewReader(body)); err == nil || !strings.Contains(err.Error(), "exceeds 16 byte limit") {
+		t.Fatalf("readStoredObjectBody() error = %v, want size failure", err)
 	}
 }
 
@@ -324,6 +404,41 @@ func TestPublishDraftWritesDiffSnapshotObjectWhenPreviousVersionExists(t *testin
 	}
 }
 
+func TestPublishDraftDiffObjectFailureDeletesNewVersionObjects(t *testing.T) {
+	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
+	repo := newRecordingRepository(store.stateLocked())
+	objects := newRecordingObjectStorage(nil)
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+	publishObjectStorageDraft(t, store, actorID, projectID, serviceID, branchID, "1.0.0", testOpenAPI("first-diff-failure-version"))
+	secondDraft, err := store.CreateDraft(actorID, projectID, serviceID, DraftInput{BranchID: branchID, VersionName: "1.1.0", SchemaContent: testOpenAPI("second-diff-failure-version")})
+	if err != nil {
+		t.Fatalf("CreateDraft second error = %v", err)
+	}
+	if _, err := store.SubmitDraft(actorID, projectID, serviceID, secondDraft.ID); err != nil {
+		t.Fatalf("SubmitDraft second error = %v", err)
+	}
+	baselineObjects := objectKeySet(objects.objects)
+	repo.resetEvents()
+	objects.reset(errors.New("diff object write failed"))
+	objects.failOnWrite = 3
+
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, secondDraft.ID, "approve")
+	if err == nil || !strings.Contains(err.Error(), "diff object write failed") {
+		t.Fatalf("ReviewDraft approve error = %v, want diff object write failed", err)
+	}
+	if len(store.versions) != 1 || store.drafts[secondDraft.ID].Status != DraftStatusSubmitted {
+		t.Fatalf("failed diff write changed workflow: versions=%d draft_status=%d", len(store.versions), store.drafts[secondDraft.ID].Status)
+	}
+	if repo.publishes != 0 || len(repo.objects) != 0 {
+		t.Fatalf("failed diff write reached database: publishes=%d refs=%d", repo.publishes, len(repo.objects))
+	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.writes) != 3 || len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want normalized/raw version objects deleted in reverse order", objectWriteKeys(objects.writes), objects.deletes)
+	}
+}
+
 func TestPublishDraftSuccessUsesAtomicPublishRepository(t *testing.T) {
 	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
 	repo := newRecordingRepository(store.stateLocked())
@@ -372,7 +487,9 @@ func TestPublishDraftRepositoryFailureDoesNotCommitPartialState(t *testing.T) {
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
+	baselineObjects := objectKeySet(objects.objects)
 	repo.resetEvents()
+	objects.reset(nil)
 
 	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
 	if err == nil || !strings.Contains(err.Error(), "publish transaction failed") {
@@ -386,6 +503,10 @@ func TestPublishDraftRepositoryFailureDoesNotCommitPartialState(t *testing.T) {
 	}
 	if repo.publishes != 1 || len(repo.objects) != 0 {
 		t.Fatalf("publishes=%d recorded objects=%d, want failed transaction without committed refs", repo.publishes, len(repo.objects))
+	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.writes) != 2 || len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want failed publish objects deleted in reverse order", objectWriteKeys(objects.writes), objects.deletes)
 	}
 }
 
@@ -462,6 +583,113 @@ func TestPublishDraftDuplicateVersionDoesNotCommitPartialState(t *testing.T) {
 	}
 }
 
+func TestCompareVersionsRepositoryFailureRollsBackDiffAndDeletesSnapshot(t *testing.T) {
+	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
+	repo := newTransactionalRecordingRepository(store.stateLocked())
+	objects := newRecordingObjectStorage(nil)
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+	from := publishObjectStorageDraft(t, store, actorID, projectID, serviceID, branchID, "1.0.0", testOpenAPI("compare-from"))
+	to := publishObjectStorageDraft(t, store, actorID, projectID, serviceID, branchID, "1.1.0", testOpenAPI("compare-to"))
+	repo.state.Diffs = map[string]*domainvdoc.Diff{}
+	store.diffs = map[string]*Diff{}
+	baselineObjects := objectKeySet(objects.objects)
+	repo.resetEvents()
+	repo.auditErr = errors.New("compare database commit failed")
+	objects.reset(nil)
+
+	_, err := store.CompareVersions(actorID, projectID, serviceID, from.ID, to.ID)
+	if err == nil || !strings.Contains(err.Error(), "compare database commit failed") {
+		t.Fatalf("CompareVersions() error = %v, want compare database commit failed", err)
+	}
+	if len(store.diffs) != 0 || len(repo.state.Diffs) != 0 || len(repo.objects) != 0 {
+		t.Fatalf("failed compare committed store diffs=%d repository diffs=%d refs=%d", len(store.diffs), len(repo.state.Diffs), len(repo.objects))
+	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.writes) != 1 || len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want failed diff snapshot deleted", objectWriteKeys(objects.writes), objects.deletes)
+	}
+}
+
+func TestCreateMarkdownDraftRepositoryFailureRollsBackMetadataAndDeletesObjects(t *testing.T) {
+	store, projectID, documentID, branchID := newMarkdownDocumentFlowStore(t)
+	repo := newTransactionalRecordingRepository(store.stateLocked())
+	repo.auditErr = errors.New("markdown database commit failed")
+	objects := newRecordingObjectStorage(nil)
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+
+	_, err := store.CreateMarkdownDraft("writer", projectID, documentID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: "# Failed create\n"})
+	if err == nil || !strings.Contains(err.Error(), "markdown database commit failed") {
+		t.Fatalf("CreateMarkdownDraft() error = %v, want markdown database commit failed", err)
+	}
+	if len(store.drafts) != 0 || len(repo.state.Drafts) != 0 || len(repo.objects) != 0 {
+		t.Fatalf("failed markdown transaction committed store drafts=%d repository drafts=%d refs=%d", len(store.drafts), len(repo.state.Drafts), len(repo.objects))
+	}
+	if len(objects.objects) != 0 || len(objects.writes) != 2 || len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("objects=%v writes=%v deletes=%v, want both markdown objects deleted in reverse order", objectKeys(objects.objects), objectWriteKeys(objects.writes), objects.deletes)
+	}
+}
+
+func TestPublishMarkdownDraftRepositoryFailureDeletesNewVersionObjects(t *testing.T) {
+	store, projectID, documentID, branchID := newMarkdownDocumentFlowStore(t)
+	repo := newRecordingRepository(store.stateLocked())
+	repo.publishErr = errors.New("markdown publish transaction failed")
+	objects := newRecordingObjectStorage(nil)
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+	draft, err := store.CreateMarkdownDraft("writer", projectID, documentID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: "# Publish failure\n"})
+	if err != nil {
+		t.Fatalf("CreateMarkdownDraft() error = %v", err)
+	}
+	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, draft.ID); err != nil {
+		t.Fatalf("SubmitMarkdownDraft() error = %v", err)
+	}
+	baselineObjects := objectKeySet(objects.objects)
+	repo.resetEvents()
+	objects.reset(nil)
+
+	_, err = store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve")
+	if err == nil || !strings.Contains(err.Error(), "markdown publish transaction failed") {
+		t.Fatalf("ReviewMarkdownDraft() error = %v, want markdown publish transaction failed", err)
+	}
+	if len(store.versions) != 0 || store.drafts[draft.ID].Status != DraftStatusSubmitted || repo.publishes != 1 || len(repo.objects) != 0 {
+		t.Fatalf("failed markdown publish committed versions=%d draft_status=%d publishes=%d refs=%d", len(store.versions), store.drafts[draft.ID].Status, repo.publishes, len(repo.objects))
+	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.writes) != 2 || len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want failed markdown version objects deleted in reverse order", objectWriteKeys(objects.writes), objects.deletes)
+	}
+}
+
+func TestCompareMarkdownVersionsRepositoryFailureDeletesSnapshot(t *testing.T) {
+	store, projectID, documentID, branchID := newMarkdownDocumentFlowStore(t)
+	repo := newTransactionalRecordingRepository(store.stateLocked())
+	objects := newRecordingObjectStorage(nil)
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+	from := publishMarkdownDocumentDraft(t, store, projectID, documentID, branchID, "1.0.0", "# From\n", "commit-from")
+	to := publishMarkdownDocumentDraft(t, store, projectID, documentID, branchID, "1.1.0", "# To\n", "commit-to")
+	repo.state.Diffs = map[string]*domainvdoc.Diff{}
+	store.diffs = map[string]*Diff{}
+	baselineObjects := objectKeySet(objects.objects)
+	repo.resetEvents()
+	repo.auditErr = errors.New("markdown compare database commit failed")
+	objects.reset(nil)
+
+	_, err := store.CompareMarkdownVersions("writer", projectID, documentID, from.ID, to.ID)
+	if err == nil || !strings.Contains(err.Error(), "markdown compare database commit failed") {
+		t.Fatalf("CompareMarkdownVersions() error = %v, want markdown compare database commit failed", err)
+	}
+	if len(store.diffs) != 0 || len(repo.state.Diffs) != 0 || len(repo.objects) != 0 {
+		t.Fatalf("failed markdown compare committed store diffs=%d repository diffs=%d refs=%d", len(store.diffs), len(repo.state.Diffs), len(repo.objects))
+	}
+	assertObjectKeySet(t, objects.objects, baselineObjects)
+	if len(objects.writes) != 1 || len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want failed markdown diff snapshot deleted", objectWriteKeys(objects.writes), objects.deletes)
+	}
+}
+
 func TestConcurrentPublishSameBranchVersionSerializes(t *testing.T) {
 	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
 	repo := newRecordingRepository(store.stateLocked())
@@ -515,8 +743,56 @@ func TestConcurrentPublishSameBranchVersionSerializes(t *testing.T) {
 	}
 }
 
+func objectKeySet(objects map[string][]byte) map[string]struct{} {
+	keys := make(map[string]struct{}, len(objects))
+	for key := range objects {
+		keys[key] = struct{}{}
+	}
+	return keys
+}
+
+func objectKeys(objects map[string][]byte) []string {
+	keys := make([]string, 0, len(objects))
+	for key := range objects {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func objectWriteKeys(writes []ObjectWrite) []string {
+	keys := make([]string, len(writes))
+	for index, write := range writes {
+		keys[index] = write.Key
+	}
+	return keys
+}
+
+func assertObjectKeySet(t *testing.T, objects map[string][]byte, want map[string]struct{}) {
+	t.Helper()
+	got := objectKeySet(objects)
+	if len(got) != len(want) {
+		t.Fatalf("object keys = %v, want %v", objectKeys(objects), sortedObjectKeySet(want))
+	}
+	for key := range want {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("object keys = %v, want %v", objectKeys(objects), sortedObjectKeySet(want))
+		}
+	}
+}
+
+func sortedObjectKeySet(keys map[string]struct{}) []string {
+	result := make([]string, 0, len(keys))
+	for key := range keys {
+		result = append(result, key)
+	}
+	sort.Strings(result)
+	return result
+}
+
 type recordingObjectStorage struct {
 	writes      []ObjectWrite
+	deletes     []string
 	objects     map[string][]byte
 	failOnWrite int
 	err         error
@@ -528,6 +804,7 @@ func newRecordingObjectStorage(err error) *recordingObjectStorage {
 
 func (s *recordingObjectStorage) reset(err error) {
 	s.writes = nil
+	s.deletes = nil
 	s.failOnWrite = 0
 	s.err = err
 }
@@ -551,27 +828,138 @@ func (s *recordingObjectStorage) GetObject(ctx context.Context, key string) ([]b
 	return append([]byte(nil), body...), nil
 }
 
+func (s *recordingObjectStorage) DeleteObject(ctx context.Context, key string) error {
+	_ = ctx
+	s.deletes = append(s.deletes, key)
+	delete(s.objects, key)
+	return nil
+}
+
 func (s *recordingObjectStorage) HealthCheck(ctx context.Context) error {
 	_ = ctx
 	return s.err
 }
 
 type recordingRepository struct {
-	state      *domainvdoc.State
-	objects    []domainvdoc.ObjectRef
-	events     []string
-	saves      int
-	publishes  int
-	publishErr error
+	state          *domainvdoc.State
+	objects        []domainvdoc.ObjectRef
+	events         []string
+	loads          int
+	userLoads      int
+	publicLoads    int
+	publicAccesses int
+	saves          int
+	publishes      int
+	publishErr     error
+	auditErr       error
+	loadErrAt      int
+	loadErr        error
 }
 
 func newRecordingRepository(state *domainvdoc.State) *recordingRepository {
 	return &recordingRepository{state: cloneRepositoryStateWithoutBodies(state)}
 }
 
+type transactionalRecordingRepository struct {
+	*recordingRepository
+}
+
+func newTransactionalRecordingRepository(state *domainvdoc.State) *transactionalRecordingRepository {
+	return &transactionalRecordingRepository{recordingRepository: newRecordingRepository(state)}
+}
+
+func (r *transactionalRecordingRepository) WithinTransaction(ctx context.Context, fn func(domainvdoc.Repository) error) error {
+	transactionState := *r.recordingRepository
+	transactionState.state = cloneRepositoryStateWithoutBodies(r.state)
+	transactionState.objects = cloneObjectRefs(r.objects)
+	transactionState.events = append([]string(nil), r.events...)
+	transaction := &transactionalRecordingRepository{recordingRepository: &transactionState}
+	if err := fn(transaction); err != nil {
+		return err
+	}
+	*r.recordingRepository = transactionState
+	return nil
+}
+
 func (r *recordingRepository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
 	_ = ctx
+	r.loads++
+	if r.loadErrAt > 0 && r.loads == r.loadErrAt {
+		return nil, r.loadErr
+	}
 	return cloneRepositoryStateWithoutBodies(r.state), nil
+}
+
+func (r *recordingRepository) LoadUser(ctx context.Context, userID string) (*domainvdoc.User, error) {
+	_ = ctx
+	r.userLoads++
+	r.ensureState()
+	user := r.state.Users[userID]
+	if user == nil {
+		return nil, domainvdoc.ErrNotFound
+	}
+	copied := *user
+	return &copied, nil
+}
+
+func (r *recordingRepository) ArchiveTeam(ctx context.Context, teamID string, audit *domainvdoc.AuditLog) error {
+	_ = ctx
+	r.ensureState()
+	if r.state.Teams[teamID] == nil {
+		return domainvdoc.ErrNotFound
+	}
+	for _, project := range r.state.Projects {
+		if project.TeamID == teamID && project.Status != domainvdoc.ProjectStatusArchived {
+			return domainvdoc.ErrFailedPrecondition
+		}
+	}
+	delete(r.state.Teams, teamID)
+	return r.RecordAudit(ctx, audit)
+}
+
+func (r *recordingRepository) LoadPublicDocumentShareSnapshot(ctx context.Context, shareID string) (*domainvdoc.PublicDocumentShareSnapshot, error) {
+	_ = ctx
+	r.publicLoads++
+	r.ensureState()
+	share := r.state.Shares[shareID]
+	if share == nil {
+		return nil, errors.New("share not found")
+	}
+	project := r.state.Projects[share.ProjectID]
+	document := r.state.APIServices[share.DocumentID]
+	branch := r.state.Branches[share.BranchID]
+	if project == nil || document == nil || branch == nil {
+		return nil, errors.New("share parent not found")
+	}
+	shareCopy := *share
+	shareCopy.TokenCiphertext = append([]byte(nil), share.TokenCiphertext...)
+	projectCopy := *project
+	documentCopy := *document
+	branchCopy := *branch
+	versions := make([]*domainvdoc.ContractVersion, 0)
+	for _, version := range r.state.Versions {
+		if version.ServiceID == share.DocumentID && version.BranchID == share.BranchID && version.Status == domainvdoc.VersionStatusPublished {
+			versionCopy := *version
+			versions = append(versions, &versionCopy)
+		}
+	}
+	return &domainvdoc.PublicDocumentShareSnapshot{Share: &shareCopy, Project: &projectCopy, Document: &documentCopy, Branch: &branchCopy, Versions: versions}, nil
+}
+
+func (r *recordingRepository) RecordPublicDocumentShareAccess(ctx context.Context, shareID string, audit *domainvdoc.AuditLog) error {
+	r.publicAccesses++
+	r.ensureState()
+	share := r.state.Shares[shareID]
+	if share == nil || share.Status != domainvdoc.DocumentShareStatusActive || (share.ExpiresAt != nil && !time.Now().UTC().Before(*share.ExpiresAt)) {
+		return domainvdoc.ErrFailedPrecondition
+	}
+	project := r.state.Projects[share.ProjectID]
+	document := r.state.APIServices[share.DocumentID]
+	branch := r.state.Branches[share.BranchID]
+	if project == nil || project.Status != domainvdoc.ProjectStatusActive || document == nil || document.ProjectID != project.ID || document.Status != domainvdoc.DocumentStatusActive || branch == nil || branch.DocumentID != document.ID || branch.Status != domainvdoc.BranchStatusActive {
+		return domainvdoc.ErrFailedPrecondition
+	}
+	return r.RecordAudit(ctx, audit)
 }
 
 func (r *recordingRepository) UpsertDocument(ctx context.Context, document *domainvdoc.APIService) error {
@@ -692,6 +1080,9 @@ func (r *recordingRepository) RecordObject(ctx context.Context, ref domainvdoc.O
 
 func (r *recordingRepository) RecordAudit(ctx context.Context, audit *domainvdoc.AuditLog) error {
 	_ = ctx
+	if r.auditErr != nil {
+		return r.auditErr
+	}
 	if audit == nil {
 		return nil
 	}
@@ -727,6 +1118,9 @@ func (r *recordingRepository) resetEvents() {
 	r.objects = nil
 	r.events = nil
 	r.saves = 0
+	r.loads = 0
+	r.userLoads = 0
+	r.publicLoads = 0
 	r.publishes = 0
 }
 
@@ -734,6 +1128,15 @@ func (r *recordingRepository) ensureState() {
 	if r.state == nil {
 		r.state = domainvdoc.NewState()
 	}
+}
+
+func cloneObjectRefs(refs []domainvdoc.ObjectRef) []domainvdoc.ObjectRef {
+	cloned := make([]domainvdoc.ObjectRef, len(refs))
+	for index, ref := range refs {
+		cloned[index] = ref
+		cloned[index].Metadata = copyStringMap(ref.Metadata)
+	}
+	return cloned
 }
 
 func publishObjectStorageDraft(t *testing.T, store *Store, actorID, projectID, serviceID, branchID, versionName, schema string) *ContractVersion {
@@ -874,6 +1277,11 @@ func cloneRepositoryStateWithoutBodies(state *domainvdoc.State) *domainvdoc.Stat
 			copied.RevokedBy = &revokedBy
 		}
 		clone.Tokens[key] = &copied
+	}
+	for key, value := range state.Shares {
+		copied := *value
+		copied.TokenCiphertext = append([]byte(nil), value.TokenCiphertext...)
+		clone.Shares[key] = &copied
 	}
 	return clone
 }

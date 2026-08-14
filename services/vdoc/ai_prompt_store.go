@@ -37,8 +37,11 @@ func (s *Store) ProjectAIPrompts(actorID, projectID string) ([]AIPromptTemplate,
 	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
-	if !s.canReadLocked(actorID, projectID) {
+	if !s.canManageProjectLocked(actorID, projectID) {
 		return nil, ErrPermissionDenied
+	}
+	if _, ok := s.projects[projectID]; !ok {
+		return nil, ErrNotFound
 	}
 	return s.promptTemplatesLocked(projectID), nil
 }
@@ -65,7 +68,17 @@ func (s *Store) upsertAIPrompt(actorID, projectID, promptKey string, input AIPro
 	} else if !s.canManageProjectLocked(actorID, projectID) {
 		return nil, ErrPermissionDenied
 	}
+	if projectID != "" {
+		if err := s.ensureActiveProjectLocked(projectID); err != nil {
+			return nil, err
+		}
+	}
 	if !validPromptKey(promptKey) {
+		return nil, ErrInvalidArgument
+	}
+	systemPrompt := strings.TrimSpace(input.SystemPrompt)
+	userPromptTemplate := strings.TrimSpace(input.UserPromptTemplate)
+	if !validPromptTemplate(promptKey, systemPrompt, userPromptTemplate) {
 		return nil, ErrInvalidArgument
 	}
 	now := time.Now()
@@ -78,8 +91,8 @@ func (s *Store) upsertAIPrompt(actorID, projectID, promptKey string, input AIPro
 	if projectID != "" {
 		override.Scope = domainai.ProviderScopeProject
 	}
-	override.SystemPrompt = strings.TrimSpace(input.SystemPrompt)
-	override.UserPromptTemplate = strings.TrimSpace(input.UserPromptTemplate)
+	override.SystemPrompt = systemPrompt
+	override.UserPromptTemplate = userPromptTemplate
 	override.Enabled = input.Enabled
 	override.UpdatedBy = actorID
 	override.UpdatedAt = now
@@ -142,6 +155,13 @@ func immutableAIGuard() string { return aiImmutableGuard }
 
 func validPromptKey(promptKey string) bool {
 	return promptKey == domainai.PromptDraftReviewSummary || promptKey == domainai.PromptVersionChangeSummary || promptKey == domainai.PromptDiffChangeSummary || promptKey == domainai.PromptPageChat
+}
+
+func validPromptTemplate(promptKey, systemPrompt, userPromptTemplate string) bool {
+	if systemPrompt == "" || userPromptTemplate == "" || !strings.Contains(userPromptTemplate, "{{context}}") {
+		return false
+	}
+	return promptKey != domainai.PromptPageChat || strings.Contains(userPromptTemplate, "{{message}}")
 }
 
 func aiPromptKey(projectID, promptKey string) string {
