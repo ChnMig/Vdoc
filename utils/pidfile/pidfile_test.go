@@ -1,82 +1,98 @@
 package pidfile
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 )
 
-func TestWriteAndRemove(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "run", "vdoc.pid")
+type shortWritePIDFile struct{}
 
-	if err := Write(path, 123); err != nil {
+func (shortWritePIDFile) Write(content []byte) (int, error) { return len(content) - 1, nil }
+func (shortWritePIDFile) Sync() error                       { return nil }
+func (shortWritePIDFile) Close() error                      { return nil }
+
+func TestWriteCreatesExclusivePrivatePIDFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run", "vdoc.pid")
+	if err := Write(path, 1234); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-
-	data, err := os.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if got := strings.TrimSpace(string(data)); got != "123" {
-		t.Fatalf("pid 内容=%q, want %q", got, "123")
+	if string(content) != "1234\n" {
+		t.Fatalf("content = %q, want %q", content, "1234\\n")
 	}
-
-	if err := Write(path, 456); err != nil {
-		t.Fatalf("Write() overwrite error = %v", err)
-	}
-	data, err = os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
+		t.Fatalf("Stat() error = %v", err)
 	}
-	if got := strings.TrimSpace(string(data)); got != "456" {
-		t.Fatalf("pid 覆盖后内容=%q, want %q", got, "456")
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
 	}
-
-	if err := Remove(path); err != nil {
-		t.Fatalf("Remove() error = %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("pid 文件应已删除，Stat() err=%v", err)
-	}
-
-	if err := Remove(path); err != nil {
-		t.Fatalf("Remove() second time error = %v", err)
+	if err := Write(path, 5678); !errors.Is(err, ErrExists) {
+		t.Fatalf("second Write() error = %v, want ErrExists", err)
 	}
 }
 
-func TestWrite_EmptyPath(t *testing.T) {
-	if err := Write("", os.Getpid()); err == nil {
-		t.Fatalf("Write() 期望返回错误")
-	}
-}
-
-func TestRemove_EmptyPath(t *testing.T) {
-	if err := Remove(""); err != nil {
-		t.Fatalf("Remove() error = %v", err)
-	}
-}
-
-func TestWrite_WritesNewline(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "pid")
-	pid := 789
-
-	if err := Write(path, pid); err != nil {
+func TestRemoveVerifiesPIDOwnershipAndIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vdoc.pid")
+	if err := Write(path, 1234); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
+	if err := Remove(path, 5678); !errors.Is(err, ErrOwnership) {
+		t.Fatalf("Remove() error = %v, want ErrOwnership", err)
 	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("mismatched owner removed file: %v", err)
+	}
+	if err := Remove(path, 1234); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	if err := Remove(path, 1234); err != nil {
+		t.Fatalf("second Remove() error = %v", err)
+	}
+}
 
-	got := string(data)
-	if !strings.HasSuffix(got, "\n") {
-		t.Fatalf("pid 文件应以换行结尾，got=%q", got)
+func TestPIDFileRejectsInvalidArguments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vdoc.pid")
+	for _, tt := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "write empty path", err: Write("", 1), want: ErrInvalidPath},
+		{name: "write invalid pid", err: Write(path, 0), want: ErrInvalidPID},
+		{name: "remove empty path", err: Remove("", 1), want: ErrInvalidPath},
+		{name: "remove invalid pid", err: Remove(path, 0), want: ErrInvalidPID},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if !errors.Is(tt.err, tt.want) {
+				t.Fatalf("error = %v, want %v", tt.err, tt.want)
+			}
+		})
 	}
-	if strings.TrimSpace(got) != strconv.Itoa(pid) {
-		t.Fatalf("pid 内容=%q, want %q", strings.TrimSpace(got), strconv.Itoa(pid))
+}
+
+func TestWriteRollsBackShortWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vdoc.pid")
+	var removedPath string
+	err := writeWithOperations(path, 1234, fileOperations{
+		open: func(string, int, os.FileMode) (pidFile, error) {
+			return shortWritePIDFile{}, nil
+		},
+		remove: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrWrite) || !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("writeWithOperations() error = %v, want ErrWrite and io.ErrShortWrite", err)
+	}
+	if removedPath != path {
+		t.Fatalf("rollback path = %q, want %q", removedPath, path)
 	}
 }

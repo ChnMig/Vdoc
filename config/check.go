@@ -31,6 +31,7 @@ func CheckConfig(
 	JWTExpiration int64,
 ) {
 	cfg := loadedConfig{
+		ListenHost:           ListenHost,
 		ListenPort:           ListenPort,
 		MaxBodySize:          MaxBodySize,
 		MaxHeaderBytes:       MaxHeaderBytes,
@@ -61,6 +62,7 @@ func CheckConfig(
 		MCPTokenCipherKID:    MCPTokenCipherKID,
 		CORSAllowedOrigins:   append([]string(nil), CORSAllowedOrigins...),
 		TrustedProxies:       append([]string(nil), TrustedProxies...),
+		StaticDir:            StaticDir,
 	}
 	if err := validateConfig(cfg); err != nil {
 		zap.L().Fatal("配置安全校验失败", zap.Error(err))
@@ -93,6 +95,9 @@ func validateConfig(cfg loadedConfig) error {
 }
 
 func validateServerConfig(cfg loadedConfig) error {
+	if err := validateListenHost(cfg.ListenHost); err != nil {
+		return err
+	}
 	if cfg.ListenPort <= 0 || cfg.ListenPort > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535")
 	}
@@ -116,6 +121,20 @@ func validateServerConfig(cfg loadedConfig) error {
 	}
 	if cfg.AuthRateBurst <= 0 {
 		return fmt.Errorf("auth.rate_burst must be positive")
+	}
+	return nil
+}
+
+func validateListenHost(host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("server.host must not be empty")
+	}
+	if strings.ContainsAny(host, " /\\\t\r\n") {
+		return fmt.Errorf("server.host must be a hostname or IP address without a port")
+	}
+	if strings.Contains(host, ":") && net.ParseIP(host) == nil {
+		return fmt.Errorf("server.host must not include a port: %q", host)
 	}
 	return nil
 }

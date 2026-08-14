@@ -17,6 +17,7 @@ var (
 )
 
 type loadedConfig struct {
+	ListenHost           string
 	ListenPort           int
 	MaxBodySize          int64
 	MaxHeaderBytes       int
@@ -30,6 +31,7 @@ type loadedConfig struct {
 	CORSAllowedOrigins   []string
 	TrustedProxies       []string
 	PidFile              string
+	StaticDir            string
 	AllowRegistration    bool
 	AuthRateLimit        int
 	AuthRateBurst        int
@@ -72,6 +74,9 @@ func LoadConfig() error {
 	// 支持环境变量（自动转换：VDOC_SERVER_PORT）
 	v.SetEnvPrefix("VDOC")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	// 显式空值也必须覆盖配置文件和默认值：可选项因此能被关闭，
+	// 必填项则会在 validateConfig 中失败，而不是静默回退到旧值。
+	v.AllowEmptyEnv(true)
 	v.AutomaticEnv()
 
 	// 设置默认值
@@ -97,6 +102,7 @@ func LoadConfig() error {
 // setDefaults 设置默认配置值
 func setDefaults() {
 	// Server 默认配置
+	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.max_body_size", "10MB")
 	v.SetDefault("server.max_header_bytes", 1<<20) // 1MB
@@ -115,6 +121,7 @@ func setDefaults() {
 	})
 	v.SetDefault("server.trusted_proxies", []string{})
 	v.SetDefault("server.pid_file", "vdoc.pid")
+	v.SetDefault("server.static_dir", "./static")
 	v.SetDefault("auth.allow_registration", false)
 	v.SetDefault("auth.rate_limit", 2)
 	v.SetDefault("auth.rate_burst", 5)
@@ -173,6 +180,7 @@ func validatedReloadCandidate() (loadedConfig, error) {
 func readConfig() (loadedConfig, error) {
 	// Server 配置
 	cfg := loadedConfig{
+		ListenHost: strings.TrimSpace(v.GetString("server.host")),
 		ListenPort: v.GetInt("server.port"),
 	}
 
@@ -199,11 +207,12 @@ func readConfig() (loadedConfig, error) {
 	cfg.CORSAllowedOrigins = splitConfigValues(v.GetStringSlice("server.cors_allowed_origins"))
 	cfg.TrustedProxies = splitConfigValues(v.GetStringSlice("server.trusted_proxies"))
 
-	// pid 文件（相对路径基于程序所在目录）
-	cfg.PidFile = v.GetString("server.pid_file")
+	// pid 文件与静态目录的相对路径均基于进程工作目录。
+	cfg.PidFile = strings.TrimSpace(v.GetString("server.pid_file"))
 	if cfg.PidFile != "" && !filepath.IsAbs(cfg.PidFile) {
 		cfg.PidFile = filepath.Join(AbsPath, cfg.PidFile)
 	}
+	cfg.StaticDir = strings.TrimSpace(v.GetString("server.static_dir"))
 	cfg.AllowRegistration = v.GetBool("auth.allow_registration")
 	cfg.AuthRateLimit = v.GetInt("auth.rate_limit")
 	cfg.AuthRateBurst = v.GetInt("auth.rate_burst")
@@ -241,6 +250,7 @@ func readConfig() (loadedConfig, error) {
 }
 
 func applyLoadedConfig(cfg loadedConfig) {
+	ListenHost = cfg.ListenHost
 	ListenPort = cfg.ListenPort
 	MaxBodySize = cfg.MaxBodySize
 	MaxHeaderBytes = cfg.MaxHeaderBytes
@@ -254,6 +264,7 @@ func applyLoadedConfig(cfg loadedConfig) {
 	CORSAllowedOrigins = append([]string(nil), cfg.CORSAllowedOrigins...)
 	TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
 	PidFile = cfg.PidFile
+	StaticDir = cfg.StaticDir
 	AllowRegistration = cfg.AllowRegistration
 	AuthRateLimit = cfg.AuthRateLimit
 	AuthRateBurst = cfg.AuthRateBurst
@@ -298,6 +309,9 @@ func splitConfigValues(values []string) []string {
 // 保持不可变，避免只有部分组件热更新以及请求与配置写入之间的数据竞争。
 // 校验通过后也必须重启进程才能生效。
 func WatchConfig() {
+	if v == nil || v.ConfigFileUsed() == "" {
+		return
+	}
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
 		zap.L().Info("Config file changed, validating restart candidate...",

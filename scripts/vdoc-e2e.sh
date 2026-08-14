@@ -110,7 +110,8 @@ print_live_env_ok() {
 run_live_tests() {
   require_live_env
   require_live_database_not_app
-  VDOC_E2E_LIVE=1 go test ./... -run '^TestVdocV01EndToEndLivePersistence$' -count=1 -v
+  go test ./db/... -count=1 -v
+  VDOC_E2E_LIVE=1 go test ./tests/e2e -run '^TestVdocV01EndToEndLivePersistence$' -count=1 -v
 }
 
 trim() {
@@ -250,10 +251,10 @@ case "${1:-all}" in
     usage
     ;;
   happy)
-    go test ./... -run '^TestVdocV01EndToEnd$' -count=1 -v
+    go test ./tests/e2e -run '^TestVdocV01EndToEnd$' -count=1 -v
     ;;
   failure)
-    go test ./... -run '^TestVdocV01FailureMatrix$' -count=1 -v
+    go test ./tests/e2e -run '^TestVdocV01FailureMatrix$' -count=1 -v
     ;;
   live)
     run_live_tests
@@ -268,7 +269,7 @@ case "${1:-all}" in
     live_compose "$@"
     ;;
   all)
-    go test ./... -run '^(TestVdocV01EndToEnd|TestVdocV01FailureMatrix)$' -count=1 -v
+    go test ./tests/e2e -run '^(TestVdocV01EndToEnd|TestVdocV01FailureMatrix)$' -count=1 -v
     ;;
   *)
     printf 'unknown mode: %s\n\n' "$1" >&2

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"vdoc/api"
@@ -21,7 +23,6 @@ import (
 	vdocsvc "vdoc/services/vdoc"
 	"vdoc/utils/encryption"
 	"vdoc/utils/log"
-	"vdoc/utils/pathtool"
 	"vdoc/utils/pidfile"
 	"vdoc/utils/runmodel"
 
@@ -74,13 +75,14 @@ func main() {
 		fmt.Printf("Version:    %s\n", Version)
 		fmt.Printf("Build Time: %s\n", BuildTime)
 		fmt.Printf("Git Commit: %s\n", GitCommit)
-		os.Exit(0)
+		return
 	}
 
 	// 从配置文件加载配置
 	if err := config.LoadConfig(); err != nil {
 		fmt.Printf("Failed to load configuration: %v\n", err)
 		ctx.Exit(1)
+		return
 	}
 
 	// 设置运行模式（必须在初始化日志之前）
@@ -89,7 +91,11 @@ func main() {
 	// 初始化日志（在设置好 RunModel 之后）
 	// 仅在 release 模式创建日志目录，避免在测试/子包初始化时散落空 log 目录
 	if config.RunModel == config.RunModelRelease {
-		_ = pathtool.CreateDir(config.LogDir)
+		if err := os.MkdirAll(config.LogDir, 0o750); err != nil {
+			fmt.Printf("Failed to create log directory: %v\n", err)
+			ctx.Exit(1)
+			return
+		}
 	}
 	log.GetLogger()
 	log.StartMonitor() // 启动日志文件监控
@@ -103,13 +109,52 @@ func main() {
 		int64(config.JWTExpiration),
 	)
 
+	// 尽早接管停止信号并取得 PID 文件所有权，避免两个实例并行执行启动副作用。
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	pidFilePath := config.PidFile
+	pid := os.Getpid()
+	pidOwned := false
+	if pidFilePath != "" {
+		if err := pidfile.Write(pidFilePath, pid); err != nil {
+			zap.L().Error("写入 pid 文件失败",
+				zap.String("pid_file", pidFilePath),
+				zap.Error(err),
+			)
+			signal.Stop(quit)
+			log.StopMonitor()
+			ctx.Exit(1)
+			return
+		}
+		pidOwned = true
+		zap.L().Info("PID 文件已写入",
+			zap.String("pid_file", pidFilePath),
+			zap.Int("pid", pid),
+		)
+	}
+	cleanupStartup := func() {
+		if pidOwned {
+			if err := pidfile.Remove(pidFilePath, pid); err != nil {
+				zap.L().Warn("启动失败后删除 pid 文件失败",
+					zap.String("pid_file", pidFilePath),
+					zap.Error(err),
+				)
+			}
+		}
+		signal.Stop(quit)
+		log.StopMonitor()
+	}
+
 	startupCtx := context.Background()
 	var databaseClient *pgdb.Client
 	var databaseRepository domainvdoc.Repository
 	if config.DatabaseEnabled {
 		client, err := pgdb.Open(startupCtx)
 		if err != nil {
-			zap.L().Fatal("初始化 PostgreSQL 失败", zap.Error(err))
+			zap.L().Error("初始化 PostgreSQL 失败", zap.Error(err))
+			cleanupStartup()
+			ctx.Exit(1)
+			return
 		}
 		databaseClient = client
 		databaseRepository = pgdbvdoc.NewRepository(client.DB())
@@ -144,13 +189,17 @@ func main() {
 		if databaseClient != nil {
 			_ = databaseClient.Close()
 		}
-		zap.L().Fatal("初始化 Vdoc 运行依赖失败", zap.Error(err))
+		zap.L().Error("初始化 Vdoc 运行依赖失败", zap.Error(err))
+		cleanupStartup()
+		ctx.Exit(1)
+		return
 	}
 	configureDependencyHealth(databaseClient)
 
+	addr := net.JoinHostPort(config.ListenHost, strconv.Itoa(config.ListenPort))
 	zap.L().Info("Starting HTTP service",
 		zap.String("mode", config.RunModel),
-		zap.Int("port", config.ListenPort),
+		zap.String("addr", addr),
 		zap.String("version", Version),
 	)
 
@@ -158,7 +207,6 @@ func main() {
 	r := api.InitApi()
 
 	// 创建 HTTP 服务器（使用配置化的超时参数）
-	addr := fmt.Sprintf(":%d", config.ListenPort)
 	srv := &http.Server{
 		Addr:           addr,
 		Handler:        r,
@@ -168,32 +216,12 @@ func main() {
 		MaxHeaderBytes: config.MaxHeaderBytes,
 	}
 
-	// 监听停止信号（尽早注册，避免启动阶段收到信号时错过清理流程）
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-
-	pidFilePath := config.PidFile
-	// 写入 pid 文件（存在则覆盖，确保每次启动都会刷新）
-	if pidFilePath != "" {
-		pid := os.Getpid()
-		if err := pidfile.Write(pidFilePath, pid); err != nil {
-			zap.L().Fatal("写入 pid 文件失败",
-				zap.String("pid_file", pidFilePath),
-				zap.Error(err),
-			)
-		}
-		zap.L().Info("PID 文件已写入",
-			zap.String("pid_file", pidFilePath),
-			zap.Int("pid", pid),
-		)
-	}
-
 	serverErrCh := make(chan error, 1)
 	go func() {
 		zap.L().Info("Server is starting...")
 		err := srv.ListenAndServe()
 
-		if err != nil && err != http.ErrServerClosed {
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrCh <- err
 		}
 	}()
@@ -208,37 +236,44 @@ func main() {
 			zap.Error(err),
 		)
 	}
+	signal.Stop(quit)
 
 	// 创建带超时的 context 用于优雅关闭（使用配置化的超时时间）
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 
 	// 优雅关闭服务器
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		if !errors.Is(err, http.ErrServerClosed) {
-			zap.L().Error("Server forced to shutdown", zap.Error(err))
+	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		exitCode = 1
+		zap.L().Error("Server forced to shutdown", zap.Error(err))
+		// Shutdown 超时后主动断开残余连接，再关闭业务存储，避免 handler
+		// 在依赖已关闭后继续运行。
+		if closeErr := srv.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
+			zap.L().Error("Force-closing HTTP server failed", zap.Error(closeErr))
 		}
-		// 即使服务器强制关闭，也要尝试清理资源
 	}
+	cancel()
 
 	// 清理资源
 	zap.L().Info("Cleaning up resources...")
 	middleware.CleanupAllLimiters() // 清理限流器
 	if err := vdocsvc.CloseDefaultStore(); err != nil {
+		exitCode = 1
 		zap.L().Warn("关闭 Vdoc 存储失败", zap.Error(err))
 	}
-	log.StopMonitor() // 停止日志监控并刷新缓冲区
 
-	// 删除 pid 文件（文件不存在视为成功）
-	if err := pidfile.Remove(pidFilePath); err != nil {
-		zap.L().Warn("删除 pid 文件失败",
-			zap.String("pid_file", pidFilePath),
-			zap.Error(err),
-		)
+	// 仅删除仍属于当前进程的 pid 文件；文件不存在视为成功。
+	if pidOwned {
+		if err := pidfile.Remove(pidFilePath, pid); err != nil {
+			exitCode = 1
+			zap.L().Warn("删除 pid 文件失败",
+				zap.String("pid_file", pidFilePath),
+				zap.Error(err),
+			)
+		}
 	}
 
-	cancel()
-
 	zap.L().Info("Server exited", zap.Int("exit_code", exitCode))
+	log.StopMonitor() // 停止日志监控并刷新最终退出日志
 	ctx.Exit(exitCode)
 }
 

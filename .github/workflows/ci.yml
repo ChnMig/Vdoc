@@ -10,6 +10,24 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=readonly
+      VDOC_TEST_DATABASE_DSN: postgres://vdoc_test:vdoc_test@127.0.0.1:5432/vdoc_ci_test?sslmode=disable
+      VDOC_POSTGRES_DB: vdoc
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: vdoc_test
+          POSTGRES_PASSWORD: vdoc_test
+          POSTGRES_DB: vdoc_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vdoc_test -d vdoc_ci_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -37,7 +55,15 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -race -shuffle=on -count=1 ./...
+
+      - name: Verify modules
+        run: |
+          go mod tidy -diff
+          go mod verify
+
+      - name: PostgreSQL integration gate
+        run: go test -v ./db -run 'Test(Postgres|RunMigrations)' -count=1
 
       - name: v0.1 E2E smoke
         run: ./scripts/vdoc-e2e.sh all

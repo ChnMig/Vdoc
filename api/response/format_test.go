@@ -1,6 +1,8 @@
 package response
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -8,6 +10,8 @@ import (
 	"vdoc/utils/contextkey"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestReturnOk(t *testing.T) {
@@ -250,6 +254,53 @@ func TestNoTraceID(t *testing.T) {
 	// trace_id 应该为空字符串
 	if resp.TraceID != "" {
 		t.Errorf("Expected empty trace_id, got '%s'", resp.TraceID)
+	}
+}
+
+func TestTraceIDInStandardRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	request := httptest.NewRequest("GET", "/", nil)
+	c.Request = request.WithContext(contextkey.WithTraceID(context.Background(), "trace-standard-context"))
+
+	ReturnSuccess(c)
+
+	var resp responseData
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+	if resp.TraceID != "trace-standard-context" {
+		t.Fatalf("trace_id = %q, want trace-standard-context", resp.TraceID)
+	}
+}
+
+func TestLogErrorResponseUsesSeverityBySemanticCode(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		data  responseData
+		level string
+	}{
+		{name: "cancelled", data: CANCELLED, level: "debug"},
+		{name: "client error", data: INVALID_ARGUMENT, level: "warn"},
+		{name: "server error", data: INTERNAL, level: "error"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := zap.New(zapcore.NewCore(
+				zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&output), zap.DebugLevel,
+			))
+
+			logErrorResponse(logger, "response failed", tt.data)
+
+			var entry map[string]any
+			if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+				t.Fatalf("decode log entry: %v", err)
+			}
+			if got := entry["level"]; got != tt.level {
+				t.Fatalf("log level = %v, want %s", got, tt.level)
+			}
+		})
 	}
 }
 

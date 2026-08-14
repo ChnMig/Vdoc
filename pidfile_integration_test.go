@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"os"
 	"os/exec"
@@ -34,6 +35,7 @@ func TestPidFileLifecycle(t *testing.T) {
 	cmd := exec.Command(binPath, "--dev")
 	cmd.Dir = tmpDir
 	cmd.Env = append(os.Environ(),
+		"VDOC_SERVER_HOST=127.0.0.1",
 		"VDOC_SERVER_PORT="+port,
 		"VDOC_SERVER_SHUTDOWN_TIMEOUT=1s",
 		"VDOC_JWT_KEY=0123456789abcdef0123456789abcdef",
@@ -78,6 +80,35 @@ func TestPidFileLifecycle(t *testing.T) {
 			t.Fatalf("pid 文件未在预期时间内写入或内容不正确，want=%s，当前输出：\n%s", wantPID, out.String())
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+
+	secondPort := reserveLocalPort(t)
+	secondCtx, cancelSecond := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelSecond()
+	second := exec.CommandContext(secondCtx, binPath, "--dev")
+	second.Dir = tmpDir
+	second.Env = append(os.Environ(),
+		"VDOC_SERVER_HOST=127.0.0.1",
+		"VDOC_SERVER_PORT="+secondPort,
+		"VDOC_SERVER_SHUTDOWN_TIMEOUT=1s",
+		"VDOC_JWT_KEY=0123456789abcdef0123456789abcdef",
+		"VDOC_AUTH_ALLOW_REGISTRATION=true",
+	)
+	var secondOut bytes.Buffer
+	second.Stdout = &secondOut
+	second.Stderr = &secondOut
+	if err := second.Run(); err == nil {
+		t.Fatalf("第二个实例应因 pid 文件已被占用而启动失败，输出：\n%s", secondOut.String())
+	}
+	if secondCtx.Err() != nil {
+		t.Fatalf("第二个实例未及时拒绝重复启动：%v\n输出：\n%s", secondCtx.Err(), secondOut.String())
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("第二个实例失败后读取 pid 文件: %v", err)
+	}
+	if gotPID := strings.TrimSpace(string(data)); gotPID != wantPID {
+		t.Fatalf("第二个实例改写了 pid 文件：got=%s want=%s\n输出：\n%s", gotPID, wantPID, secondOut.String())
 	}
 
 	if err := cmd.Process.Signal(os.Interrupt); err != nil {

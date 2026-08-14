@@ -1,7 +1,9 @@
 package vdoc
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"vdoc/utils/encryption"
 
@@ -17,6 +19,127 @@ func TestUnknownLoginDummyHashMatchesProductionBcryptCost(t *testing.T) {
 	}
 	if cost != encryption.BCryptCost {
 		t.Fatalf("dummy login bcrypt cost = %d, want production cost %d", cost, encryption.BCryptCost)
+	}
+}
+
+func TestValidateUserPasswordUsesUTF8BytesAndUnicodeBoundaries(t *testing.T) {
+	for _, password := range []string{"密码密码", strings.Repeat("密", 24), "correct horse battery"} {
+		if err := validateUserPassword(password); err != nil {
+			t.Fatalf("validateUserPassword(%q) error = %v", password, err)
+		}
+	}
+	for _, password := range []string{
+		"密码密",
+		strings.Repeat("密", 25),
+		"\u0085correct horse battery",
+		"correct horse battery\u00a0",
+	} {
+		if err := validateUserPassword(password); !Is(err, ErrInvalidArgument) {
+			t.Fatalf("validateUserPassword(%q) error = %v, want invalid argument", password, err)
+		}
+	}
+}
+
+func TestLoginPasswordVerificationDoesNotHoldStoreLock(t *testing.T) {
+	store := NewStore()
+	store.users["user"] = &User{
+		ID:           "user",
+		Email:        "user@example.com",
+		PasswordHash: "hash",
+		Status:       UserStatusActive,
+	}
+	verificationStarted := make(chan struct{})
+	releaseVerification := make(chan struct{})
+	store.verifyLoginPassword = func(password, hash string) bool {
+		close(verificationStarted)
+		<-releaseVerification
+		return password == "password" && hash == "hash"
+	}
+
+	loginResult := make(chan error, 1)
+	go func() {
+		_, err := store.Login("user@example.com", "password")
+		loginResult <- err
+	}()
+
+	select {
+	case <-verificationStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("password verification did not start")
+	}
+
+	userResult := make(chan error, 1)
+	go func() {
+		_, err := store.User("user")
+		userResult <- err
+	}()
+	select {
+	case err := <-userResult:
+		if err != nil {
+			t.Fatalf("User() while password verification is blocked error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("User() blocked behind password verification")
+	}
+
+	close(releaseVerification)
+	select {
+	case err := <-loginResult:
+		if err != nil {
+			t.Fatalf("Login() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Login() did not finish after password verification was released")
+	}
+}
+
+func TestLoginRejectsUserDisabledDuringPasswordVerification(t *testing.T) {
+	store := NewStore()
+	store.users["admin"] = &User{
+		ID:           "admin",
+		Email:        "admin@example.com",
+		PasswordHash: "admin-hash",
+		IsSuperAdmin: true,
+		Status:       UserStatusActive,
+	}
+	store.users["user"] = &User{
+		ID:           "user",
+		Email:        "user@example.com",
+		PasswordHash: "hash",
+		Status:       UserStatusActive,
+	}
+	verificationStarted := make(chan struct{})
+	releaseVerification := make(chan struct{})
+	store.verifyLoginPassword = func(_, _ string) bool {
+		close(verificationStarted)
+		<-releaseVerification
+		return true
+	}
+
+	loginResult := make(chan error, 1)
+	go func() {
+		_, err := store.Login("user@example.com", "password")
+		loginResult <- err
+	}()
+	select {
+	case <-verificationStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("password verification did not start")
+	}
+
+	disabled := UserStatusDisabled
+	if _, err := store.PatchUser("admin", "user", &disabled, nil); err != nil {
+		t.Fatalf("PatchUser() while password verification is blocked error = %v", err)
+	}
+	close(releaseVerification)
+
+	select {
+	case err := <-loginResult:
+		if !Is(err, ErrUnauthenticated) {
+			t.Fatalf("Login() error = %v, want unauthenticated", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Login() did not finish after password verification was released")
 	}
 }
 

@@ -18,6 +18,18 @@ func TestDisposableDatabaseGuardAllowsDisposableDatabase(t *testing.T) {
 	}
 }
 
+func TestDisposableDatabaseConnectionGuardMatchesDefaultE2EDatabase(t *testing.T) {
+	t.Setenv("VDOC_POSTGRES_DB", "vdoc")
+	t.Setenv("VDOC_DATABASE_DSN", "")
+
+	if err := validateDisposableTestDatabaseConnection(disposableGuardAllowedDSN, "vdoc_e2e"); err != nil {
+		t.Fatalf("expected default E2E database connection to be allowed: %v", err)
+	}
+	if err := validateDisposableTestDatabaseConnection(disposableGuardAllowedDSN, "another_database"); err == nil {
+		t.Fatal("expected connection to a database other than the guarded DSN to be rejected")
+	}
+}
+
 func TestDisposableDatabaseGuardRejectsUnsafeDatabaseDSNs(t *testing.T) {
 	tests := []struct {
 		name           string

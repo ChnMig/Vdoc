@@ -211,7 +211,12 @@ func closeTestDB(t *testing.T, database *gorm.DB) {
 
 func resetPublicSchema(t *testing.T, database *gorm.DB) {
 	t.Helper()
-	if err := assertDisposableTestDatabase(os.Getenv("VDOC_TEST_DATABASE_DSN")); err != nil {
+	dsn := os.Getenv("VDOC_TEST_DATABASE_DSN")
+	var actualDatabase string
+	if err := database.Raw(`SELECT current_database()`).Scan(&actualDatabase).Error; err != nil {
+		t.Fatalf("read PostgreSQL database name: %v", err)
+	}
+	if err := ValidateDisposableTestDatabaseConnection(dsn, actualDatabase); err != nil {
 		t.Fatalf("refusing to reset PostgreSQL schema: %v", err)
 	}
 	if err := database.Exec(`DROP SCHEMA public CASCADE`).Error; err != nil {

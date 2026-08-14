@@ -21,8 +21,14 @@ func TestCorsDomainHandlerAllowsOnlyConfiguredOrigins(t *testing.T) {
 	if got := allowedRecorder.Header().Get("Access-Control-Allow-Origin"); got != "https://admin.example.test" {
 		t.Fatalf("allowed origin header = %q", got)
 	}
-	if got := allowedRecorder.Header().Get("Access-Control-Allow-Headers"); got != "Authorization, Content-Type, X-Vdoc-Share-Unlock" {
+	if got := allowedRecorder.Header().Get("Access-Control-Allow-Headers"); got != corsAllowedHeaders {
 		t.Fatalf("allowed headers = %q", got)
+	}
+	if got := allowedRecorder.Header().Get("Access-Control-Allow-Methods"); got != corsAllowedMethods {
+		t.Fatalf("allowed methods = %q", got)
+	}
+	if got := allowedRecorder.Header().Get("Access-Control-Expose-Headers"); got != corsExposedHeaders {
+		t.Fatalf("exposed headers = %q", got)
 	}
 
 	denied := httptest.NewRequest(http.MethodOptions, "/resource", nil)

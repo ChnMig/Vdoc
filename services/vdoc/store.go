@@ -48,29 +48,30 @@ const (
 func Is(err, target error) bool { return domainvdoc.Is(err, target) }
 
 type Store struct {
-	mu          sync.RWMutex
-	users       map[string]*User
-	teams       map[string]*Team
-	projects    map[string]*Project
-	members     map[string]*ProjectMember
-	apiServices map[string]*APIService
-	branches    map[string]*ContractBranch
-	drafts      map[string]*ContractDraft
-	versions    map[string]*ContractVersion
-	endpoints   map[string]*Endpoint
-	diffs       map[string]*Diff
-	tokens      map[string]*MCPToken
-	shares      map[string]*DocumentShare
-	aiProviders map[string]*AIProviderConfig
-	aiPrompts   map[string]*AIPromptOverride
-	aiSummaries map[string]*AISummary
-	aiChats     map[string]*AIChatSession
-	aiMessages  map[string]*AIChatMessage
-	aiHTTP      *http.Client
-	audits      map[string]*AuditLog
-	persistence *postgresPersistence
-	persisted   *domainvdoc.State
-	objects     ObjectStorage
+	mu                  sync.RWMutex
+	verifyLoginPassword func(password, hash string) bool
+	users               map[string]*User
+	teams               map[string]*Team
+	projects            map[string]*Project
+	members             map[string]*ProjectMember
+	apiServices         map[string]*APIService
+	branches            map[string]*ContractBranch
+	drafts              map[string]*ContractDraft
+	versions            map[string]*ContractVersion
+	endpoints           map[string]*Endpoint
+	diffs               map[string]*Diff
+	tokens              map[string]*MCPToken
+	shares              map[string]*DocumentShare
+	aiProviders         map[string]*AIProviderConfig
+	aiPrompts           map[string]*AIPromptOverride
+	aiSummaries         map[string]*AISummary
+	aiChats             map[string]*AIChatSession
+	aiMessages          map[string]*AIChatMessage
+	aiHTTP              *http.Client
+	audits              map[string]*AuditLog
+	persistence         *postgresPersistence
+	persisted           *domainvdoc.State
+	objects             ObjectStorage
 }
 
 var defaultStore = NewStore()
@@ -79,7 +80,8 @@ func DefaultStore() *Store { return defaultStore }
 
 func NewStore() *Store {
 	return &Store{
-		users: map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
+		verifyLoginPassword: encryption.VerifyBcryptPassword,
+		users:               map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
 		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
 		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{}, shares: map[string]*DocumentShare{},
 		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
@@ -505,13 +507,14 @@ func (s *Store) registerLocked(ctx AuditContext, email, name, password string) (
 }
 
 func (s *Store) Login(email, password string, auditCtx ...AuditContext) (*User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
+	email = normalizeUserEmail(email)
+
+	s.mu.Lock()
 	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	email = normalizeUserEmail(email)
 	var matched *User
 	for _, u := range s.users {
 		if strings.EqualFold(u.Email, email) {
@@ -519,23 +522,45 @@ func (s *Store) Login(email, password string, auditCtx ...AuditContext) (*User, 
 			break
 		}
 	}
+	verifyPassword := s.verifyLoginPassword
+	if verifyPassword == nil {
+		verifyPassword = encryption.VerifyBcryptPassword
+	}
 	if matched == nil {
+		s.mu.Unlock()
 		// 未知账号也执行一次有效 bcrypt 校验，避免通过响应耗时枚举邮箱；
 		// 同时不为任意攻击输入写入持久化审计，避免存储放大。
-		_ = encryption.VerifyBcryptPassword(password, dummyLoginPasswordHash)
+		_ = verifyPassword(password, dummyLoginPasswordHash)
 		return nil, ErrUnauthenticated
 	}
-	passwordMatches := encryption.VerifyBcryptPassword(password, matched.PasswordHash)
-	if matched.Status == UserStatusActive && passwordMatches {
-		s.auditLocked(ctx, AuditActorUser, matched.ID, "auth.login", "user", matched.ID, "", "", auditMetadata("result", "success", "email", email))
+	matchedID := matched.ID
+	matchedHash := matched.PasswordHash
+	s.mu.Unlock()
+
+	// bcrypt is intentionally outside the Store mutex. Password verification is
+	// CPU intensive and must not stall unrelated reads or administrative writes.
+	passwordMatches := verifyPassword(password, matchedHash)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return nil, err
+	}
+	current, ok := s.users[matchedID]
+	credentialsUnchanged := ok && current.PasswordHash == matchedHash
+	loginSucceeded := credentialsUnchanged && current.Status == UserStatusActive && passwordMatches
+	if loginSucceeded {
+		s.auditLocked(ctx, AuditActorUser, current.ID, "auth.login", "user", current.ID, "", "", auditMetadata("result", "success", "email", email))
 		if err := s.persistLocked(); err != nil {
 			return nil, err
 		}
-		return cloneUser(matched), nil
+		return cloneUser(current), nil
 	}
-	s.auditLocked(ctx, AuditActorUser, matched.ID, "auth.login", "user", matched.ID, "", "", auditMetadata("result", "failure", "email", email))
-	if err := s.persistLocked(); err != nil {
-		return nil, err
+	if ok {
+		s.auditLocked(ctx, AuditActorUser, current.ID, "auth.login", "user", current.ID, "", "", auditMetadata("result", "failure", "email", email))
+		if err := s.persistLocked(); err != nil {
+			return nil, err
+		}
 	}
 	return nil, ErrUnauthenticated
 }

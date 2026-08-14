@@ -29,6 +29,7 @@ COPY --chown=vdoc:vdoc static ./static
 RUN mkdir -p /app/log && chown -R vdoc:vdoc /app
 
 ENV model=release \
+    VDOC_SERVER_HOST=0.0.0.0 \
     VDOC_SERVER_PORT=8080 \
     VDOC_DATABASE_ENABLED=false \
     VDOC_STORAGE_ENABLED=false

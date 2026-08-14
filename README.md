@@ -283,8 +283,11 @@ make build
 make run
 make dev
 make test
+make test-coverage
 make fmt
+make fmt-check
 make lint
+make build-check
 make verify
 make clean
 make build CROSS=1
@@ -300,9 +303,12 @@ Responses use a project envelope. HTTP status is currently always `200`; semanti
 
 Configuration is loaded from `config.yaml`, defaults, and `VDOC_` environment variables.
 
+`server.host` defaults to `0.0.0.0`; use `127.0.0.1` for direct local-only access. `server.static_dir` defaults to `./static` relative to the working directory and can be set to an empty string to disable `/static`. PID files are also resolved from the working directory and are created exclusively, so a second instance cannot overwrite the first instance's ownership marker. An ungraceful termination can leave the PID file behind; remove it manually only after confirming that no Vdoc instance still owns it.
+
 Examples:
 
 ```bash
+export VDOC_SERVER_HOST=127.0.0.1
 export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
@@ -336,9 +342,8 @@ The password is read from standard input so it does not appear in shell history 
 
 Config file lookup order:
 
-1. Program directory
-2. Working directory
-3. `/etc/vdoc/`
+1. Working directory
+2. `/etc/vdoc/`
 
 ## Documentation
 

@@ -52,9 +52,11 @@ func TestSetDefaults(t *testing.T) {
 		key  string
 		want any
 	}{
+		{"server host", "server.host", "0.0.0.0"},
 		{"server port", "server.port", 8080},
 		{"max body size", "server.max_body_size", "10MB"},
 		{"pid file", "server.pid_file", "vdoc.pid"},
+		{"static directory", "server.static_dir", "./static"},
 		{"jwt expiration", "jwt.expiration", "12h"},
 		{"log max size", "log.max_size", 50},
 		{"enable rate limit", "server.enable_rate_limit", false},
@@ -89,8 +91,8 @@ func TestApplyConfig(t *testing.T) {
 	}
 
 	// 检查全局变量是否正确设置
-	if ListenPort != 8080 {
-		t.Errorf("ListenPort = %d, want 8080", ListenPort)
+	if ListenHost != "0.0.0.0" || ListenPort != 8080 {
+		t.Errorf("server address = %s:%d, want 0.0.0.0:8080", ListenHost, ListenPort)
 	}
 
 	if MaxBodySize != 10*1024*1024 {
@@ -103,6 +105,9 @@ func TestApplyConfig(t *testing.T) {
 
 	if filepath.Base(PidFile) != "vdoc.pid" {
 		t.Errorf("PidFile = %s, want base vdoc.pid", PidFile)
+	}
+	if StaticDir != "./static" {
+		t.Errorf("StaticDir = %q, want ./static", StaticDir)
 	}
 
 	if LogMaxSize != 50 {
@@ -117,7 +122,9 @@ func TestApplyConfig(t *testing.T) {
 
 func TestLoadConfigWithEnv(t *testing.T) {
 	// 设置环境变量
+	t.Setenv("VDOC_SERVER_HOST", "127.0.0.2")
 	t.Setenv("VDOC_SERVER_PORT", "9090")
+	t.Setenv("VDOC_SERVER_STATIC_DIR", "public")
 	t.Setenv("VDOC_JWT_EXPIRATION", "24h")
 	pidPath := filepath.Join(t.TempDir(), "vdoc.pid")
 	t.Setenv("VDOC_SERVER_PID_FILE", pidPath)
@@ -146,8 +153,11 @@ func TestLoadConfigWithEnv(t *testing.T) {
 	}
 
 	// 验证环境变量覆盖
-	if ListenPort != 9090 {
-		t.Errorf("ListenPort = %d, want 9090 (from env)", ListenPort)
+	if ListenHost != "127.0.0.2" || ListenPort != 9090 {
+		t.Errorf("server address = %s:%d, want 127.0.0.2:9090 (from env)", ListenHost, ListenPort)
+	}
+	if StaticDir != "public" {
+		t.Errorf("StaticDir = %q, want public (from env)", StaticDir)
 	}
 
 	if JWTExpiration != 24*time.Hour {
@@ -189,6 +199,19 @@ func TestLoadConfigWithEnv(t *testing.T) {
 
 }
 
+func TestLoadConfigAllowsEmptyStaticDirEnv(t *testing.T) {
+	originalStaticDir := StaticDir
+	t.Cleanup(func() { StaticDir = originalStaticDir })
+	t.Setenv("VDOC_SERVER_STATIC_DIR", "")
+
+	if err := LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if StaticDir != "" {
+		t.Fatalf("StaticDir = %q, want empty string to disable /static", StaticDir)
+	}
+}
+
 func TestGetViper(t *testing.T) {
 	LoadConfig()
 	viper := GetViper()
@@ -198,6 +221,14 @@ func TestGetViper(t *testing.T) {
 	if viper != v {
 		t.Error("GetViper() did not return the expected viper instance")
 	}
+}
+
+func TestWatchConfigWithoutLoadedFileIsNoop(t *testing.T) {
+	originalViper := v
+	v = nil
+	t.Cleanup(func() { v = originalViper })
+
+	WatchConfig()
 }
 
 func TestValidatedReloadCandidateDoesNotMutateRunningConfig(t *testing.T) {

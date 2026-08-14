@@ -9,13 +9,16 @@
 #   export VDOC_LOG_MAX_SIZE=100        # 覆盖 log.max_size
 #
 # 配置文件查找顺序：
-# 1. 当前目录 (./config.yaml)
-# 2. 工作目录 (./config.yaml)
-# 3. 系统目录 (/etc/vdoc/config.yaml)
+# 1. 工作目录 (./config.yaml)
+# 2. 系统目录 (/etc/vdoc/config.yaml)
 
 server:
+  # HTTP 监听地址；仅本机访问可改为 127.0.0.1。
+  host: "0.0.0.0"
   port: 8080
-  pid_file: "vdoc.pid"     # pid 文件路径（支持相对路径，相对程序所在目录）；服务退出时会自动删除
+  # 相对路径基于工作目录。已有 PID 文件时拒绝启动，避免重复实例互相覆盖。
+  # 异常退出可能遗留该文件；确认没有 Vdoc 实例使用后再手动删除。
+  pid_file: "vdoc.pid"
 
   # 服务进程只提供 HTTP。HTTPS/TLS 建议由 Caddy、Nginx、Ingress 等反向代理统一处理。
 
@@ -33,6 +36,9 @@ server:
   enable_rate_limit: false        # 是否启用全局限流
   global_rate_limit: 100          # 全局限流速率（每秒请求数）
   global_rate_burst: 200          # 全局限流突发容量
+
+  # 静态文件目录；相对路径基于工作目录，设为空字符串可关闭 /static。
+  static_dir: "./static"
 
   # 精确列出允许访问 API 的 Admin Origin；生产环境不要使用通配符。
   cors_allowed_origins:

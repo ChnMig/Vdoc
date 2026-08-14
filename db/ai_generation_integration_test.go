@@ -161,12 +161,13 @@ func closeAIGenerationTestDB(t *testing.T, database *gorm.DB) {
 
 func resetAIGenerationTestSchema(t *testing.T, database *gorm.DB) {
 	t.Helper()
+	dsn := os.Getenv("VDOC_TEST_DATABASE_DSN")
 	var name string
 	if err := database.Raw(`SELECT current_database()`).Scan(&name).Error; err != nil {
 		t.Fatalf("read database name: %v", err)
 	}
-	if !strings.Contains(strings.ToLower(name), "test") {
-		t.Fatalf("refusing to reset non-test database %q", name)
+	if err := databasepkg.ValidateDisposableTestDatabaseConnection(dsn, name); err != nil {
+		t.Fatalf("refusing to reset PostgreSQL schema: %v", err)
 	}
 	if err := database.Exec(`DROP SCHEMA public CASCADE`).Error; err != nil {
 		t.Fatalf("drop public schema: %v", err)

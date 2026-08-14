@@ -7,6 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	corsAllowedMethods = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
+	corsAllowedHeaders = "Authorization, Content-Type, X-Trace-ID, X-Vdoc-Share-Unlock"
+	corsExposedHeaders = "Content-Disposition, Content-Type, X-Trace-ID"
+)
+
 // CorsDomainHandler permits only explicitly configured HTTP(S) origins and a
 // fixed set of Vdoc methods and headers. Same-origin requests do not require
 // CORS response headers and continue to work with an empty allowlist.
@@ -31,9 +37,9 @@ func CorsDomainHandler(allowedOrigins ...string) gin.HandlerFunc {
 			}
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
-			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Vdoc-Share-Unlock")
-			c.Header("Access-Control-Expose-Headers", "Content-Disposition, Content-Type, X-Trace-ID")
+			c.Header("Access-Control-Allow-Methods", corsAllowedMethods)
+			c.Header("Access-Control-Allow-Headers", corsAllowedHeaders)
+			c.Header("Access-Control-Expose-Headers", corsExposedHeaders)
 			c.Header("Access-Control-Max-Age", "172800")
 		}
 

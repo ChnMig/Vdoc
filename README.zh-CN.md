@@ -264,8 +264,11 @@ make build
 make run
 make dev
 make test
+make test-coverage
 make fmt
+make fmt-check
 make lint
+make build-check
 make verify
 make clean
 make build CROSS=1
@@ -281,9 +284,12 @@ make build CROSS=1
 
 配置来自 `config.yaml`、默认值和 `VDOC_` 环境变量。
 
+`server.host` 默认是 `0.0.0.0`；只允许本机直连时改为 `127.0.0.1`。`server.static_dir` 默认是相对工作目录的 `./static`，设为空字符串即可关闭 `/static`。PID 文件同样相对工作目录解析并独占创建，第二个实例不能覆盖第一个实例的所有权标记。非优雅退出可能遗留 PID 文件；只有确认没有 Vdoc 实例仍在使用后才可手动删除。
+
 示例：
 
 ```bash
+export VDOC_SERVER_HOST=127.0.0.1
 export VDOC_SERVER_PORT=9090
 export VDOC_JWT_KEY="$(openssl rand -base64 32)"
 export VDOC_LOG_LEVEL=info
@@ -317,9 +323,8 @@ unset NEW_PASSWORD
 
 配置文件查找顺序：
 
-1. 程序目录
-2. 工作目录
-3. `/etc/vdoc/`
+1. 工作目录
+2. `/etc/vdoc/`
 
 ## 文档
 

@@ -40,6 +40,28 @@ func assertDisposableTestDatabase(testDSN string) error {
 	return nil
 }
 
+// ValidateDisposableTestDatabaseConnection is exported only in test builds so
+// external integration tests use the same destructive-reset guard as package
+// db tests while also proving the opened connection matches the guarded DSN.
+func ValidateDisposableTestDatabaseConnection(testDSN, actualDatabase string) error {
+	if err := assertDisposableTestDatabase(testDSN); err != nil {
+		return err
+	}
+	expectedDatabase, err := postgresURLDatabaseName(testDSN)
+	if err != nil {
+		return err
+	}
+	if actualDatabase != expectedDatabase {
+		return fmt.Errorf(
+			"connected PostgreSQL database %q does not match guarded DSN database %q: %w",
+			actualDatabase,
+			expectedDatabase,
+			errUnsafeTestDatabase,
+		)
+	}
+	return nil
+}
+
 func postgresURLDatabaseName(rawDSN string) (string, error) {
 	dsn := strings.TrimSpace(rawDSN)
 	if dsn == "" {

@@ -5,6 +5,7 @@ import "testing"
 func TestValidateConfig(t *testing.T) {
 	valid := func() loadedConfig {
 		return loadedConfig{
+			ListenHost:          "0.0.0.0",
 			ListenPort:          8080,
 			MaxBodySize:         10 * 1024 * 1024,
 			MaxHeaderBytes:      1 << 20,
@@ -31,6 +32,20 @@ func TestValidateConfig(t *testing.T) {
 	}{
 		{
 			name: "valid config",
+		},
+		{
+			name:    "empty server host",
+			mutate:  func(cfg *loadedConfig) { cfg.ListenHost = "" },
+			wantErr: true,
+		},
+		{
+			name:    "server host includes port",
+			mutate:  func(cfg *loadedConfig) { cfg.ListenHost = "127.0.0.1:8080" },
+			wantErr: true,
+		},
+		{
+			name:   "IPv6 server host",
+			mutate: func(cfg *loadedConfig) { cfg.ListenHost = "::1" },
 		},
 		{
 			name:    "invalid server port",

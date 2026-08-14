@@ -1,6 +1,8 @@
 package api
 
 import (
+	"strings"
+
 	"vdoc/api/app"
 	"vdoc/api/middleware"
 	"vdoc/config"
@@ -55,8 +57,10 @@ func InitApi() *gin.Engine {
 
 	// 移除 Prometheus metrics 端点（不需要 metrics）
 
-	// static
-	router.Static("/static", "./static")
+	// 静态目录可按部署需要覆盖或关闭，避免无意暴露进程工作目录。
+	if staticDir := strings.TrimSpace(config.StaticDir); staticDir != "" {
+		router.Static("/static", staticDir)
+	}
 
 	// /api 分组，业务路由由 app 层递归注册
 	apiGroup := router.Group("/api")

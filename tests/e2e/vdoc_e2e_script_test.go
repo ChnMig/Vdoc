@@ -1,6 +1,11 @@
 package e2e
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 type e2eScriptInvocation struct {
 	args []string
@@ -27,6 +32,19 @@ func TestVdocE2EScriptCLI_help_documents_modes(t *testing.T) {
 	}
 	if result.stderr != "" {
 		t.Fatalf("help stderr = %q, want empty", result.stderr)
+	}
+}
+
+func TestVdocE2EScriptLiveRunsDatabaseGateBeforePersistenceE2E(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "vdoc-e2e.sh"))
+	if err != nil {
+		t.Fatalf("read vdoc-e2e.sh: %v", err)
+	}
+	text := string(source)
+	databaseGate := strings.Index(text, "go test ./db/... -count=1 -v")
+	persistenceE2E := strings.Index(text, "go test ./tests/e2e -run '^TestVdocV01EndToEndLivePersistence$'")
+	if databaseGate < 0 || persistenceE2E < 0 || databaseGate > persistenceE2E {
+		t.Fatalf("live test order missing database gate before persistence E2E")
 	}
 }
 

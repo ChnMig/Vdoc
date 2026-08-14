@@ -11,7 +11,15 @@ import (
 	"go.uber.org/zap"
 )
 
-func getTraceID(c *gin.Context) string {
+func requestTraceID(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if c.Request != nil {
+		if traceID, ok := log.TraceID(c.Request.Context()); ok {
+			return traceID
+		}
+	}
 	if traceID, exists := c.Get(contextkey.TraceID); exists {
 		if id, ok := traceID.(string); ok {
 			return id
@@ -23,10 +31,10 @@ func getTraceID(c *gin.Context) string {
 func ReturnErrorWithData(c *gin.Context, data responseData, result any) {
 	l := log.WithRequest(c)
 	data.Timestamp = time.Now().Unix()
-	data.TraceID = getTraceID(c)
+	data.TraceID = requestTraceID(c)
 	data.Detail = result
 	c.JSON(http.StatusOK, data)
-	l.Error("Returning error response with data", zap.Any("response", responseForLog(data)))
+	logErrorResponse(l, "Returning error response with data", responseForLog(data))
 	// Return directly
 	c.Abort()
 }
@@ -36,7 +44,7 @@ func ReturnOk(c *gin.Context, result any) {
 	l := log.WithRequest(c)
 	data := OK
 	data.Timestamp = time.Now().Unix()
-	data.TraceID = getTraceID(c)
+	data.TraceID = requestTraceID(c)
 	data.Detail = result
 	c.JSON(http.StatusOK, data)
 	l.Debug("Returning OK response", zap.Any("response", responseForLog(data)))
@@ -49,7 +57,7 @@ func ReturnOkWithTotal(c *gin.Context, total int, result any) {
 	l := log.WithRequest(c)
 	data := OK
 	data.Timestamp = time.Now().Unix()
-	data.TraceID = getTraceID(c)
+	data.TraceID = requestTraceID(c)
 	data.Detail = result
 	data.Total = &total
 	c.JSON(http.StatusOK, data)
@@ -62,12 +70,12 @@ func ReturnOkWithTotal(c *gin.Context, total int, result any) {
 func ReturnError(c *gin.Context, data responseData, message string) {
 	l := log.WithRequest(c)
 	data.Timestamp = time.Now().Unix()
-	data.TraceID = getTraceID(c)
+	data.TraceID = requestTraceID(c)
 	if message != "" {
 		data.Message = message
 	}
 	c.JSON(http.StatusOK, data)
-	l.Error("Returning error response", zap.Any("response", data))
+	logErrorResponse(l, "Returning error response", responseForLog(data))
 	// Return directly
 	c.Abort()
 }
@@ -77,11 +85,26 @@ func ReturnSuccess(c *gin.Context) {
 	l := log.WithRequest(c)
 	data := OK
 	data.Timestamp = time.Now().Unix()
-	data.TraceID = getTraceID(c)
+	data.TraceID = requestTraceID(c)
 	c.JSON(http.StatusOK, data)
 	l.Debug("Returning success response", zap.Any("response", data))
 	// Return directly
 	c.Abort()
+}
+
+func logErrorResponse(logger *zap.Logger, message string, data responseData) {
+	if logger == nil {
+		logger = zap.L()
+	}
+	field := zap.Any("response", data)
+	switch {
+	case data.Code == CANCELLED.Code:
+		logger.Debug(message, field)
+	case data.Code >= INTERNAL.Code:
+		logger.Error(message, field)
+	default:
+		logger.Warn(message, field)
+	}
 }
 
 func responseForLog(data responseData) responseData {

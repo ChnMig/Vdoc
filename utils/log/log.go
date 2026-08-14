@@ -2,20 +2,16 @@ package log
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"vdoc/config"
-	"vdoc/utils/contextkey"
 	"vdoc/utils/runmodel"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -112,7 +108,11 @@ func monitorFile(done <-chan struct{}) {
 		zap.L().Error("File listening error", zap.Error(err))
 		return
 	}
-	defer watcher.Close()
+	defer func() {
+		if closeErr := watcher.Close(); closeErr != nil {
+			zap.L().Warn("close log file watcher failed", zap.Error(closeErr))
+		}
+	}()
 	// 监控日志目录，避免因日志文件轮转（rename）导致 watcher 失效。
 	err = watcher.Add(config.LogDir)
 	if err != nil {
@@ -120,7 +120,10 @@ func monitorFile(done <-chan struct{}) {
 	}
 	for {
 		select {
-		case event := <-watcher.Events:
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
 			if !(event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) {
 				continue
 			}
@@ -141,8 +144,11 @@ func monitorFile(done <-chan struct{}) {
 				zap.L().Warn("log file missing, reopening logger", zap.String("path", path))
 				SetLogger()
 			}()
-		case err := <-watcher.Errors:
-			zap.L().Error("file listening error", zap.Error(err))
+		case watcherErr, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			zap.L().Error("file listening error", zap.Error(watcherErr))
 		case <-done:
 			// 收到停止信号，退出监控
 			return
@@ -255,12 +261,16 @@ func StartMonitor() {
 			mu.Unlock()
 			return
 		}
-		monitorDone = make(chan struct{})
-		rotateDone = make(chan struct{})
+		md := make(chan struct{})
+		rd := make(chan struct{})
+		monitorDone = md
+		rotateDone = rd
 		mu.Unlock()
 
-		go monitorFile(monitorDone)
-		go rotateDaily(rotateDone)
+		// 使用锁内捕获的 channel，避免 StopMonitor 在 goroutine 参数求值前
+		// 将全局 channel 清空，导致后台任务无法收到停止信号。
+		go monitorFile(md)
+		go rotateDaily(rd)
 	}
 }
 
@@ -353,79 +363,6 @@ func isManagedLogPath(path string) bool {
 		return true
 	}
 	return false
-}
-
-// FromContext 从 gin.Context 中获取带上下文信息的 logger
-// 如果 context 中没有 logger，则返回全局 logger
-// 这个函数应该在业务处理器中使用，以获取包含 trace_id、method、path 等上下文信息的 logger
-//
-// 使用示例:
-//
-//	func Handler(c *gin.Context) {
-//	    logger := log.FromContext(c)
-//	    logger.Info("处理用户请求", zap.String("user_id", userID))
-//	}
-func FromContext(c *gin.Context) *zap.Logger {
-	// 尝试从 context 获取 logger
-	if loggerVal, exists := c.Get(contextkey.Logger); exists {
-		if contextLogger, ok := loggerVal.(*zap.Logger); ok {
-			return contextLogger
-		}
-	}
-
-	// 如果没有上下文 logger，返回全局 logger
-	// 这种情况通常发生在测试或者中间件执行顺序问题
-	return GetLogger()
-}
-
-// WithRequest 从 gin.Context 中提取不含值的请求摘要。禁止记录 query value、
-// form、multipart 或绑定后的业务参数，避免密码、token、API key 和文档正文落盘。
-func WithRequest(c *gin.Context) *zap.Logger {
-	base := FromContext(c)
-
-	// 在单元测试或特殊场景中，Context 可能尚未完全初始化，
-	// 此时直接返回基础 logger，避免空指针异常。
-	if c == nil || c.Request == nil {
-		return base
-	}
-
-	fields := []zap.Field{
-		zap.String("method", c.Request.Method),
-	}
-
-	if c.Request.URL != nil {
-		fields = append(fields, zap.String("path", c.Request.URL.Path))
-		// 只记录 query key，避免 token、搜索内容或误传凭据进入日志。
-		if rawQuery := c.Request.URL.RawQuery; rawQuery != "" {
-			fields = append(fields, zap.Strings("query_keys", QueryKeys(rawQuery)))
-		}
-	}
-
-	// 路径参数
-	if len(c.Params) > 0 {
-		pathParams := make(map[string]string, len(c.Params))
-		for _, p := range c.Params {
-			pathParams[p.Key] = p.Value
-		}
-		fields = append(fields, zap.Any("path_params", pathParams))
-	}
-
-	return base.With(fields...)
-}
-
-// QueryKeys 解析并排序 query 参数名，不返回任何参数值。解析失败时仅返回
-// 固定标记，避免把无法安全解析的原始输入写入日志。
-func QueryKeys(rawQuery string) []string {
-	values, err := url.ParseQuery(rawQuery)
-	if err != nil {
-		return []string{"<invalid>"}
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func parseLogLevel(levelStr string) zapcore.Level {
