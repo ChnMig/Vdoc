@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sort"
 
@@ -9,13 +10,34 @@ import (
 	domainvdoc "vdoc/domain/vdoc"
 )
 
-func (p *postgresPersistence) load(ctx context.Context, store *Store) error {
+type versionedStateRepository interface {
+	StateRevision(ctx context.Context) (string, error)
+	LoadStateWithRevision(ctx context.Context) (*domainvdoc.State, string, error)
+}
+
+func (p *postgresPersistence) load(ctx context.Context, store *Store) (bool, error) {
+	if repo, ok := p.repo.(versionedStateRepository); ok {
+		revision, err := repo.StateRevision(ctx)
+		if err != nil {
+			return false, err
+		}
+		if p.revision != "" && revision == p.revision {
+			return false, nil
+		}
+		state, loadedRevision, err := repo.LoadStateWithRevision(ctx)
+		if err != nil {
+			return false, err
+		}
+		store.applyStateLocked(state)
+		p.revision = loadedRevision
+		return true, nil
+	}
 	state, err := p.repo.LoadState(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	store.applyStateLocked(state)
-	return store.hydrateSchemaObjectsLocked(ctx)
+	return true, nil
 }
 
 func (p *postgresPersistence) loadUser(ctx context.Context, userID string) (*domainvdoc.User, error) {
@@ -555,77 +577,84 @@ func documentIdentity(documentID, serviceID string) string {
 	return serviceID
 }
 
-func (s *Store) hydrateSchemaObjectsLocked(ctx context.Context) error {
-	if s.objects == nil {
-		return nil
-	}
-	for _, draft := range s.drafts {
-		if err := s.hydrateDraftSchemaLocked(ctx, draft); err != nil {
-			return err
-		}
-	}
-	for _, version := range s.versions {
-		if err := s.hydrateVersionSchemaLocked(ctx, version); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *Store) hydrateDraftSchemaLocked(ctx context.Context, draft *ContractDraft) error {
-	if draft == nil {
-		return nil
+	if err := s.hydrateDraftContentLocked(ctx, draft, "raw"); err != nil {
+		return err
 	}
-	if draft.RawSchema != "" {
-		if err := validateStoredObjectBody(draft.RawSchemaObjectKey, draft.RawSchemaHash, []byte(draft.RawSchema)); err != nil {
-			return err
-		}
-	} else if draft.RawSchemaObjectKey != "" {
-		body, err := s.readVerifiedObject(ctx, draft.RawSchemaObjectKey, draft.RawSchemaHash)
-		if err != nil {
-			return err
-		}
-		draft.RawSchema = string(body)
-	}
-	if draft.NormalizedSchema != "" {
-		if err := validateStoredObjectBody(draft.NormalizedObjectKey, draft.NormalizedSchemaHash, []byte(draft.NormalizedSchema)); err != nil {
-			return err
-		}
-	} else if draft.NormalizedObjectKey != "" {
-		body, err := s.readVerifiedObject(ctx, draft.NormalizedObjectKey, draft.NormalizedSchemaHash)
-		if err != nil {
-			return err
-		}
-		draft.NormalizedSchema = string(body)
-	}
-	return nil
+	return s.hydrateDraftContentLocked(ctx, draft, "normalized")
 }
 
 func (s *Store) hydrateVersionSchemaLocked(ctx context.Context, version *ContractVersion) error {
+	if err := s.hydrateVersionContentLocked(ctx, version, "raw"); err != nil {
+		return err
+	}
+	return s.hydrateVersionContentLocked(ctx, version, "normalized")
+}
+
+func (s *Store) hydrateDraftContentLocked(ctx context.Context, draft *ContractDraft, kind string) error {
+	if draft == nil {
+		return nil
+	}
+	switch kind {
+	case "raw":
+		if err := s.hydrateStoredContentLocked(ctx, draft.RawSchemaObjectKey, draft.RawSchemaHash, &draft.RawSchema); err != nil {
+			return err
+		}
+		if s.persisted != nil && s.persisted.Drafts[draft.ID] != nil {
+			s.persisted.Drafts[draft.ID].RawSchema = draft.RawSchema
+		}
+	case "normalized", "stable":
+		if err := s.hydrateStoredContentLocked(ctx, draft.NormalizedObjectKey, draft.NormalizedSchemaHash, &draft.NormalizedSchema); err != nil {
+			return err
+		}
+		if s.persisted != nil && s.persisted.Drafts[draft.ID] != nil {
+			s.persisted.Drafts[draft.ID].NormalizedSchema = draft.NormalizedSchema
+		}
+	default:
+		return fmt.Errorf("%w: unsupported draft content kind %q", ErrInvalidArgument, kind)
+	}
+	return nil
+}
+
+func (s *Store) hydrateVersionContentLocked(ctx context.Context, version *ContractVersion, kind string) error {
 	if version == nil {
 		return nil
 	}
-	if version.RawSchema != "" {
-		if err := validateStoredObjectBody(version.RawSchemaObjectKey, version.RawSchemaHash, []byte(version.RawSchema)); err != nil {
+	switch kind {
+	case "raw":
+		if err := s.hydrateStoredContentLocked(ctx, version.RawSchemaObjectKey, version.RawSchemaHash, &version.RawSchema); err != nil {
 			return err
 		}
-	} else if version.RawSchemaObjectKey != "" {
-		body, err := s.readVerifiedObject(ctx, version.RawSchemaObjectKey, version.RawSchemaHash)
-		if err != nil {
+		if s.persisted != nil && s.persisted.Versions[version.ID] != nil {
+			s.persisted.Versions[version.ID].RawSchema = version.RawSchema
+		}
+	case "normalized", "stable":
+		if err := s.hydrateStoredContentLocked(ctx, version.NormalizedObjectKey, version.NormalizedSchemaHash, &version.NormalizedSchema); err != nil {
 			return err
 		}
-		version.RawSchema = string(body)
+		if s.persisted != nil && s.persisted.Versions[version.ID] != nil {
+			s.persisted.Versions[version.ID].NormalizedSchema = version.NormalizedSchema
+		}
+	default:
+		return fmt.Errorf("%w: unsupported version content kind %q", ErrInvalidArgument, kind)
 	}
-	if version.NormalizedSchema != "" {
-		if err := validateStoredObjectBody(version.NormalizedObjectKey, version.NormalizedSchemaHash, []byte(version.NormalizedSchema)); err != nil {
-			return err
-		}
-	} else if version.NormalizedObjectKey != "" {
-		body, err := s.readVerifiedObject(ctx, version.NormalizedObjectKey, version.NormalizedSchemaHash)
-		if err != nil {
-			return err
-		}
-		version.NormalizedSchema = string(body)
+	return nil
+}
+
+func (s *Store) hydrateStoredContentLocked(ctx context.Context, objectKey, expectedHash string, content *string) error {
+	if content == nil {
+		return nil
 	}
+	if *content != "" {
+		return validateStoredObjectBody(objectKey, expectedHash, []byte(*content))
+	}
+	if objectKey == "" {
+		return nil
+	}
+	body, err := s.readVerifiedObject(ctx, objectKey, expectedHash)
+	if err != nil {
+		return err
+	}
+	*content = string(body)
 	return nil
 }

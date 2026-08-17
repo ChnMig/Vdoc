@@ -38,6 +38,9 @@ var (
 	ErrNotFound           = domainvdoc.ErrNotFound
 	ErrAlreadyExists      = domainvdoc.ErrAlreadyExists
 	ErrFailedPrecondition = domainvdoc.ErrFailedPrecondition
+	// ErrPublicSharePasswordRequired 只会在能力密钥和分享父级均有效时返回，
+	// 让公开页面可以发起密码挑战，同时不泄露无效或已撤销的分享。
+	ErrPublicSharePasswordRequired = errors.New("public document share password required")
 )
 
 const (
@@ -95,10 +98,13 @@ func (s *Store) refreshLocked() error {
 	if s.persistence == nil {
 		return nil
 	}
-	if err := s.persistence.load(context.Background(), s); err != nil {
+	loaded, err := s.persistence.load(context.Background(), s)
+	if err != nil {
 		return err
 	}
-	s.persisted = s.cloneStateLocked()
+	if loaded {
+		s.persisted = s.cloneStateLocked()
+	}
 	return nil
 }
 
@@ -1416,6 +1422,10 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	if latest != nil && latest.NormalizedSchemaHash == stableHash {
 		return nil, fmt.Errorf("%w: markdown content has no changes from latest version", ErrFailedPrecondition)
 	}
+	diffPreview, err := s.previewMarkdownDiffLocked(documentID, d.BranchID, stableContent)
+	if err != nil {
+		return nil, err
+	}
 	updated := *d
 	updated.VersionName = firstNonEmpty(input.VersionName, d.VersionName)
 	updated.Changelog = input.Changelog
@@ -1431,17 +1441,17 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	}
 	stableKey, stableRef, err := s.persistMarkdownObjectLocked(projectID, documentID, updated.BranchID, "draft", updated.ID, "stable", updated.NormalizedSchemaHash, updated.NormalizedSchema)
 	if err != nil {
-		return nil, err
+		return nil, s.cleanupNewObjectRefs(err, rawRef)
 	}
 	updated.RawSchemaObjectKey = rawKey
 	updated.NormalizedObjectKey = stableKey
 	updated.Status = DraftStatusDraft
-	updated.DiffPreview = s.previewMarkdownDiffLocked(documentID, updated.BranchID, stableContent)
+	updated.DiffPreview = diffPreview
 	updated.UpdatedAt = time.Now()
 	s.drafts[draftID] = &updated
 	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.update", "document_draft", draftID, projectID, documentID, auditMetadata("result", "success", "branch_id", updated.BranchID, "version_name", updated.VersionName, "raw_schema_hash", updated.RawSchemaHash, "stable_schema_hash", updated.NormalizedSchemaHash))
 	if err := s.persistWithObjectRefsLocked(rawRef, stableRef); err != nil {
-		return nil, err
+		return nil, s.cleanupNewObjectRefs(err, rawRef, stableRef)
 	}
 	return cloneDraft(&updated), nil
 }
@@ -1471,6 +1481,10 @@ func (s *Store) SubmitMarkdownDraft(actorID, projectID, documentID, draftID stri
 		return nil, err
 	}
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -1510,6 +1524,10 @@ func (s *Store) ReviewMarkdownDraft(actorID, projectID, documentID, draftID, act
 		return nil, err
 	}
 	if err := s.ensureMarkdownDocumentLocked(documentID); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -1555,6 +1573,9 @@ func (s *Store) MarkdownVersionContent(actorID, projectID, documentID, versionID
 	if !ok || v.ProjectID != projectID || v.ServiceID != documentID || v.SchemaFormat != DocumentFormatMarkdown {
 		return nil, ErrNotFound
 	}
+	if err := s.hydrateVersionContentLocked(context.Background(), v, kind); err != nil {
+		return nil, err
+	}
 	return markdownContentDocument("version", v.ID, kind, v.RawSchema, v.NormalizedSchema, v.RawSchemaObjectKey, v.NormalizedObjectKey, v.RawSchemaHash, v.NormalizedSchemaHash)
 }
 
@@ -1573,6 +1594,9 @@ func (s *Store) MarkdownDraftContent(actorID, projectID, documentID, draftID, ki
 	draft, ok := s.draftInProjectServiceLocked(projectID, documentID, draftID)
 	if !ok || draft.SchemaFormat != DocumentFormatMarkdown {
 		return nil, ErrNotFound
+	}
+	if err := s.hydrateDraftContentLocked(context.Background(), draft, kind); err != nil {
+		return nil, err
 	}
 	return markdownContentDocument("draft", draft.ID, kind, draft.RawSchema, draft.NormalizedSchema, draft.RawSchemaObjectKey, draft.NormalizedObjectKey, draft.RawSchemaHash, draft.NormalizedSchemaHash)
 }
@@ -1610,6 +1634,12 @@ func (s *Store) CompareMarkdownVersions(actorID, projectID, documentID, fromID, 
 			return nil, err
 		}
 		return cloneDiff(existing), nil
+	}
+	if err := s.hydrateVersionContentLocked(context.Background(), from, "stable"); err != nil {
+		return nil, err
+	}
+	if err := s.hydrateVersionContentLocked(context.Background(), to, "stable"); err != nil {
+		return nil, err
 	}
 	diff := markdownDiff(documentID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
 	objectRefs := []domainvdoc.ObjectRef{}
@@ -1920,7 +1950,7 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	}
 	normalizedKey, normalizedRef, err := s.persistSchemaObjectLocked(projectID, serviceID, updated.BranchID, "draft", updated.ID, "normalized", updated.NormalizedSchemaHash, updated.NormalizedSchema)
 	if err != nil {
-		return nil, err
+		return nil, s.cleanupNewObjectRefs(err, rawRef)
 	}
 	updated.RawSchemaObjectKey = rawKey
 	updated.NormalizedObjectKey = normalizedKey
@@ -1930,7 +1960,7 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	s.drafts[draftID] = &updated
 	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.update", "contract_draft", draftID, projectID, serviceID, auditMetadata("result", "success", "branch_id", updated.BranchID, "version_name", updated.VersionName, "raw_schema_hash", updated.RawSchemaHash, "normalized_schema_hash", updated.NormalizedSchemaHash))
 	if err := s.persistWithObjectRefsLocked(rawRef, normalizedRef); err != nil {
-		return nil, err
+		return nil, s.cleanupNewObjectRefs(err, rawRef, normalizedRef)
 	}
 	return cloneDraft(&updated), nil
 }
@@ -1959,6 +1989,10 @@ func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, audit
 		return nil, err
 	}
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -1997,6 +2031,10 @@ func (s *Store) ReviewDraft(actorID, projectID, serviceID, draftID, action strin
 		return nil, err
 	}
 	if err := s.ensureOpenAPIDocumentLocked(serviceID); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -2079,6 +2117,9 @@ func (s *Store) DraftSchema(actorID, projectID, serviceID, draftID, kind string)
 	if !ok {
 		return nil, ErrNotFound
 	}
+	if err := s.hydrateDraftContentLocked(context.Background(), d, kind); err != nil {
+		return nil, err
+	}
 	return schemaDocument("draft", d.ID, kind, d.RawSchema, d.NormalizedSchema, d.RawSchemaObjectKey, d.NormalizedObjectKey, d.RawSchemaHash, d.NormalizedSchemaHash)
 }
 func (s *Store) PromoteDraft(actorID, projectID, serviceID string, input PromoteInput, auditCtx ...AuditContext) (*ContractDraft, error) {
@@ -2100,6 +2141,9 @@ func (s *Store) PromoteDraft(actorID, projectID, serviceID string, input Promote
 	v := s.latestVersionLocked(serviceID, input.SourceBranchID)
 	if v == nil {
 		return nil, ErrNotFound
+	}
+	if err := s.hydrateVersionContentLocked(context.Background(), v, "raw"); err != nil {
+		return nil, err
 	}
 	promote, err := domainversion.BuildPromoteDraft(domainversion.PromoteInput{SourceBranchID: input.SourceBranchID, TargetBranchID: input.TargetBranchID, VersionName: input.VersionName, Changelog: input.Changelog}, domainversion.PromoteSource{SourceVersionID: v.ID, SourceRawSchema: v.RawSchema, SourceGitCommitID: v.SourceGitCommitID, BaseVersionID: latestID(s.latestVersionLocked(serviceID, input.TargetBranchID)), TargetBranchExists: s.branchActiveInServiceLocked(input.TargetBranchID, serviceID)})
 	if err != nil {
@@ -2171,6 +2215,9 @@ func (s *Store) VersionSchema(actorID, projectID, serviceID, versionID, kind str
 	v, ok := s.versions[versionID]
 	if !ok || v.ProjectID != projectID || v.ServiceID != serviceID {
 		return nil, ErrNotFound
+	}
+	if err := s.hydrateVersionContentLocked(context.Background(), v, kind); err != nil {
+		return nil, err
 	}
 	return schemaDocument("version", v.ID, kind, v.RawSchema, v.NormalizedSchema, v.RawSchemaObjectKey, v.NormalizedObjectKey, v.RawSchemaHash, v.NormalizedSchemaHash)
 }
@@ -2249,6 +2296,14 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 			return nil, err
 		}
 		return cloneDiff(existing), nil
+	}
+	if from.SchemaFormat == DocumentFormatMarkdown || to.SchemaFormat == DocumentFormatMarkdown {
+		if err := s.hydrateVersionContentLocked(context.Background(), from, "stable"); err != nil {
+			return nil, err
+		}
+		if err := s.hydrateVersionContentLocked(context.Background(), to, "stable"); err != nil {
+			return nil, err
+		}
 	}
 	diff := s.diffVersionsLocked(serviceID, from, to)
 	objectRefs := []domainvdoc.ObjectRef{}
@@ -2648,6 +2703,10 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 	if err := domaindraft.EnsureVersionNameAvailable(s.draftVersionIdentitiesLocked(documentID), documentID, input.BranchID, input.VersionName); err != nil {
 		return nil, err
 	}
+	diffPreview, err := s.previewMarkdownDiffLocked(documentID, input.BranchID, stableContent)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	d := domaindraft.New(domaindraft.CreateParams{ID: id.GenerateID(), ProjectID: projectID, DocumentID: documentID, BranchID: input.BranchID, VersionName: input.VersionName, Changelog: input.Changelog, SourceGitCommitID: input.SourceGitCommitID, SchemaFormat: DocumentFormatMarkdown, SourceType: sourceType, SourceBranchID: input.SourceBranchID, SourceVersionID: input.SourceVersionID, BaseVersionID: input.BaseVersionID, RawSchema: input.SchemaContent, NormalizedSchema: stableContent, RawSchemaHash: rawHash, NormalizedSchemaHash: stableHash, CreatedBy: actorID, Now: now})
 	rawKey, rawRef, err := s.persistMarkdownObjectLocked(projectID, documentID, d.BranchID, "draft", d.ID, "raw", d.RawSchemaHash, d.RawSchema)
@@ -2660,7 +2719,7 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 	}
 	d.RawSchemaObjectKey = rawKey
 	d.NormalizedObjectKey = stableKey
-	d.DiffPreview = s.previewMarkdownDiffLocked(documentID, input.BranchID, stableContent)
+	d.DiffPreview = diffPreview
 	s.drafts[d.ID] = d
 	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.create", "document_draft", d.ID, projectID, documentID, auditMetadata("result", "success", "branch_id", d.BranchID, "version_name", d.VersionName, "source_type", fmt.Sprint(sourceType), "source_branch_id", d.SourceBranchID, "source_version_id", d.SourceVersionID, "base_version_id", d.BaseVersionID, "raw_schema_hash", d.RawSchemaHash, "stable_schema_hash", d.NormalizedSchemaHash))
 	if err := s.persistWithObjectRefsLocked(rawRef, stableRef); err != nil {
@@ -2671,6 +2730,9 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 
 func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx AuditContext) (*ContractVersion, error) {
 	if err := s.ensureActiveDraftContextLocked(d.ProjectID, d.ServiceID, d.BranchID); err != nil {
+		return nil, err
+	}
+	if err := s.hydrateDraftSchemaLocked(context.Background(), d); err != nil {
 		return nil, err
 	}
 	if _, err := domaindraft.Review(d, "approve", time.Now()); err != nil {
@@ -2802,6 +2864,9 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 	previous := s.previousVersionLocked(v)
 	var diff *Diff
 	if previous != nil {
+		if err := s.hydrateVersionContentLocked(context.Background(), previous, "stable"); err != nil {
+			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
+		}
 		diff = markdownDiff(d.ServiceID, previous.ID, v.ID, previous.NormalizedSchema, v.NormalizedSchema)
 		diffRef, err := s.persistDiffSnapshotLocked(v.ProjectID, v.ServiceID, v.BranchID, diff)
 		if err != nil {
@@ -2866,12 +2931,15 @@ func (s *Store) diffVersionsLocked(serviceID string, from, to *ContractVersion) 
 	return s.diffEndpointSetsLocked(serviceID, from.ID, to.ID, s.endpointsForVersionLocked(from.ID), s.endpointsForVersionLocked(to.ID))
 }
 
-func (s *Store) previewMarkdownDiffLocked(documentID, branchID, content string) *Diff {
+func (s *Store) previewMarkdownDiffLocked(documentID, branchID, content string) (*Diff, error) {
 	latest := s.latestVersionLocked(documentID, branchID)
 	if latest == nil {
-		return nil
+		return nil, nil
 	}
-	return markdownDiff(documentID, latest.ID, "draft", latest.NormalizedSchema, content)
+	if err := s.hydrateVersionContentLocked(context.Background(), latest, "stable"); err != nil {
+		return nil, err
+	}
+	return markdownDiff(documentID, latest.ID, "draft", latest.NormalizedSchema, content), nil
 }
 
 func markdownDiff(documentID, fromID, toID, fromContent, toContent string) *Diff {

@@ -276,7 +276,7 @@ func TestPublishDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	}
 }
 
-func TestDatabaseBackedDraftPublishHydratesSchemasFromObjectStorage(t *testing.T) {
+func TestDatabaseBackedDraftPublishLoadsVersionContentOnDemand(t *testing.T) {
 	store, actorID, projectID, serviceID, branchID := newObjectStorageTestStore(t)
 	repo := newRecordingRepository(store.stateLocked())
 	objects := newRecordingObjectStorage(nil)
@@ -300,8 +300,15 @@ func TestDatabaseBackedDraftPublishHydratesSchemasFromObjectStorage(t *testing.T
 	}
 	assertRichSchemaKey(t, version.RawSchemaObjectKey, projectID, serviceID, branchID, "versions", version.ID, "raw", version.RawSchemaHash)
 	assertRichSchemaKey(t, version.NormalizedObjectKey, projectID, serviceID, branchID, "versions", version.ID, "normalized", version.NormalizedSchemaHash)
-	if stored := store.versions[version.ID]; stored == nil || stored.RawSchema == "" || stored.NormalizedSchema == "" {
-		t.Fatal("database-backed store did not hydrate version schemas from object storage")
+	if stored := store.versions[version.ID]; stored == nil || stored.RawSchema != "" {
+		t.Fatalf("published version raw body = %q, want metadata-only state until requested", stored.RawSchema)
+	}
+	raw, err := store.VersionSchema(actorID, projectID, serviceID, version.ID, "raw")
+	if err != nil {
+		t.Fatalf("VersionSchema(raw) error = %v", err)
+	}
+	if raw.Content == "" || store.versions[version.ID].RawSchema == "" {
+		t.Fatal("VersionSchema(raw) did not hydrate requested object content")
 	}
 }
 
@@ -317,8 +324,82 @@ func TestDatabaseBackedHydrationRejectsTamperedObject(t *testing.T) {
 	objects.objects[draft.RawSchemaObjectKey] = []byte(testOpenAPI("tampered"))
 	store.persistence = &postgresPersistence{repo: repo}
 
-	if _, err := store.Draft(actorID, projectID, serviceID, draft.ID); err == nil || !strings.Contains(err.Error(), "SHA-256 verification") {
-		t.Fatalf("Draft() tampered object error = %v, want SHA-256 verification failure", err)
+	if _, err := store.Draft(actorID, projectID, serviceID, draft.ID); err != nil {
+		t.Fatalf("Draft() metadata read error = %v, want object-independent metadata", err)
+	}
+	if _, err := store.DraftSchema(actorID, projectID, serviceID, draft.ID, "raw"); err == nil || !strings.Contains(err.Error(), "SHA-256 verification") {
+		t.Fatalf("DraftSchema(raw) tampered object error = %v, want SHA-256 verification failure", err)
+	}
+}
+
+func TestVersionedPersistenceLoadsMetadataOnceAndContentOnDemand(t *testing.T) {
+	source, actorID, projectID, documentID, branchID := newObjectStorageTestStore(t)
+	objects := newRecordingObjectStorage(nil)
+	source.objects = objects
+	draft, err := source.CreateDraft(actorID, projectID, documentID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: testOpenAPI("lazy-load")})
+	if err != nil {
+		t.Fatalf("CreateDraft() error = %v", err)
+	}
+
+	repo := &versionedRecordingRepository{recordingRepository: newRecordingRepository(source.stateLocked()), revision: "revision-1"}
+	store := NewStore()
+	store.persistence = &postgresPersistence{repo: repo}
+	store.objects = objects
+	objects.reads = nil
+
+	drafts, err := store.ListDrafts(actorID, projectID, documentID)
+	if err != nil {
+		t.Fatalf("ListDrafts(first) error = %v", err)
+	}
+	if len(drafts) != 1 || drafts[0].RawSchema != "" || drafts[0].NormalizedSchema != "" {
+		t.Fatalf("metadata draft = %+v, want one body-free summary", drafts)
+	}
+	if _, err := store.ListDrafts(actorID, projectID, documentID); err != nil {
+		t.Fatalf("ListDrafts(second) error = %v", err)
+	}
+	if repo.loads != 1 || repo.revisionChecks != 2 || len(objects.reads) != 0 {
+		t.Fatalf("unchanged reads: loads=%d revision checks=%d object reads=%v, want 1, 2, none", repo.loads, repo.revisionChecks, objects.reads)
+	}
+
+	raw, err := store.DraftSchema(actorID, projectID, documentID, draft.ID, "raw")
+	if err != nil || raw.Content == "" {
+		t.Fatalf("DraftSchema(raw) = (%+v, %v), want hydrated content", raw, err)
+	}
+	if len(objects.reads) != 1 || objects.reads[0] != draft.RawSchemaObjectKey || store.drafts[draft.ID].NormalizedSchema != "" {
+		t.Fatalf("selective hydration reads=%v normalized=%q", objects.reads, store.drafts[draft.ID].NormalizedSchema)
+	}
+	if _, err := store.DraftSchema(actorID, projectID, documentID, draft.ID, "raw"); err != nil {
+		t.Fatalf("DraftSchema(raw cached) error = %v", err)
+	}
+	if len(objects.reads) != 1 {
+		t.Fatalf("cached content caused repeated object reads: %v", objects.reads)
+	}
+
+	store.mu.Lock()
+	for _, team := range store.teams {
+		team.Name += " updated"
+		team.UpdatedAt = team.UpdatedAt.Add(time.Second)
+		break
+	}
+	repo.resetEvents()
+	if err := store.persistLocked(); err != nil {
+		store.mu.Unlock()
+		t.Fatalf("persist unrelated team change: %v", err)
+	}
+	store.mu.Unlock()
+	if repo.saves != 1 {
+		t.Fatalf("unrelated persist wrote %d entities, want only the changed team", repo.saves)
+	}
+
+	repo.state.Drafts[draft.ID].VersionName = "1.0.1"
+	repo.revision = "revision-2"
+	refreshed, err := store.ListDrafts(actorID, projectID, documentID)
+	if err != nil {
+		t.Fatalf("ListDrafts(changed revision) error = %v", err)
+	}
+	if len(refreshed) != 1 || refreshed[0].VersionName != "1.0.1" || repo.loads != 1 {
+		// resetEvents clears the earlier load count, so exactly one reload is expected here.
+		t.Fatalf("revision refresh drafts=%+v loads=%d", refreshed, repo.loads)
 	}
 }
 
@@ -793,6 +874,7 @@ func sortedObjectKeySet(keys map[string]struct{}) []string {
 type recordingObjectStorage struct {
 	writes      []ObjectWrite
 	deletes     []string
+	reads       []string
 	objects     map[string][]byte
 	failOnWrite int
 	err         error
@@ -805,6 +887,7 @@ func newRecordingObjectStorage(err error) *recordingObjectStorage {
 func (s *recordingObjectStorage) reset(err error) {
 	s.writes = nil
 	s.deletes = nil
+	s.reads = nil
 	s.failOnWrite = 0
 	s.err = err
 }
@@ -821,6 +904,7 @@ func (s *recordingObjectStorage) PutObject(ctx context.Context, write ObjectWrit
 
 func (s *recordingObjectStorage) GetObject(ctx context.Context, key string) ([]byte, error) {
 	_ = ctx
+	s.reads = append(s.reads, key)
 	body, ok := s.objects[key]
 	if !ok {
 		return nil, errors.New("object not found")
@@ -854,6 +938,22 @@ type recordingRepository struct {
 	auditErr       error
 	loadErrAt      int
 	loadErr        error
+}
+
+type versionedRecordingRepository struct {
+	*recordingRepository
+	revision       string
+	revisionChecks int
+}
+
+func (r *versionedRecordingRepository) StateRevision(context.Context) (string, error) {
+	r.revisionChecks++
+	return r.revision, nil
+}
+
+func (r *versionedRecordingRepository) LoadStateWithRevision(ctx context.Context) (*domainvdoc.State, string, error) {
+	state, err := r.LoadState(ctx)
+	return state, r.revision, err
 }
 
 func newRecordingRepository(state *domainvdoc.State) *recordingRepository {

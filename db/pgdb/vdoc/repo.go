@@ -50,6 +50,57 @@ func (r *Repository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
 	if r == nil || r.database == nil {
 		return nil, fmt.Errorf("postgres repository is not initialized")
 	}
+	return r.loadState(ctx)
+}
+
+// StateRevision returns a cheap PostgreSQL snapshot marker. Read-only
+// transactions do not allocate transaction IDs, so the marker stays stable
+// until a database write commits. It can therefore guard the much more
+// expensive metadata aggregate load without introducing a polling table.
+func (r *Repository) StateRevision(ctx context.Context) (string, error) {
+	if r == nil || r.database == nil {
+		return "", fmt.Errorf("postgres repository is not initialized")
+	}
+	return r.stateRevision(ctx)
+}
+
+// LoadStateWithRevision loads one internally consistent metadata snapshot and
+// returns the marker captured by that same snapshot. Object bodies are kept in
+// object storage and are intentionally not loaded here.
+func (r *Repository) LoadStateWithRevision(ctx context.Context) (*domainvdoc.State, string, error) {
+	if r == nil || r.database == nil {
+		return nil, "", fmt.Errorf("postgres repository is not initialized")
+	}
+	var state *domainvdoc.State
+	var revision string
+	err := r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		reader := &Repository{database: tx}
+		var err error
+		revision, err = reader.stateRevision(ctx)
+		if err != nil {
+			return err
+		}
+		state, err = reader.loadState(ctx)
+		return err
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return nil, "", mapPostgresError(err)
+	}
+	return state, revision, nil
+}
+
+func (r *Repository) stateRevision(ctx context.Context) (string, error) {
+	var revision string
+	if err := r.database.WithContext(ctx).Raw("SELECT pg_current_snapshot()::text").Scan(&revision).Error; err != nil {
+		return "", mapPostgresError(err)
+	}
+	if strings.TrimSpace(revision) == "" {
+		return "", fmt.Errorf("postgres returned an empty state revision")
+	}
+	return revision, nil
+}
+
+func (r *Repository) loadState(ctx context.Context) (*domainvdoc.State, error) {
 	state := domainvdoc.NewState()
 	if err := r.loadUsers(ctx, state); err != nil {
 		return nil, err

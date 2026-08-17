@@ -132,6 +132,51 @@ func TestMCPDocReadScopeReadsMarkdownTools(t *testing.T) {
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "compare_doc_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "from_version_id": from.ID, "to_version_id": to.ID}), "compare_doc_versions")
 }
 
+func TestMCPReadScopesCannotCrossDocumentTypes(t *testing.T) {
+	fixture := newMCPFixture(t)
+	apiVersion := publishMCPFixtureVersion(t, fixture, "1.0.0", mcpTestOpenAPI("scopeGuard"))
+	markdownFrom := publishMCPFixtureMarkdownVersion(t, fixture, "1.0.0", mcpTestMarkdown("Scope baseline"))
+	markdownTo := publishMCPFixtureMarkdownVersion(t, fixture, "1.1.0", mcpTestMarkdown("Scope changed"))
+	markdownDiff, err := app.DefaultStore().CompareMarkdownVersions(fixture.superID, fixture.projectID, fixture.markdownDocumentID, markdownFrom.ID, markdownTo.ID)
+	if err != nil {
+		t.Fatalf("CompareMarkdownVersions() error = %v", err)
+	}
+	markdownDraft, err := app.DefaultStore().CreateMarkdownDraft(fixture.superID, fixture.projectID, fixture.markdownDocumentID, app.DraftInput{BranchID: fixture.markdownBranchID, VersionName: "1.2.0", SchemaContent: mcpTestMarkdown("Scope draft")})
+	if err != nil {
+		t.Fatalf("CreateMarkdownDraft() error = %v", err)
+	}
+
+	apiToken, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "api-only", []int{app.ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("CreateMCPToken(api only) error = %v", err)
+	}
+	apiDocuments := assertRPCResult(t, callMCPToolRPC(t, fixture.router, apiToken.Token, "list_documents", gin.H{"project_id": fixture.projectID}), "api-only list_documents")
+	if bytes.Contains(apiDocuments, []byte(fixture.markdownDocumentID)) || !bytes.Contains(apiDocuments, []byte(fixture.documentID)) {
+		t.Fatalf("api-only list_documents = %s, want only OpenAPI documents", string(apiDocuments))
+	}
+	for label, response := range map[string]mcpRPCResponse{
+		"list_api_versions":    callMCPToolRPC(t, fixture.router, apiToken.Token, "list_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}),
+		"get_latest_schema":    callMCPToolRPC(t, fixture.router, apiToken.Token, "get_latest_schema", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}),
+		"compare_api_versions": callMCPToolRPC(t, fixture.router, apiToken.Token, "compare_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "from_version_id": markdownFrom.ID, "to_version_id": markdownTo.ID}),
+		"get_change_summary":   callMCPToolRPC(t, fixture.router, apiToken.Token, "get_change_summary", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "diff_id": markdownDiff.ID}),
+		"get_api_draft":        callMCPToolRPC(t, fixture.router, apiToken.Token, "get_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": markdownDraft.ID}),
+	} {
+		assertRPCError(t, response, -32004, label+" rejects Markdown document")
+	}
+
+	docToken, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "doc-only", []int{app.ScopeDocRead}, nil)
+	if err != nil {
+		t.Fatalf("CreateMCPToken(doc only) error = %v", err)
+	}
+	documents := assertRPCResult(t, callMCPToolRPC(t, fixture.router, docToken.Token, "list_documents", gin.H{"project_id": fixture.projectID}), "doc-only list_documents")
+	if bytes.Contains(documents, []byte(fixture.documentID)) || !bytes.Contains(documents, []byte(fixture.markdownDocumentID)) {
+		t.Fatalf("doc-only list_documents = %s, want only Markdown documents", string(documents))
+	}
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, docToken.Token, "get_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": markdownDraft.ID}), "doc:read get_doc_draft")
+	assertRPCError(t, callMCPToolRPC(t, fixture.router, docToken.Token, "list_doc_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID}), -32004, "doc read rejects OpenAPI document")
+	_ = apiVersion
+}
+
 func TestMCPAPIReadScopeCannotReadMarkdownTools(t *testing.T) {
 	fixture := newMCPFixture(t)
 	token, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "api-read", []int{app.ScopeAPIRead}, nil)
@@ -144,7 +189,7 @@ func TestMCPAPIReadScopeCannotReadMarkdownTools(t *testing.T) {
 
 func TestMCPDocDraftScopeCanManageMarkdownDrafts(t *testing.T) {
 	fixture := newMCPFixture(t)
-	token, err := app.DefaultStore().CreateMCPToken(fixture.writerID, "doc-draft", []int{app.ScopeDocDraft}, nil)
+	token, err := app.DefaultStore().CreateMCPToken(fixture.writerID, "doc-draft", []int{app.ScopeDocRead, app.ScopeDocDraft}, nil)
 	if err != nil {
 		t.Fatalf("CreateMCPToken(doc draft) error = %v", err)
 	}
@@ -342,13 +387,16 @@ func TestMCPToolResultsUsePublicDocumentDTOs(t *testing.T) {
 	assertPublicMCPResult(t, "list_documents", listDocuments, `"relative_path"`)
 
 	listVersions := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID}), "list_api_versions dto")
-	assertPublicMCPResult(t, "list_api_versions", listVersions, `"document_id"`, `"raw_content"`, `"normalized_content"`)
+	assertPublicMCPResult(t, "list_api_versions", listVersions, `"document_id"`, `"raw_content_hash"`, `"normalized_content_hash"`)
+	assertMCPResultOmits(t, "list_api_versions", listVersions, `"raw_content"`, `"normalized_content"`, `object_key`)
 
 	listDocVersions := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_doc_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}), "list_doc_versions dto")
-	assertPublicMCPResult(t, "list_doc_versions", listDocVersions, `"document_id"`, `"raw_content"`, `"stable_content"`)
+	assertPublicMCPResult(t, "list_doc_versions", listDocVersions, `"document_id"`, `"raw_content_hash"`, `"stable_content_hash"`)
+	assertMCPResultOmits(t, "list_doc_versions", listDocVersions, `"raw_content"`, `"stable_content"`, `object_key`)
 
 	latestSchema := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_schema", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "branch_id": fixture.branchID}), "get_latest_schema dto")
-	assertPublicMCPResult(t, "get_latest_schema", latestSchema, `"raw_content"`, `"content_kind"`, "dtoChanged")
+	assertPublicMCPResult(t, "get_latest_schema", latestSchema, `"content"`, `"content_kind"`, "dtoChanged")
+	assertMCPResultOmits(t, "get_latest_schema", latestSchema, `"raw_content"`, `object_key`)
 
 	endpointDetail := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_endpoint_detail", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "version_id": versionOne.ID, "endpoint_id": endpoint.ID}), "get_endpoint_detail dto")
 	assertPublicMCPResult(t, "get_endpoint_detail", endpointDetail, `"version_id"`, "dtoBaseline")
@@ -365,7 +413,8 @@ func TestMCPToolResultsUsePublicDocumentDTOs(t *testing.T) {
 	assertPublicMCPResult(t, "get_change_summary", changeSummary, `"must_handle"`, `"optional"`)
 
 	apiDraftCreate := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "create_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "branch_id": fixture.branchID, "version_name": "2.0.0", "schema_content": mcpTestOpenAPI("dtoDraft")}), "create_api_version_draft dto")
-	assertPublicMCPResult(t, "create_api_version_draft", apiDraftCreate, `"document_id"`, `"raw_content"`, `"normalized_content"`)
+	assertPublicMCPResult(t, "create_api_version_draft", apiDraftCreate, `"document_id"`, `"raw_content_hash"`, `"normalized_content_hash"`)
+	assertMCPResultOmits(t, "create_api_version_draft", apiDraftCreate, `"raw_content"`, `"normalized_content"`, `object_key`)
 	var apiDraft struct {
 		ID string `json:"id"`
 	}
@@ -373,16 +422,19 @@ func TestMCPToolResultsUsePublicDocumentDTOs(t *testing.T) {
 		t.Fatalf("decode api draft id: id=%q error=%v body=%s", apiDraft.ID, err, string(apiDraftCreate))
 	}
 	apiDraftGet := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": apiDraft.ID}), "get_api_version_draft dto")
-	assertPublicMCPResult(t, "get_api_version_draft", apiDraftGet, `"document_id"`, `"raw_content"`)
+	assertPublicMCPResult(t, "get_api_version_draft", apiDraftGet, `"document_id"`, `"raw_content_hash"`)
+	assertMCPResultOmits(t, "get_api_version_draft", apiDraftGet, `"raw_content"`, `"normalized_content"`, `object_key`)
 
 	latestDoc := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}), "get_latest_doc dto")
-	assertPublicMCPResult(t, "get_latest_doc", latestDoc, `"stable_content"`, `"content_kind"`, "DTO changed")
+	assertPublicMCPResult(t, "get_latest_doc", latestDoc, `"content"`, `"content_kind"`, "DTO changed")
+	assertMCPResultOmits(t, "get_latest_doc", latestDoc, `"stable_content"`, `object_key`)
 
 	docDiffResult := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "compare_doc_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "from_version_id": markdownOne.ID, "to_version_id": markdownTwo.ID}), "compare_doc_versions dto")
 	assertPublicMCPResult(t, "compare_doc_versions", docDiffResult, `"document_id"`, `"items"`, "DTO changed")
 
 	docDraftCreate := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "create_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID, "version_name": "2.0.0", "markdown_content": mcpTestMarkdown("DTO draft")}), "create_doc_draft dto")
-	assertPublicMCPResult(t, "create_doc_draft", docDraftCreate, `"document_id"`, `"raw_content"`, `"stable_content"`)
+	assertPublicMCPResult(t, "create_doc_draft", docDraftCreate, `"document_id"`, `"raw_content_hash"`, `"stable_content_hash"`)
+	assertMCPResultOmits(t, "create_doc_draft", docDraftCreate, `"raw_content"`, `"stable_content"`, `object_key`)
 	var docDraft struct {
 		ID string `json:"id"`
 	}
@@ -390,7 +442,8 @@ func TestMCPToolResultsUsePublicDocumentDTOs(t *testing.T) {
 		t.Fatalf("decode doc draft id: id=%q error=%v body=%s", docDraft.ID, err, string(docDraftCreate))
 	}
 	docDraftGet := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID}), "get_doc_draft dto")
-	assertPublicMCPResult(t, "get_doc_draft", docDraftGet, `"stable_content"`, `"content_kind"`, "DTO draft")
+	assertPublicMCPResult(t, "get_doc_draft", docDraftGet, `"content"`, `"content_kind"`, "DTO draft")
+	assertMCPResultOmits(t, "get_doc_draft", docDraftGet, `"stable_content"`, `object_key`)
 
 	legacy := callMCPTool(t, fixture.router, token.Token, "get_endpoint_detail", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "version_id": versionOne.ID, "endpoint_id": endpoint.ID})
 	if legacy.Code != 200 || legacy.Status != "OK" {
@@ -701,6 +754,15 @@ func assertPublicMCPResult(t *testing.T, label string, body json.RawMessage, req
 	for _, want := range required {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("%s result %s missing %s", label, string(body), want)
+		}
+	}
+}
+
+func assertMCPResultOmits(t *testing.T, label string, body json.RawMessage, forbidden ...string) {
+	t.Helper()
+	for _, field := range forbidden {
+		if bytes.Contains(body, []byte(field)) {
+			t.Fatalf("%s result exposed forbidden field %s in %s", label, field, string(body))
 		}
 	}
 }

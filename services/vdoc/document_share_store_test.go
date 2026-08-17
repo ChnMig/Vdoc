@@ -87,8 +87,30 @@ func TestProtectedDocumentShareProofIsolationExpiryAndParentState(t *testing.T) 
 			t.Fatalf("%s unlock error = %v, want uniform unavailable", name, unlockErr)
 		}
 	}
-	if _, err := store.PublicDocumentShareMetadata(protected.Share.ID, protected.Secret, ""); !Is(err, ErrNotFound) {
-		t.Fatalf("missing proof metadata error = %v, want unavailable", err)
+	if _, err := store.PublicDocumentShareMetadata(protected.Share.ID, "vdoc_share_000000000000000000000000000000000000000000000000", ""); !Is(err, ErrNotFound) {
+		t.Fatalf("invalid capability metadata error = %v, want uniform unavailable", err)
+	}
+	for name, access := range map[string]func() error{
+		"metadata": func() error {
+			_, accessErr := store.PublicDocumentShareMetadata(protected.Share.ID, protected.Secret, "")
+			return accessErr
+		},
+		"versions": func() error {
+			_, accessErr := store.PublicDocumentShareVersions(protected.Share.ID, protected.Secret, "")
+			return accessErr
+		},
+		"content": func() error {
+			_, accessErr := store.PublicDocumentShareContent(protected.Share.ID, protected.Secret, "", version.ID)
+			return accessErr
+		},
+		"download": func() error {
+			_, accessErr := store.PublicDocumentShareDownload(protected.Share.ID, protected.Secret, "", version.ID)
+			return accessErr
+		},
+	} {
+		if accessErr := access(); !Is(accessErr, ErrPublicSharePasswordRequired) {
+			t.Fatalf("missing proof %s error = %v, want password challenge", name, accessErr)
+		}
 	}
 	proof, expiresAt, err := store.UnlockPublicDocumentShare(protected.Share.ID, protected.Secret, password)
 	if err != nil || proof == "" || time.Until(expiresAt) <= 0 {
@@ -97,15 +119,15 @@ func TestProtectedDocumentShareProofIsolationExpiryAndParentState(t *testing.T) 
 	if metadata, err := store.PublicDocumentShareMetadata(protected.Share.ID, protected.Secret, proof); err != nil || metadata.CurrentVersion.ID != version.ID {
 		t.Fatalf("protected metadata = (%+v, %v)", metadata, err)
 	}
-	if _, err := store.PublicDocumentShareMetadata(other.Share.ID, other.Secret, proof); !Is(err, ErrNotFound) {
-		t.Fatalf("cross-share proof error = %v, want unavailable", err)
+	if _, err := store.PublicDocumentShareMetadata(other.Share.ID, other.Secret, proof); !Is(err, ErrPublicSharePasswordRequired) {
+		t.Fatalf("cross-share proof error = %v, want password challenge", err)
 	}
 	expiredProof, _, err := authentication.SignDocumentShareUnlockProof(protected.Share.ID, time.Now().Add(-20*time.Minute), nil)
 	if err != nil {
 		t.Fatalf("SignDocumentShareUnlockProof(expired) error = %v", err)
 	}
-	if _, err := store.PublicDocumentShareMetadata(protected.Share.ID, protected.Secret, expiredProof); !Is(err, ErrNotFound) {
-		t.Fatalf("expired proof error = %v, want unavailable", err)
+	if _, err := store.PublicDocumentShareMetadata(protected.Share.ID, protected.Secret, expiredProof); !Is(err, ErrPublicSharePasswordRequired) {
+		t.Fatalf("expired proof error = %v, want password challenge", err)
 	}
 
 	store.branches[branchID].Status = BranchStatusArchived
@@ -183,6 +205,27 @@ func TestPersistentPublicShareUsesNarrowSnapshotAndAppendOnlyAudit(t *testing.T)
 	}
 	if len(repo.events) != 1 || repo.events[0] != "audit:document_share.view" {
 		t.Fatalf("repository events = %v, want one append-only view audit", repo.events)
+	}
+}
+
+func TestPersistentProtectedPublicShareSeparatesPasswordChallengeFromInvalidCapability(t *testing.T) {
+	store, projectID, documentID, branchID := newMarkdownDocumentFlowStore(t)
+	store.objects = newRecordingObjectStorage(nil)
+	publishMarkdownDocumentDraft(t, store, projectID, documentID, branchID, "1.0.0", markdownV1(), "persistent-protected-share")
+	created, err := store.CreateDocumentShare("admin", projectID, documentID, DocumentShareInput{
+		BranchID: branchID, VersionScope: DocumentShareScopeLatest,
+		ExpiryPreset: domainshare.ExpiryPresetPermanent, Password: "persistent share password",
+	})
+	if err != nil {
+		t.Fatalf("CreateDocumentShare() error = %v", err)
+	}
+	store.persistence = &postgresPersistence{repo: newRecordingRepository(store.stateLocked())}
+
+	if _, err := store.PublicDocumentShareMetadata(created.Share.ID, created.Secret, ""); !Is(err, ErrPublicSharePasswordRequired) {
+		t.Fatalf("persistent missing proof error = %v, want password challenge", err)
+	}
+	if _, err := store.PublicDocumentShareMetadata(created.Share.ID, "vdoc_share_000000000000000000000000000000000000000000000000", ""); !Is(err, ErrNotFound) {
+		t.Fatalf("persistent invalid capability error = %v, want uniform unavailable", err)
 	}
 }
 

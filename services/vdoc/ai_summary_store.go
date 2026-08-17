@@ -376,7 +376,7 @@ func (s *Store) ensureReadableAITargetLocked(actorID string, target AISummaryTar
 	if !s.canReadLocked(actorID, target.ProjectID) {
 		return ErrPermissionDenied
 	}
-	_, _, err := s.aiTargetContextLocked(target)
+	_, err := s.aiTargetBranchLocked(target)
 	return err
 }
 
@@ -387,11 +387,17 @@ func (s *Store) aiTargetContextLocked(target AISummaryTarget) (string, string, e
 		if !ok {
 			return "", "", ErrNotFound
 		}
+		if err := s.hydrateDraftContentLocked(context.Background(), draft, "normalized"); err != nil {
+			return "", "", err
+		}
 		return draftAIContext(draft), domainai.PromptDraftReviewSummary, nil
 	case domainai.SummaryOwnerVersion:
 		version := s.versions[target.OwnerID]
 		if version == nil || version.ProjectID != target.ProjectID || version.ServiceID != target.DocumentID {
 			return "", "", ErrNotFound
+		}
+		if err := s.hydrateVersionContentLocked(context.Background(), version, "normalized"); err != nil {
+			return "", "", err
 		}
 		return versionAIContext(version), domainai.PromptVersionChangeSummary, nil
 	case domainai.SummaryOwnerDiff:

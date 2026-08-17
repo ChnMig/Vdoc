@@ -39,8 +39,9 @@ type RuntimeConfig struct {
 }
 
 type postgresPersistence struct {
-	repo  domainvdoc.Repository
-	close func() error
+	repo     domainvdoc.Repository
+	close    func() error
+	revision string
 }
 
 type ObjectWrite struct {
@@ -109,7 +110,7 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 		}
 		p := &postgresPersistence{repo: cfg.DatabaseRepository, close: cfg.DatabaseClose}
 		store.persistence = p
-		if err := p.load(ctx, store); err != nil {
+		if _, err := p.load(ctx, store); err != nil {
 			if p.close != nil {
 				_ = p.close()
 			}

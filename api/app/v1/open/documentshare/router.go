@@ -34,7 +34,7 @@ func metadata(c *gin.Context) {
 	}
 	value, err := app.DefaultStore().PublicDocumentShareMetadata(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
 	if err != nil {
-		returnUnavailable(c)
+		returnPublicShareError(c, err)
 		return
 	}
 	response.ReturnOk(c, value)
@@ -86,7 +86,7 @@ func versions(c *gin.Context) {
 	}
 	values, err := app.DefaultStore().PublicDocumentShareVersions(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
 	if err != nil {
-		returnUnavailable(c)
+		returnPublicShareError(c, err)
 		return
 	}
 	response.ReturnOkWithTotal(c, len(values), values)
@@ -100,7 +100,7 @@ func content(c *gin.Context) {
 	}
 	value, err := app.DefaultStore().PublicDocumentShareContent(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
 	if err != nil {
-		returnUnavailable(c)
+		returnPublicShareError(c, err)
 		return
 	}
 	response.ReturnOk(c, value)
@@ -114,7 +114,7 @@ func download(c *gin.Context) {
 	}
 	value, err := app.DefaultStore().PublicDocumentShareDownload(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
 	if err != nil {
-		returnUnavailable(c)
+		returnPublicShareError(c, err)
 		return
 	}
 	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": value.Filename})
@@ -148,6 +148,14 @@ func noStoreHeaders() gin.HandlerFunc {
 
 func returnUnavailable(c *gin.Context) {
 	response.ReturnError(c, response.NOT_FOUND, "Public document unavailable")
+}
+
+func returnPublicShareError(c *gin.Context, err error) {
+	if app.Is(err, app.ErrPublicSharePasswordRequired) {
+		response.ReturnError(c, response.PASSWORD_REQUIRED, "Public share password required")
+		return
+	}
+	returnUnavailable(c)
 }
 
 func auditContext(c *gin.Context) app.AuditContext {

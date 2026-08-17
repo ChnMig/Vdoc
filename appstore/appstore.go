@@ -3,12 +3,13 @@ package appstore
 import app "vdoc/services/vdoc"
 
 var (
-	ErrInvalidArgument    = app.ErrInvalidArgument
-	ErrUnauthenticated    = app.ErrUnauthenticated
-	ErrPermissionDenied   = app.ErrPermissionDenied
-	ErrNotFound           = app.ErrNotFound
-	ErrAlreadyExists      = app.ErrAlreadyExists
-	ErrFailedPrecondition = app.ErrFailedPrecondition
+	ErrInvalidArgument             = app.ErrInvalidArgument
+	ErrUnauthenticated             = app.ErrUnauthenticated
+	ErrPermissionDenied            = app.ErrPermissionDenied
+	ErrNotFound                    = app.ErrNotFound
+	ErrAlreadyExists               = app.ErrAlreadyExists
+	ErrFailedPrecondition          = app.ErrFailedPrecondition
+	ErrPublicSharePasswordRequired = app.ErrPublicSharePasswordRequired
 )
 
 const (

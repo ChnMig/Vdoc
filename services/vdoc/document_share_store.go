@@ -243,7 +243,7 @@ func (s *Store) PublicDocumentShareMetadata(shareID, secret, unlockProof string,
 	}
 	share, document, _, err := s.authorizePublicShareLocked(shareID, secret, unlockProof, true)
 	if err != nil {
-		return nil, publicShareUnavailable()
+		return nil, publicShareAccessError(err)
 	}
 	version := s.latestVersionLocked(document.ID, share.BranchID)
 	if version == nil {
@@ -270,7 +270,10 @@ func (s *Store) PublicDocumentShareVersions(shareID, secret, unlockProof string,
 		return nil, publicShareUnavailable()
 	}
 	share, document, _, err := s.authorizePublicShareLocked(shareID, secret, unlockProof, true)
-	if err != nil || share.VersionScope != DocumentShareScopeAllVersions {
+	if err != nil {
+		return nil, publicShareAccessError(err)
+	}
+	if share.VersionScope != DocumentShareScopeAllVersions {
 		return nil, publicShareUnavailable()
 	}
 	versions := s.publishedShareVersionsLocked(document.ID, share.BranchID)
@@ -300,7 +303,7 @@ func (s *Store) PublicDocumentShareContent(shareID, secret, unlockProof, version
 	}
 	share, _, _, err := s.authorizePublicShareLocked(shareID, secret, unlockProof, true)
 	if err != nil {
-		return nil, publicShareUnavailable()
+		return nil, publicShareAccessError(err)
 	}
 	version := s.allowedPublicShareVersionLocked(share, versionID)
 	if version == nil {
@@ -332,7 +335,7 @@ func (s *Store) PublicDocumentShareDownload(shareID, secret, unlockProof, versio
 	}
 	share, document, _, err := s.authorizePublicShareLocked(shareID, secret, unlockProof, true)
 	if err != nil {
-		return nil, publicShareUnavailable()
+		return nil, publicShareAccessError(err)
 	}
 	version := s.allowedPublicShareVersionLocked(share, versionID)
 	if version == nil {
@@ -363,7 +366,7 @@ func (s *Store) authorizePublicShareLocked(shareID, secret, unlockProof string, 
 		return nil, nil, nil, publicShareUnavailable()
 	}
 	if requireUnlock && share.PasswordProtected() && authentication.ValidateDocumentShareUnlockProof(unlockProof, share.ID, time.Now().UTC()) != nil {
-		return nil, nil, nil, publicShareUnavailable()
+		return nil, nil, nil, ErrPublicSharePasswordRequired
 	}
 	return share, document, branch, nil
 }
@@ -427,6 +430,13 @@ func publicShareUnavailable() error {
 	return fmt.Errorf("%w: public document unavailable", ErrNotFound)
 }
 
+func publicShareAccessError(err error) error {
+	if Is(err, ErrPublicSharePasswordRequired) {
+		return err
+	}
+	return publicShareUnavailable()
+}
+
 func documentShareAuditMetadata(share *DocumentShare, result, versionID string) map[string]string {
 	metadata := auditMetadata(
 		"result", result,
@@ -475,7 +485,7 @@ func authorizePublicShareSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapsh
 		return nil, nil, nil, publicShareUnavailable()
 	}
 	if requireUnlock && share.PasswordProtected() && authentication.ValidateDocumentShareUnlockProof(unlockProof, share.ID, time.Now().UTC()) != nil {
-		return nil, nil, nil, publicShareUnavailable()
+		return nil, nil, nil, ErrPublicSharePasswordRequired
 	}
 	return share, document, branch, nil
 }
@@ -515,7 +525,7 @@ func (s *Store) recordPersistentPublicShareAudit(ctx AuditContext, share *Docume
 func (s *Store) publicShareMetadataFromSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapshot, secret, unlockProof string, ctx AuditContext) (*PublicShareMetadata, error) {
 	share, document, _, err := authorizePublicShareSnapshot(snapshot, secret, unlockProof, true)
 	if err != nil {
-		return nil, publicShareUnavailable()
+		return nil, publicShareAccessError(err)
 	}
 	versions := publishedSnapshotVersions(snapshot, share)
 	if len(versions) == 0 {
@@ -529,7 +539,10 @@ func (s *Store) publicShareMetadataFromSnapshot(snapshot *domainvdoc.PublicDocum
 
 func (s *Store) publicShareVersionsFromSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapshot, secret, unlockProof string, ctx AuditContext) ([]PublicShareVersion, error) {
 	share, _, _, err := authorizePublicShareSnapshot(snapshot, secret, unlockProof, true)
-	if err != nil || share.VersionScope != DocumentShareScopeAllVersions {
+	if err != nil {
+		return nil, publicShareAccessError(err)
+	}
+	if share.VersionScope != DocumentShareScopeAllVersions {
 		return nil, publicShareUnavailable()
 	}
 	versions := publishedSnapshotVersions(snapshot, share)
@@ -563,7 +576,7 @@ func (s *Store) loadPersistentPublishedContent(version *ContractVersion) (string
 func (s *Store) publicShareContentFromSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapshot, secret, unlockProof, versionID string, ctx AuditContext) (*PublicShareContent, error) {
 	share, _, _, err := authorizePublicShareSnapshot(snapshot, secret, unlockProof, true)
 	if err != nil {
-		return nil, publicShareUnavailable()
+		return nil, publicShareAccessError(err)
 	}
 	version := allowedSnapshotVersion(snapshot, share, versionID)
 	if version == nil {
@@ -582,7 +595,7 @@ func (s *Store) publicShareContentFromSnapshot(snapshot *domainvdoc.PublicDocume
 func (s *Store) publicShareDownloadFromSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapshot, secret, unlockProof, versionID string, ctx AuditContext) (*PublicShareDownload, error) {
 	share, document, _, err := authorizePublicShareSnapshot(snapshot, secret, unlockProof, true)
 	if err != nil {
-		return nil, publicShareUnavailable()
+		return nil, publicShareAccessError(err)
 	}
 	version := allowedSnapshotVersion(snapshot, share, versionID)
 	if version == nil {

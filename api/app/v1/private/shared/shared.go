@@ -276,18 +276,9 @@ type DraftDTO struct {
 	SourceBranchID        string     `json:"source_branch_id,omitempty"`
 	SourceVersionID       string     `json:"source_version_id,omitempty"`
 	BaseVersionID         string     `json:"base_version_id,omitempty"`
-	RawContent            string     `json:"raw_content,omitempty"`
-	NormalizedContent     string     `json:"normalized_content,omitempty"`
-	RawSchema             string     `json:"raw_schema,omitempty"`
-	NormalizedSchema      string     `json:"normalized_schema,omitempty"`
-	RawContentObjectKey   string     `json:"raw_content_object_key,omitempty"`
-	NormalizedContentKey  string     `json:"normalized_content_object_key,omitempty"`
-	RawSchemaObjectKey    string     `json:"raw_schema_object_key,omitempty"`
-	NormalizedObjectKey   string     `json:"normalized_schema_object_key,omitempty"`
 	RawContentHash        string     `json:"raw_content_hash,omitempty"`
 	NormalizedContentHash string     `json:"normalized_content_hash,omitempty"`
-	RawSchemaHash         string     `json:"raw_schema_hash,omitempty"`
-	NormalizedSchemaHash  string     `json:"normalized_schema_hash,omitempty"`
+	StableContentHash     string     `json:"stable_content_hash,omitempty"`
 	Status                int        `json:"status"`
 	DiffPreview           *DiffDTO   `json:"diff_preview,omitempty"`
 	ReviewComment         string     `json:"review_comment,omitempty"`
@@ -301,7 +292,13 @@ func Draft(v *app.ContractDraft) DraftDTO {
 	if v == nil {
 		return DraftDTO{}
 	}
-	return DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContent: v.RawSchema, NormalizedContent: v.NormalizedSchema, RawSchema: v.RawSchema, NormalizedSchema: v.NormalizedSchema, RawContentObjectKey: v.RawSchemaObjectKey, NormalizedContentKey: v.NormalizedObjectKey, RawSchemaObjectKey: v.RawSchemaObjectKey, NormalizedObjectKey: v.NormalizedObjectKey, RawContentHash: v.RawSchemaHash, NormalizedContentHash: v.NormalizedSchemaHash, RawSchemaHash: v.RawSchemaHash, NormalizedSchemaHash: v.NormalizedSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	dto := DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	if v.SchemaFormat == app.DocumentFormatMarkdown {
+		dto.StableContentHash = v.NormalizedSchemaHash
+	} else {
+		dto.NormalizedContentHash = v.NormalizedSchemaHash
+	}
+	return dto
 }
 
 func Drafts(values []*app.ContractDraft) []DraftDTO {
@@ -326,18 +323,9 @@ type VersionDTO struct {
 	SourceBranchID        string    `json:"source_branch_id,omitempty"`
 	SourceVersionID       string    `json:"source_version_id,omitempty"`
 	BaseVersionID         string    `json:"base_version_id,omitempty"`
-	RawContent            string    `json:"raw_content,omitempty"`
-	NormalizedContent     string    `json:"normalized_content,omitempty"`
-	RawSchema             string    `json:"raw_schema,omitempty"`
-	NormalizedSchema      string    `json:"normalized_schema,omitempty"`
-	RawContentObjectKey   string    `json:"raw_content_object_key,omitempty"`
-	NormalizedContentKey  string    `json:"normalized_content_object_key,omitempty"`
-	RawSchemaObjectKey    string    `json:"raw_schema_object_key,omitempty"`
-	NormalizedObjectKey   string    `json:"normalized_schema_object_key,omitempty"`
 	RawContentHash        string    `json:"raw_content_hash,omitempty"`
 	NormalizedContentHash string    `json:"normalized_content_hash,omitempty"`
-	RawSchemaHash         string    `json:"raw_schema_hash,omitempty"`
-	NormalizedSchemaHash  string    `json:"normalized_schema_hash,omitempty"`
+	StableContentHash     string    `json:"stable_content_hash,omitempty"`
 	Status                int       `json:"status"`
 	PublishedBy           string    `json:"published_by"`
 	PublishedAt           time.Time `json:"published_at"`
@@ -349,7 +337,13 @@ func Version(v *app.ContractVersion) VersionDTO {
 	if v == nil {
 		return VersionDTO{}
 	}
-	return VersionDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, DraftID: v.DraftID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContent: v.RawSchema, NormalizedContent: v.NormalizedSchema, RawSchema: v.RawSchema, NormalizedSchema: v.NormalizedSchema, RawContentObjectKey: v.RawSchemaObjectKey, NormalizedContentKey: v.NormalizedObjectKey, RawSchemaObjectKey: v.RawSchemaObjectKey, NormalizedObjectKey: v.NormalizedObjectKey, RawContentHash: v.RawSchemaHash, NormalizedContentHash: v.NormalizedSchemaHash, RawSchemaHash: v.RawSchemaHash, NormalizedSchemaHash: v.NormalizedSchemaHash, Status: v.Status, PublishedBy: v.PublishedBy, PublishedAt: v.PublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	dto := VersionDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, DraftID: v.DraftID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, PublishedBy: v.PublishedBy, PublishedAt: v.PublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	if v.SchemaFormat == app.DocumentFormatMarkdown {
+		dto.StableContentHash = v.NormalizedSchemaHash
+	} else {
+		dto.NormalizedContentHash = v.NormalizedSchemaHash
+	}
+	return dto
 }
 
 func Versions(values []*app.ContractVersion) []VersionDTO {
@@ -366,7 +360,6 @@ type ContentDTO struct {
 	Kind        string `json:"kind"`
 	ContentKind string `json:"content_kind"`
 	Content     string `json:"content"`
-	ObjectKey   string `json:"object_key,omitempty"`
 	Hash        string `json:"hash"`
 }
 
@@ -374,7 +367,7 @@ func Content(v *app.SchemaDocument) ContentDTO {
 	if v == nil {
 		return ContentDTO{}
 	}
-	return ContentDTO{OwnerType: v.OwnerType, OwnerID: v.OwnerID, Kind: v.Kind, ContentKind: v.Kind, Content: v.Content, ObjectKey: v.ObjectKey, Hash: v.Hash}
+	return ContentDTO{OwnerType: v.OwnerType, OwnerID: v.OwnerID, Kind: v.Kind, ContentKind: v.Kind, Content: v.Content, Hash: v.Hash}
 }
 
 type EndpointSummaryDTO struct {
@@ -429,7 +422,6 @@ type DiffDTO struct {
 	DocumentID    string        `json:"document_id"`
 	FromVersionID string        `json:"from_version_id,omitempty"`
 	ToVersionID   string        `json:"to_version_id,omitempty"`
-	ObjectKey     string        `json:"diff_object_key,omitempty"`
 	Hash          string        `json:"diff_hash,omitempty"`
 	DiffStatus    int           `json:"diff_status"`
 	Summary       DiffSummary   `json:"summary"`
@@ -483,7 +475,7 @@ func Diff(v *app.Diff) DiffDTO {
 	for _, item := range v.Items {
 		items = append(items, DiffItem(item))
 	}
-	return DiffDTO{ID: v.ID, DocumentID: v.DocumentID, FromVersionID: v.FromVersionID, ToVersionID: v.ToVersionID, ObjectKey: v.ObjectKey, Hash: v.Hash, DiffStatus: v.DiffStatus, Summary: DiffSummaryDTO(v.Summary), Items: items, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return DiffDTO{ID: v.ID, DocumentID: v.DocumentID, FromVersionID: v.FromVersionID, ToVersionID: v.ToVersionID, Hash: v.Hash, DiffStatus: v.DiffStatus, Summary: DiffSummaryDTO(v.Summary), Items: items, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 
 func Diffs(values []*app.Diff) []DiffDTO {

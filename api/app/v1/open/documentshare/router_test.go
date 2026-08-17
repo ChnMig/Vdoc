@@ -1,12 +1,14 @@
 package documentshare
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"vdoc/api/middleware"
+	app "vdoc/appstore"
 
 	"github.com/gin-gonic/gin"
 )
@@ -72,5 +74,41 @@ func TestPublicCapabilityRejectsMalformedAuthorization(t *testing.T) {
 		if _, _, ok := publicCapability(context); ok {
 			t.Fatalf("Authorization %q accepted", value)
 		}
+	}
+}
+
+func TestReturnPublicShareErrorOnlyChallengesValidatedCapabilities(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   int
+		wantStatus string
+	}{
+		{
+			name:       "password proof required",
+			err:        fmt.Errorf("wrapped: %w", app.ErrPublicSharePasswordRequired),
+			wantCode:   http.StatusUnauthorized,
+			wantStatus: "PASSWORD_REQUIRED",
+		},
+		{name: "unavailable", err: app.ErrNotFound, wantCode: http.StatusNotFound, wantStatus: "NOT_FOUND"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			returnPublicShareError(context, test.err)
+
+			var envelope struct {
+				Code   int    `json:"code"`
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if envelope.Code != test.wantCode || envelope.Status != test.wantStatus {
+				t.Fatalf("response = (%d, %q), want (%d, %q)", envelope.Code, envelope.Status, test.wantCode, test.wantStatus)
+			}
+		})
 	}
 }

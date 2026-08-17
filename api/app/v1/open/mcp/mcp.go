@@ -91,64 +91,52 @@ type mcpDocumentDTO struct {
 }
 
 type mcpDraftDTO struct {
-	ID                     string      `json:"id"`
-	ProjectID              string      `json:"project_id"`
-	DocumentID             string      `json:"document_id"`
-	BranchID               string      `json:"branch_id"`
-	VersionName            string      `json:"version_name"`
-	Changelog              string      `json:"changelog,omitempty"`
-	SourceGitCommitID      string      `json:"source_git_commit_id,omitempty"`
-	DocumentFormat         int         `json:"document_format"`
-	SourceType             int         `json:"source_type"`
-	SourceBranchID         string      `json:"source_branch_id,omitempty"`
-	SourceVersionID        string      `json:"source_version_id,omitempty"`
-	BaseVersionID          string      `json:"base_version_id,omitempty"`
-	RawContent             string      `json:"raw_content,omitempty"`
-	NormalizedContent      string      `json:"normalized_content,omitempty"`
-	StableContent          string      `json:"stable_content,omitempty"`
-	RawContentObjectKey    string      `json:"raw_content_object_key,omitempty"`
-	NormalizedContentKey   string      `json:"normalized_content_object_key,omitempty"`
-	StableContentObjectKey string      `json:"stable_content_object_key,omitempty"`
-	RawContentHash         string      `json:"raw_content_hash,omitempty"`
-	NormalizedContentHash  string      `json:"normalized_content_hash,omitempty"`
-	StableContentHash      string      `json:"stable_content_hash,omitempty"`
-	Status                 int         `json:"status"`
-	DiffPreview            *mcpDiffDTO `json:"diff_preview,omitempty"`
-	ReviewComment          string      `json:"review_comment,omitempty"`
-	CreatedBy              string      `json:"created_by"`
-	SubmittedAt            *time.Time  `json:"submitted_at,omitempty"`
-	CreatedAt              time.Time   `json:"created_at"`
-	UpdatedAt              time.Time   `json:"updated_at"`
+	ID                    string      `json:"id"`
+	ProjectID             string      `json:"project_id"`
+	DocumentID            string      `json:"document_id"`
+	BranchID              string      `json:"branch_id"`
+	VersionName           string      `json:"version_name"`
+	Changelog             string      `json:"changelog,omitempty"`
+	SourceGitCommitID     string      `json:"source_git_commit_id,omitempty"`
+	DocumentFormat        int         `json:"document_format"`
+	SourceType            int         `json:"source_type"`
+	SourceBranchID        string      `json:"source_branch_id,omitempty"`
+	SourceVersionID       string      `json:"source_version_id,omitempty"`
+	BaseVersionID         string      `json:"base_version_id,omitempty"`
+	RawContentHash        string      `json:"raw_content_hash,omitempty"`
+	NormalizedContentHash string      `json:"normalized_content_hash,omitempty"`
+	StableContentHash     string      `json:"stable_content_hash,omitempty"`
+	Status                int         `json:"status"`
+	DiffPreview           *mcpDiffDTO `json:"diff_preview,omitempty"`
+	ReviewComment         string      `json:"review_comment,omitempty"`
+	CreatedBy             string      `json:"created_by"`
+	SubmittedAt           *time.Time  `json:"submitted_at,omitempty"`
+	CreatedAt             time.Time   `json:"created_at"`
+	UpdatedAt             time.Time   `json:"updated_at"`
 }
 
 type mcpVersionDTO struct {
-	ID                     string    `json:"id"`
-	ProjectID              string    `json:"project_id"`
-	DocumentID             string    `json:"document_id"`
-	BranchID               string    `json:"branch_id"`
-	DraftID                string    `json:"draft_id"`
-	VersionName            string    `json:"version_name"`
-	Changelog              string    `json:"changelog,omitempty"`
-	SourceGitCommitID      string    `json:"source_git_commit_id,omitempty"`
-	DocumentFormat         int       `json:"document_format"`
-	SourceType             int       `json:"source_type"`
-	SourceBranchID         string    `json:"source_branch_id,omitempty"`
-	SourceVersionID        string    `json:"source_version_id,omitempty"`
-	BaseVersionID          string    `json:"base_version_id,omitempty"`
-	RawContent             string    `json:"raw_content,omitempty"`
-	NormalizedContent      string    `json:"normalized_content,omitempty"`
-	StableContent          string    `json:"stable_content,omitempty"`
-	RawContentObjectKey    string    `json:"raw_content_object_key,omitempty"`
-	NormalizedContentKey   string    `json:"normalized_content_object_key,omitempty"`
-	StableContentObjectKey string    `json:"stable_content_object_key,omitempty"`
-	RawContentHash         string    `json:"raw_content_hash,omitempty"`
-	NormalizedContentHash  string    `json:"normalized_content_hash,omitempty"`
-	StableContentHash      string    `json:"stable_content_hash,omitempty"`
-	Status                 int       `json:"status"`
-	PublishedBy            string    `json:"published_by"`
-	PublishedAt            time.Time `json:"published_at"`
-	CreatedAt              time.Time `json:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at"`
+	ID                    string    `json:"id"`
+	ProjectID             string    `json:"project_id"`
+	DocumentID            string    `json:"document_id"`
+	BranchID              string    `json:"branch_id"`
+	DraftID               string    `json:"draft_id"`
+	VersionName           string    `json:"version_name"`
+	Changelog             string    `json:"changelog,omitempty"`
+	SourceGitCommitID     string    `json:"source_git_commit_id,omitempty"`
+	DocumentFormat        int       `json:"document_format"`
+	SourceType            int       `json:"source_type"`
+	SourceBranchID        string    `json:"source_branch_id,omitempty"`
+	SourceVersionID       string    `json:"source_version_id,omitempty"`
+	BaseVersionID         string    `json:"base_version_id,omitempty"`
+	RawContentHash        string    `json:"raw_content_hash,omitempty"`
+	NormalizedContentHash string    `json:"normalized_content_hash,omitempty"`
+	StableContentHash     string    `json:"stable_content_hash,omitempty"`
+	Status                int       `json:"status"`
+	PublishedBy           string    `json:"published_by"`
+	PublishedAt           time.Time `json:"published_at"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 type mcpContentDTO struct {
@@ -157,7 +145,6 @@ type mcpContentDTO struct {
 	DraftID     string `json:"draft_id,omitempty"`
 	ContentKind string `json:"content_kind"`
 	Content     string `json:"content"`
-	ObjectKey   string `json:"object_key,omitempty"`
 	Hash        string `json:"hash"`
 }
 
@@ -191,7 +178,6 @@ type mcpDiffDTO struct {
 	DocumentID    string           `json:"document_id"`
 	FromVersionID string           `json:"from_version_id,omitempty"`
 	ToVersionID   string           `json:"to_version_id,omitempty"`
-	ObjectKey     string           `json:"diff_object_key,omitempty"`
 	Hash          string           `json:"diff_hash,omitempty"`
 	DiffStatus    int              `json:"diff_status"`
 	Summary       mcpDiffSummary   `json:"summary"`
@@ -390,7 +376,7 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err != nil {
 			return nil, err
 		}
-		return mcpDocuments(documents), nil
+		return mcpDocuments(filterDocumentsForScopes(documents, scopes)), nil
 	case "list_api_versions":
 		if !hasScope(scopes, app.ScopeAPIRead) {
 			return nil, app.ErrPermissionDenied
@@ -403,6 +389,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 			return nil, err
 		}
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
+			return nil, err
+		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
 			return nil, err
 		}
 		versions, err := store.ListDocumentVersions(userID, a.ProjectID, a.DocumentID)
@@ -424,12 +413,8 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
 			return nil, err
 		}
-		document, err := store.Document(userID, a.ProjectID, a.DocumentID)
-		if err != nil {
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeMarkdown); err != nil {
 			return nil, err
-		}
-		if document.DocumentType != app.DocumentTypeMarkdown {
-			return nil, app.ErrNotFound
 		}
 		versions, err := store.ListDocumentVersions(userID, a.ProjectID, a.DocumentID)
 		if err != nil {
@@ -451,6 +436,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
 			return nil, err
 		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
+			return nil, err
+		}
 		versions, err := store.ListDocumentVersions(userID, a.ProjectID, a.DocumentID)
 		if err != nil {
 			return nil, err
@@ -461,7 +449,7 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 				if err != nil {
 					return nil, err
 				}
-				return gin.H{"version": mcpVersion(v), "raw_content": schema.Content, "content": mcpContent(schema)}, nil
+				return gin.H{"version": mcpVersion(v), "content": mcpContent(schema)}, nil
 			}
 		}
 		return nil, app.ErrNotFound
@@ -479,6 +467,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 			return nil, err
 		}
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("version_id", a.VersionID), field("endpoint_id", a.EndpointID)); err != nil {
+			return nil, err
+		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
 			return nil, err
 		}
 		endpoint, err := store.DocumentEndpoint(userID, a.ProjectID, a.DocumentID, a.VersionID, a.EndpointID)
@@ -502,6 +493,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("from_version_id", a.FromVersionID), field("to_version_id", a.ToVersionID)); err != nil {
 			return nil, err
 		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
+			return nil, err
+		}
 		diff, err := store.CompareDocumentVersions(userID, a.ProjectID, a.DocumentID, a.FromVersionID, a.ToVersionID)
 		if err != nil {
 			return nil, err
@@ -520,6 +514,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 			return nil, err
 		}
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("diff_id", a.DiffID)); err != nil {
+			return nil, err
+		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
 			return nil, err
 		}
 		d, err := store.DocumentDiff(userID, a.ProjectID, a.DocumentID, a.DiffID)
@@ -594,6 +591,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID)); err != nil {
 			return nil, err
 		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
+			return nil, err
+		}
 		draft, err := store.Draft(userID, a.ProjectID, a.DocumentID, a.DraftID)
 		if err != nil {
 			return nil, err
@@ -614,6 +614,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
 			return nil, err
 		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeMarkdown); err != nil {
+			return nil, err
+		}
 		versions, err := store.ListDocumentVersions(userID, a.ProjectID, a.DocumentID)
 		if err != nil {
 			return nil, err
@@ -624,7 +627,7 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 				if err != nil {
 					return nil, err
 				}
-				return gin.H{"version": mcpVersion(v), "stable_content": content.Content, "content": mcpContent(content)}, nil
+				return gin.H{"version": mcpVersion(v), "content": mcpContent(content)}, nil
 			}
 		}
 		return nil, app.ErrNotFound
@@ -642,6 +645,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 			return nil, err
 		}
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("from_version_id", a.FromVersionID), field("to_version_id", a.ToVersionID)); err != nil {
+			return nil, err
+		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeMarkdown); err != nil {
 			return nil, err
 		}
 		diff, err := store.CompareMarkdownVersions(userID, a.ProjectID, a.DocumentID, a.FromVersionID, a.ToVersionID)
@@ -702,7 +708,7 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		}
 		return mcpDraft(draft), nil
 	case "get_doc_draft":
-		if !hasScope(scopes, app.ScopeDocDraft) {
+		if !hasScope(scopes, app.ScopeDocRead) {
 			return nil, app.ErrPermissionDenied
 		}
 		var a struct {
@@ -716,6 +722,9 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID)); err != nil {
 			return nil, err
 		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeMarkdown); err != nil {
+			return nil, err
+		}
 		draft, err := store.Draft(userID, a.ProjectID, a.DocumentID, a.DraftID)
 		if err != nil {
 			return nil, err
@@ -724,7 +733,7 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if err != nil {
 			return nil, err
 		}
-		return gin.H{"draft": mcpDraft(draft), "stable_content": content.Content, "content": mcpContent(content)}, nil
+		return gin.H{"draft": mcpDraft(draft), "content": mcpContent(content)}, nil
 	default:
 		return nil, errUnknownTool
 	}
@@ -1006,20 +1015,16 @@ func mcpDraft(value *app.ContractDraft) mcpDraftDTO {
 	if value == nil {
 		return mcpDraftDTO{}
 	}
-	dto := mcpDraftDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContent: value.RawSchema, RawContentObjectKey: value.RawSchemaObjectKey, RawContentHash: value.RawSchemaHash, Status: value.Status, DiffPreview: mcpDiffPointer(value.DiffPreview), ReviewComment: value.ReviewComment, CreatedBy: value.CreatedBy, SubmittedAt: value.SubmittedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
-	setNormalizedOrStableDraftContent(&dto, value.SchemaFormat, value.NormalizedSchema, value.NormalizedObjectKey, value.NormalizedSchemaHash)
+	dto := mcpDraftDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContentHash: value.RawSchemaHash, Status: value.Status, DiffPreview: mcpDiffPointer(value.DiffPreview), ReviewComment: value.ReviewComment, CreatedBy: value.CreatedBy, SubmittedAt: value.SubmittedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	setNormalizedOrStableDraftHash(&dto, value.SchemaFormat, value.NormalizedSchemaHash)
 	return dto
 }
 
-func setNormalizedOrStableDraftContent(dto *mcpDraftDTO, format int, content, objectKey, hash string) {
+func setNormalizedOrStableDraftHash(dto *mcpDraftDTO, format int, hash string) {
 	if format == app.DocumentFormatMarkdown {
-		dto.StableContent = content
-		dto.StableContentObjectKey = objectKey
 		dto.StableContentHash = hash
 		return
 	}
-	dto.NormalizedContent = content
-	dto.NormalizedContentKey = objectKey
 	dto.NormalizedContentHash = hash
 }
 
@@ -1027,20 +1032,16 @@ func mcpVersion(value *app.ContractVersion) mcpVersionDTO {
 	if value == nil {
 		return mcpVersionDTO{}
 	}
-	dto := mcpVersionDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, DraftID: value.DraftID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContent: value.RawSchema, RawContentObjectKey: value.RawSchemaObjectKey, RawContentHash: value.RawSchemaHash, Status: value.Status, PublishedBy: value.PublishedBy, PublishedAt: value.PublishedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
-	setNormalizedOrStableVersionContent(&dto, value.SchemaFormat, value.NormalizedSchema, value.NormalizedObjectKey, value.NormalizedSchemaHash)
+	dto := mcpVersionDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, DraftID: value.DraftID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContentHash: value.RawSchemaHash, Status: value.Status, PublishedBy: value.PublishedBy, PublishedAt: value.PublishedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	setNormalizedOrStableVersionHash(&dto, value.SchemaFormat, value.NormalizedSchemaHash)
 	return dto
 }
 
-func setNormalizedOrStableVersionContent(dto *mcpVersionDTO, format int, content, objectKey, hash string) {
+func setNormalizedOrStableVersionHash(dto *mcpVersionDTO, format int, hash string) {
 	if format == app.DocumentFormatMarkdown {
-		dto.StableContent = content
-		dto.StableContentObjectKey = objectKey
 		dto.StableContentHash = hash
 		return
 	}
-	dto.NormalizedContent = content
-	dto.NormalizedContentKey = objectKey
 	dto.NormalizedContentHash = hash
 }
 
@@ -1056,7 +1057,7 @@ func mcpContent(value *app.SchemaDocument) mcpContentDTO {
 	if value == nil {
 		return mcpContentDTO{}
 	}
-	dto := mcpContentDTO{OwnerType: value.OwnerType, ContentKind: value.Kind, Content: value.Content, ObjectKey: value.ObjectKey, Hash: value.Hash}
+	dto := mcpContentDTO{OwnerType: value.OwnerType, ContentKind: value.Kind, Content: value.Content, Hash: value.Hash}
 	switch value.OwnerType {
 	case "version":
 		dto.VersionID = value.OwnerID
@@ -1096,7 +1097,7 @@ func mcpDiff(value *app.Diff) mcpDiffDTO {
 	for _, item := range value.Items {
 		items = append(items, mcpDiffItem(item))
 	}
-	return mcpDiffDTO{ID: value.ID, DocumentID: value.DocumentID, FromVersionID: value.FromVersionID, ToVersionID: value.ToVersionID, ObjectKey: value.ObjectKey, Hash: value.Hash, DiffStatus: value.DiffStatus, Summary: mcpDiffSummaryDTO(value.Summary), Items: items, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	return mcpDiffDTO{ID: value.ID, DocumentID: value.DocumentID, FromVersionID: value.FromVersionID, ToVersionID: value.ToVersionID, Hash: value.Hash, DiffStatus: value.DiffStatus, Summary: mcpDiffSummaryDTO(value.Summary), Items: items, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }
 
 func mcpDiffSummaryDTO(value app.DiffSummary) mcpDiffSummary {
@@ -1155,6 +1156,37 @@ func hasAnyScope(scopes []int, wants ...int) bool {
 		}
 	}
 	return false
+}
+
+func filterDocumentsForScopes(documents []*app.APIService, scopes []int) []*app.APIService {
+	allowOpenAPI := hasScope(scopes, app.ScopeAPIRead)
+	allowMarkdown := hasScope(scopes, app.ScopeDocRead)
+	filtered := make([]*app.APIService, 0, len(documents))
+	for _, document := range documents {
+		if document == nil {
+			continue
+		}
+		if (allowMarkdown && document.DocumentType == app.DocumentTypeMarkdown) ||
+			(allowOpenAPI && (document.DocumentType == 0 || document.DocumentType == app.DocumentTypeOpenAPI)) {
+			filtered = append(filtered, document)
+		}
+	}
+	return filtered
+}
+
+func ensureMCPDocumentType(store *app.Store, userID, projectID, documentID string, want int) error {
+	document, err := store.Document(userID, projectID, documentID)
+	if err != nil {
+		return err
+	}
+	if want == app.DocumentTypeOpenAPI && (document.DocumentType == 0 || document.DocumentType == app.DocumentTypeOpenAPI) {
+		return nil
+	}
+	if document.DocumentType == want {
+		return nil
+	}
+	// Keep cross-type scope probes indistinguishable from an unknown document.
+	return app.ErrNotFound
 }
 
 func returnAppError(c *gin.Context, err error) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	privateshared "vdoc/api/app/v1/private/shared"
 	"vdoc/api/middleware"
 	app "vdoc/appstore"
 	"vdoc/config"
@@ -640,14 +641,14 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if createEnvelope.Code != 200 || createEnvelope.Status != "OK" {
 		t.Fatalf("create draft response = code %d status %q body %s", createEnvelope.Code, createEnvelope.Status, createRecorder.Body.String())
 	}
-	var draft app.ContractDraft
+	var draft privateshared.DraftDTO
 	if err := json.Unmarshal(createEnvelope.Detail, &draft); err != nil {
 		t.Fatalf("decode draft: %v", err)
 	}
-	if draft.RawSchemaHash == "" || draft.NormalizedSchemaHash == "" || draft.RawSchemaObjectKey == "" || draft.NormalizedObjectKey == "" || draft.SourceGitCommitID != "abc123" {
+	if draft.RawContentHash == "" || draft.NormalizedContentHash == "" || draft.SourceGitCommitID != "abc123" {
 		t.Fatalf("draft schema metadata = %+v", draft)
 	}
-	originalNormalizedHash := draft.NormalizedSchemaHash
+	originalNormalizedHash := draft.NormalizedContentHash
 
 	for _, kind := range []string{"raw", "normalized"} {
 		recorder := performPrivateJSON(fixture.router, http.MethodGet, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/content/"+kind, fixture.writerToken, "")
@@ -655,11 +656,11 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 		if envelope.Code != 200 || envelope.Status != "OK" {
 			t.Fatalf("draft %s schema response = code %d status %q body %s", kind, envelope.Code, envelope.Status, recorder.Body.String())
 		}
-		var schema app.SchemaDocument
+		var schema privateshared.ContentDTO
 		if err := json.Unmarshal(envelope.Detail, &schema); err != nil {
 			t.Fatalf("decode %s draft schema: %v", kind, err)
 		}
-		if schema.Kind != kind || schema.Content == "" || schema.Hash == "" || schema.ObjectKey == "" {
+		if schema.Kind != kind || schema.Content == "" || schema.Hash == "" {
 			t.Fatalf("draft %s schema = %+v", kind, schema)
 		}
 	}
@@ -669,11 +670,11 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if updateEnvelope.Code != 200 || updateEnvelope.Status != "OK" {
 		t.Fatalf("update draft response = code %d status %q body %s", updateEnvelope.Code, updateEnvelope.Status, updateRecorder.Body.String())
 	}
-	var updatedDraft app.ContractDraft
+	var updatedDraft privateshared.DraftDTO
 	if err := json.Unmarshal(updateEnvelope.Detail, &updatedDraft); err != nil {
 		t.Fatalf("decode updated draft: %v", err)
 	}
-	if updatedDraft.NormalizedSchemaHash == originalNormalizedHash || updatedDraft.SourceGitCommitID != "def456" || updatedDraft.Status != app.DraftStatusDraft {
+	if updatedDraft.NormalizedContentHash == originalNormalizedHash || updatedDraft.SourceGitCommitID != "def456" || updatedDraft.Status != app.DraftStatusDraft {
 		t.Fatalf("updated draft = %+v", updatedDraft)
 	}
 
@@ -684,7 +685,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if changesEnvelope.Code != 200 || changesEnvelope.Status != "OK" {
 		t.Fatalf("request changes response = code %d status %q body %s", changesEnvelope.Code, changesEnvelope.Status, changesEnvelope.Message)
 	}
-	var changesDraft app.ContractDraft
+	var changesDraft privateshared.DraftDTO
 	if err := json.Unmarshal(changesEnvelope.Detail, &changesDraft); err != nil {
 		t.Fatalf("decode changes draft: %v", err)
 	}
@@ -698,7 +699,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if rejectEnvelope.Code != 200 || rejectEnvelope.Status != "OK" {
 		t.Fatalf("reject response = code %d status %q body %s", rejectEnvelope.Code, rejectEnvelope.Status, rejectEnvelope.Message)
 	}
-	var rejectedDraft app.ContractDraft
+	var rejectedDraft privateshared.DraftDTO
 	if err := json.Unmarshal(rejectEnvelope.Detail, &rejectedDraft); err != nil {
 		t.Fatalf("decode rejected draft: %v", err)
 	}
@@ -717,7 +718,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if approveEnvelope.Code != 200 || approveEnvelope.Status != "OK" {
 		t.Fatalf("approve response = code %d status %q body %s", approveEnvelope.Code, approveEnvelope.Status, approveEnvelope.Message)
 	}
-	var version app.ContractVersion
+	var version privateshared.VersionDTO
 	if err := json.Unmarshal(approveEnvelope.Detail, &version); err != nil {
 		t.Fatalf("decode version: %v", err)
 	}
@@ -751,7 +752,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if promoteEnvelope.Code != 200 || promoteEnvelope.Status != "OK" {
 		t.Fatalf("promote response = code %d status %q body %s", promoteEnvelope.Code, promoteEnvelope.Status, promoteRecorder.Body.String())
 	}
-	var promoted app.ContractDraft
+	var promoted privateshared.DraftDTO
 	if err := json.Unmarshal(promoteEnvelope.Detail, &promoted); err != nil {
 		t.Fatalf("decode promoted draft: %v", err)
 	}

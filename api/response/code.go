@@ -51,6 +51,13 @@ var UNAUTHENTICATED = responseData{
 	Description: "Request not authenticated due to missing, invalid, or expired OAuth token",
 }
 
+// A valid public-share capability requires a password proof before content can be read.
+var PASSWORD_REQUIRED = responseData{
+	Code:        401,
+	Status:      "PASSWORD_REQUIRED",
+	Description: "A password is required to access this resource",
+}
+
 // The client does not have sufficient permissions.
 // This could be because the OAuth token does not have the correct scope
 // or the client does not have permissions, or the API is disabled for client code.
