@@ -23,7 +23,7 @@ func TestMarkdownDocumentDraftSubmitApprovePublishesVersion(t *testing.T) {
 	assertMarkdownObjectWrite(t, objects.writes[0], projectID, documentID, branchID, "drafts", draft.ID, "raw", draft.RawSchemaHash)
 	assertMarkdownObjectWrite(t, objects.writes[1], projectID, documentID, branchID, "drafts", draft.ID, "stable", draft.NormalizedSchemaHash)
 
-	updated, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: markdownV1UpdatedBeforePublish(), SourceGitCommitID: "md-update"})
+	updated, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.0"), SchemaContent: markdownV1UpdatedBeforePublish(), SourceGitCommitID: stringPtrValue("md-update")})
 	if err != nil {
 		t.Fatalf("UpdateMarkdownDraft() error = %v", err)
 	}

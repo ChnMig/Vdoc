@@ -32,7 +32,7 @@ func TestUpdateDraftNoChangeKeepsExistingDraftUntouched(t *testing.T) {
 	originalHash := draft.NormalizedSchemaHash
 	originalVersionName := draft.VersionName
 
-	_, err = store.UpdateDraft("writer", projectID, serviceID, draft.ID, DraftInput{VersionName: "1.0.1-no-change", SchemaContent: testOpenAPI("baseline")})
+	_, err = store.UpdateDraft("writer", projectID, serviceID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.1-no-change"), SchemaContent: testOpenAPI("baseline")})
 	if !Is(err, ErrFailedPrecondition) {
 		t.Fatalf("no-change UpdateDraft() error = %v, want failed precondition", err)
 	}
@@ -52,7 +52,7 @@ func TestSubmittedAndPublishedDraftsCannotBeChangedByWriter(t *testing.T) {
 	if _, err := store.SubmitDraft("writer", projectID, serviceID, submitted.ID); err != nil {
 		t.Fatalf("SubmitDraft(submitted) error = %v", err)
 	}
-	if _, err := store.UpdateDraft("writer", projectID, serviceID, submitted.ID, DraftInput{VersionName: "1.0.0-edit", SchemaContent: testOpenAPI("submittedEdit")}); !Is(err, ErrFailedPrecondition) {
+	if _, err := store.UpdateDraft("writer", projectID, serviceID, submitted.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.0-edit"), SchemaContent: testOpenAPI("submittedEdit")}); !Is(err, ErrFailedPrecondition) {
 		t.Fatalf("UpdateDraft(submitted) error = %v, want failed precondition", err)
 	}
 

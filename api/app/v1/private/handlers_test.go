@@ -97,6 +97,62 @@ func TestDisabledUserTokenCannotAccessIdentityMe(t *testing.T) {
 	}
 }
 
+func TestIdentityMeIncludesServerComputedAuditCapability(t *testing.T) {
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	adminUser, err := store.CreateUser(superUser.ID, "admin@example.com", "Admin", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	writerUser, err := store.CreateUser(superUser.ID, "writer@example.com", "Writer", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create writer: %v", err)
+	}
+	team, err := store.CreateTeam(superUser.ID, "Team", "")
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	project, err := store.CreateProject(superUser.ID, team.ID, "Project", "", adminUser.ID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if _, err := store.AddProjectMember(adminUser.ID, project.ID, writerUser.ID, app.MemberRoleWriter); err != nil {
+		t.Fatalf("add writer: %v", err)
+	}
+
+	for _, test := range []struct {
+		name string
+		user *app.User
+		want bool
+	}{
+		{name: "super admin", user: superUser, want: true},
+		{name: "project admin", user: adminUser, want: true},
+		{name: "writer", user: writerUser, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/identity/me", issuePrivateTestToken(t, test.user.ID), "")
+			envelope := decodePrivateEnvelope(t, recorder)
+			if envelope.Code != 200 || envelope.Status != "OK" {
+				t.Fatalf("identity response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
+			}
+			var detail struct {
+				ID             string `json:"id"`
+				CanAccessAudit bool   `json:"can_access_audit"`
+			}
+			if err := json.Unmarshal(envelope.Detail, &detail); err != nil {
+				t.Fatalf("decode identity: %v", err)
+			}
+			if detail.ID != test.user.ID || detail.CanAccessAudit != test.want {
+				t.Fatalf("identity = %+v, want id %q audit %v", detail, test.user.ID, test.want)
+			}
+		})
+	}
+}
+
 func TestSuperAdminUserLifecycleRoutesRejectInvalidStatus(t *testing.T) {
 	router := setupPrivateRouter(t)
 	adminUser, err := app.DefaultStore().Register("admin@example.com", "Admin", privateTestPassword)
@@ -194,6 +250,18 @@ func TestProjectMemberRoutesEnforceProjectRBAC(t *testing.T) {
 	}
 	if !strings.Contains(string(listEnvelope.Detail), adminUser.Email) || !strings.Contains(string(listEnvelope.Detail), writerUser.Email) {
 		t.Fatalf("member list response is missing display identities: %s", listRecorder.Body.String())
+	}
+	var memberDetails []struct {
+		UserID     string `json:"user_id"`
+		UserStatus int    `json:"user_status"`
+	}
+	if err := json.Unmarshal(listEnvelope.Detail, &memberDetails); err != nil {
+		t.Fatalf("decode member details: %v", err)
+	}
+	for _, member := range memberDetails {
+		if member.UserStatus != app.UserStatusActive {
+			t.Fatalf("member %q user_status = %d, want active", member.UserID, member.UserStatus)
+		}
 	}
 
 	candidatesRecorder := performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/member-candidates", adminToken, "")
@@ -554,7 +622,7 @@ func TestUpdateAndArchiveRoutesThroughPrivateAPI(t *testing.T) {
 		t.Fatalf("project patch response = code %d status %q body %s", projectEnvelope.Code, projectEnvelope.Status, projectRecorder.Body.String())
 	}
 
-	documentRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID, fixture.adminToken, `{"name":"checkout-api","document_type":1,"relative_path":"apis/checkout-api.yaml","description":"document description"}`)
+	documentRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID, fixture.adminToken, `{"name":"checkout-api","relative_path":"apis/checkout-api.yaml","description":"document description"}`)
 	documentEnvelope := decodePrivateEnvelope(t, documentRecorder)
 	if documentEnvelope.Code != 200 || documentEnvelope.Status != "OK" {
 		t.Fatalf("document patch response = code %d status %q body %s", documentEnvelope.Code, documentEnvelope.Status, documentRecorder.Body.String())
@@ -932,7 +1000,7 @@ func TestPrivateMCPTokenCreateListGetAndRevokeRedaction(t *testing.T) {
 	ownerJWT := issuePrivateTestToken(t, ownerUser.ID)
 	superJWT := issuePrivateTestToken(t, superUser.ID)
 
-	createEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/mcp-tokens", ownerJWT, `{"name":"CLI"}`))
+	createEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/mcp-tokens", ownerJWT, `{"name":"CLI","scopes":[1]}`))
 	if createEnvelope.Code != 200 || createEnvelope.Status != "OK" {
 		t.Fatalf("create token response = code %d status %q body %s", createEnvelope.Code, createEnvelope.Status, string(createEnvelope.Detail))
 	}
@@ -941,7 +1009,7 @@ func TestPrivateMCPTokenCreateListGetAndRevokeRedaction(t *testing.T) {
 		t.Fatalf("decode created token: %v", err)
 	}
 	if created.Token == "" || created.CipherKID != "" || created.TokenHash != "" || len(created.TokenCiphertext) != 0 || len(created.Scopes) != 1 || created.Scopes[0] != app.ScopeAPIRead {
-		t.Fatalf("created token = %+v, want copyable secret with redacted storage fields and default read scope", created)
+		t.Fatalf("created token = %+v, want copyable secret with redacted storage fields and explicit read scope", created)
 	}
 
 	listEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-tokens", ownerJWT, ""))

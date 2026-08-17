@@ -127,7 +127,7 @@ POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft
 POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/promote
 ```
 
-Review actions accept an optional JSON `comment` (or legacy `reason` alias), trim it, persist it on the draft, return it as `review_comment`, and include it in review audit metadata without placing it in the published version.
+Review actions accept an optional JSON `comment`, trim it, persist it on the draft, return it as `review_comment`, and include it in review audit metadata without placing it in the published version. Unknown review fields are rejected.
 
 ### 3. Query Versions, Endpoints, And Diffs
 

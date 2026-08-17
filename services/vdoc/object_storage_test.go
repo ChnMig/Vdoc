@@ -155,7 +155,7 @@ func TestUpdateDraftObjectFailureLeavesExistingDraftUnchanged(t *testing.T) {
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 1
 
-	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftInput{VersionName: "2.0.0", SchemaContent: testOpenAPI("updated")})
+	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("2.0.0"), SchemaContent: testOpenAPI("updated")})
 	if err == nil || !strings.Contains(err.Error(), "object write failed") {
 		t.Fatalf("UpdateDraft() error = %v, want object write failed", err)
 	}
@@ -183,7 +183,7 @@ func TestUpdateDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 2
 
-	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftInput{VersionName: "2.0.0", SchemaContent: testOpenAPI("updated-second")})
+	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("2.0.0"), SchemaContent: testOpenAPI("updated-second")})
 	if err == nil || !strings.Contains(err.Error(), "object write failed") {
 		t.Fatalf("UpdateDraft() error = %v, want object write failed", err)
 	}

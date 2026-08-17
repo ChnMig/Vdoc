@@ -29,49 +29,85 @@ func (b *semanticDiffBuilder) compareEndpoint(from, to Endpoint) {
 }
 
 func (b *semanticDiffBuilder) compareParameters(from, to Endpoint) {
-	fp := parametersByName(from.Parameters)
-	tp := parametersByName(to.Parameters)
-	for _, name := range sortedStringKeys(tp) {
-		newParam := tp[name]
-		oldParam, ok := fp[name]
-		location := parameterLocation(newParam)
+	fp := parametersByIdentity(from.Parameters)
+	tp := parametersByIdentity(to.Parameters)
+	matchedOld := map[string]bool{}
+	matchedNew := map[string]bool{}
+
+	// OpenAPI identifies a parameter by both name and location. Match that
+	// identity first so query/header parameters with the same name cannot hide
+	// each other's changes.
+	for _, key := range sortedStringKeys(tp) {
+		oldParam, ok := fp[key]
 		if !ok {
+			continue
+		}
+		b.compareParameterPair(to, oldParam, tp[key])
+		matchedOld[key] = true
+		matchedNew[key] = true
+	}
+
+	oldByName := unmatchedParametersByName(fp, matchedOld)
+	newByName := unmatchedParametersByName(tp, matchedNew)
+	for _, name := range sortedStringUnionKeys(oldByName, newByName) {
+		oldKeys := oldByName[name]
+		newKeys := newByName[name]
+		// A single unmatched parameter on each side is an unambiguous location
+		// migration. Preserve the dedicated breaking-change explanation.
+		if len(oldKeys) == 1 && len(newKeys) == 1 {
+			b.compareParameterPair(to, fp[oldKeys[0]], tp[newKeys[0]])
+			continue
+		}
+		for _, key := range newKeys {
+			newParam := tp[key]
 			breaking := boolValue(newParam["required"])
 			severity := SeverityInfo
 			if breaking {
 				severity = SeverityBreaking
 			}
-			b.add(ChangeParameterAdded, severity, to, parameterPath(location, name), "Parameter added", breaking, nil, compactParameterValue(newParam))
-			continue
+			b.add(ChangeParameterAdded, severity, to, parameterPath(parameterLocation(newParam), name), "Parameter added", breaking, nil, compactParameterValue(newParam))
 		}
-		oldLocation := parameterLocation(oldParam)
-		if oldLocation != location {
-			b.add(ChangeParameterChanged, SeverityBreaking, to, parameterPath(location, name), "Parameter location changed", true, oldLocation, location)
-		}
-		oldType, newType := schemaType(oldParam["schema"]), schemaType(newParam["schema"])
-		if oldType != newType {
-			b.add(ChangeParameterChanged, SeverityBreaking, to, parameterPath(location, name), "Parameter type changed", true, oldType, newType)
-		}
-		oldRequired, newRequired := boolValue(oldParam["required"]), boolValue(newParam["required"])
-		if oldRequired != newRequired {
-			breaking := newRequired
-			severity := SeverityWarning
-			if breaking {
-				severity = SeverityBreaking
-			}
-			b.add(ChangeParameterChanged, severity, to, parameterPath(location, name), "Parameter required flag changed", breaking, oldRequired, newRequired)
-		}
-		b.compareEnumValues(ChangeParameterChanged, to, parameterPath(location, name), oldParam["schema"], newParam["schema"], "Parameter enum value removed")
-	}
-	for _, name := range sortedStringKeys(fp) {
-		if _, ok := tp[name]; !ok {
-			oldParam := fp[name]
+		for _, key := range oldKeys {
+			oldParam := fp[key]
 			b.add(ChangeParameterRemoved, SeverityWarning, to, parameterPath(parameterLocation(oldParam), name), "Parameter removed", false, compactParameterValue(oldParam), nil)
 		}
 	}
 }
 
+func (b *semanticDiffBuilder) compareParameterPair(endpoint Endpoint, oldParam, newParam map[string]any) {
+	name, _ := newParam["name"].(string)
+	location := parameterLocation(newParam)
+	oldLocation := parameterLocation(oldParam)
+	if oldLocation != location {
+		b.add(ChangeParameterChanged, SeverityBreaking, endpoint, parameterPath(location, name), "Parameter location changed", true, oldLocation, location)
+	}
+	oldType, newType := schemaType(oldParam["schema"]), schemaType(newParam["schema"])
+	if oldType != newType {
+		b.add(ChangeParameterChanged, SeverityBreaking, endpoint, parameterPath(location, name), "Parameter type changed", true, oldType, newType)
+	}
+	oldRequired, newRequired := boolValue(oldParam["required"]), boolValue(newParam["required"])
+	if oldRequired != newRequired {
+		breaking := newRequired
+		severity := SeverityWarning
+		if breaking {
+			severity = SeverityBreaking
+		}
+		b.add(ChangeParameterChanged, severity, endpoint, parameterPath(location, name), "Parameter required flag changed", breaking, oldRequired, newRequired)
+	}
+	b.compareEnumValues(ChangeParameterChanged, endpoint, parameterPath(location, name), oldParam["schema"], newParam["schema"], "Parameter enum value removed")
+}
+
 func (b *semanticDiffBuilder) compareRequestBody(from, to Endpoint) {
+	oldRequired := requestBodyRequired(from.RequestBody)
+	newRequired := requestBodyRequired(to.RequestBody)
+	if oldRequired != newRequired {
+		breaking := newRequired
+		severity := SeverityWarning
+		if breaking {
+			severity = SeverityBreaking
+		}
+		b.add(ChangeRequestBodyChanged, severity, to, "requestBody.required", "Request body required flag changed", breaking, oldRequired, newRequired)
+	}
 	fs := mediaSchemas(from.RequestBody)
 	ts := mediaSchemas(to.RequestBody)
 	for _, media := range sortedStringKeys(ts) {
@@ -234,7 +270,7 @@ func endpointMetadata(endpoint Endpoint) map[string]any {
 	return map[string]any{"operation_id": endpoint.OperationID, "summary": endpoint.Summary, "tags": endpoint.Tags}
 }
 
-func parametersByName(value any) map[string]map[string]any {
+func parametersByIdentity(value any) map[string]map[string]any {
 	out := map[string]map[string]any{}
 	items, ok := value.([]any)
 	if !ok {
@@ -249,9 +285,37 @@ func parametersByName(value any) map[string]map[string]any {
 		if name == "" {
 			continue
 		}
-		out[name] = param
+		out[parameterIdentity(parameterLocation(param), name)] = param
 	}
 	return out
+}
+
+func parameterIdentity(location, name string) string { return location + "\x00" + name }
+
+func unmatchedParametersByName(parameters map[string]map[string]any, matched map[string]bool) map[string][]string {
+	out := map[string][]string{}
+	for key, parameter := range parameters {
+		if matched[key] {
+			continue
+		}
+		name, _ := parameter["name"].(string)
+		out[name] = append(out[name], key)
+	}
+	for name := range out {
+		sort.Strings(out[name])
+	}
+	return out
+}
+
+func sortedStringUnionKeys[V any, W any](left map[string]V, right map[string]W) []string {
+	keys := make(map[string]bool, len(left)+len(right))
+	for key := range left {
+		keys[key] = true
+	}
+	for key := range right {
+		keys[key] = true
+	}
+	return sortedStringKeys(keys)
 }
 
 func parameterLocation(param map[string]any) string {
@@ -292,6 +356,11 @@ func mediaSchemas(requestBody any) map[string]any {
 		}
 	}
 	return out
+}
+
+func requestBodyRequired(requestBody any) bool {
+	body, ok := requestBody.(map[string]any)
+	return ok && boolValue(body["required"])
 }
 
 func responseStatuses(responses any) map[string]any {
@@ -345,7 +414,7 @@ func (f schemaField) diffValue() map[string]any {
 
 func schemaFields(schema any) map[string]schemaField {
 	out := map[string]schemaField{}
-	collectSchemaFields(out, "properties", schema)
+	collectSchemaFields(out, "", schema)
 	return out
 }
 
@@ -354,17 +423,61 @@ func collectSchemaFields(out map[string]schemaField, prefix string, schema any) 
 	if !ok {
 		return
 	}
-	required := stringSet(schemaMap["required"])
-	properties, ok := schemaMap["properties"].(map[string]any)
+	fragments := schemaFragments(schemaMap)
+	required := map[string]bool{}
+	for _, fragment := range fragments {
+		for name := range stringSet(fragment["required"]) {
+			required[name] = true
+		}
+	}
+	for _, fragment := range fragments {
+		properties, _ := fragment["properties"].(map[string]any)
+		for _, name := range sortedStringKeys(properties) {
+			property := properties[name]
+			path := schemaPath(prefix, "properties."+name)
+			mergeSchemaField(out, path, schemaField{Type: schemaType(property), Required: required[name], Enum: enumValues(property)})
+			collectSchemaFields(out, path, property)
+		}
+		if items := fragment["items"]; items != nil {
+			collectSchemaFields(out, schemaPath(prefix, "items"), items)
+		}
+	}
+}
+
+func schemaFragments(schema map[string]any) []map[string]any {
+	out := []map[string]any{schema}
+	allOf, _ := schema["allOf"].([]any)
+	for _, value := range allOf {
+		fragment, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, schemaFragments(fragment)...)
+	}
+	return out
+}
+
+func schemaPath(prefix, suffix string) string {
+	if prefix == "" {
+		return suffix
+	}
+	return prefix + "." + suffix
+}
+
+func mergeSchemaField(out map[string]schemaField, path string, next schemaField) {
+	current, ok := out[path]
 	if !ok {
+		out[path] = next
 		return
 	}
-	for _, name := range sortedStringKeys(properties) {
-		property := properties[name]
-		path := prefix + "." + name
-		out[path] = schemaField{Type: schemaType(property), Required: required[name], Enum: enumValues(property)}
-		collectSchemaFields(out, path+".properties", property)
+	if current.Type == "" {
+		current.Type = next.Type
 	}
+	current.Required = current.Required || next.Required
+	if len(current.Enum) == 0 && len(next.Enum) > 0 {
+		current.Enum = next.Enum
+	}
+	out[path] = current
 }
 
 func stringSet(value any) map[string]bool {

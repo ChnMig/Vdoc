@@ -551,14 +551,14 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if !hasScope(scopes, app.ScopeAPIDraft) {
 			return nil, app.ErrPermissionDenied
 		}
-		var a draftArgs
+		var a draftUpdateArgs
 		if err := decodeArguments(raw, &a); err != nil {
 			return nil, err
 		}
-		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("branch_id", a.BranchID), field("version_name", a.VersionName), field("schema_content", a.SchemaContent)); err != nil {
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("schema_content", a.SchemaContent)); err != nil {
 			return nil, err
 		}
-		draft, err := store.UpdateDocumentDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent})
+		draft, err := store.UpdateDocumentDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent})
 		if err != nil {
 			return nil, err
 		}
@@ -682,14 +682,14 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 		if !hasScope(scopes, app.ScopeDocDraft) {
 			return nil, app.ErrPermissionDenied
 		}
-		var a docDraftArgs
+		var a docDraftUpdateArgs
 		if err := decodeArguments(raw, &a); err != nil {
 			return nil, err
 		}
-		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("branch_id", a.BranchID), field("version_name", a.VersionName), field("markdown_content", a.MarkdownContent)); err != nil {
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("markdown_content", a.MarkdownContent)); err != nil {
 			return nil, err
 		}
-		draft, err := store.UpdateMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent})
+		draft, err := store.UpdateMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent})
 		if err != nil {
 			return nil, err
 		}
@@ -757,6 +757,16 @@ type draftArgs struct {
 	SchemaContent     string `json:"schema_content"`
 }
 
+type draftUpdateArgs struct {
+	ProjectID         string  `json:"project_id"`
+	DocumentID        string  `json:"document_id"`
+	DraftID           string  `json:"draft_id"`
+	VersionName       *string `json:"version_name"`
+	Changelog         *string `json:"changelog"`
+	SourceGitCommitID *string `json:"source_git_commit_id"`
+	SchemaContent     string  `json:"schema_content"`
+}
+
 type docDraftArgs struct {
 	ProjectID         string `json:"project_id"`
 	DocumentID        string `json:"document_id"`
@@ -766,6 +776,16 @@ type docDraftArgs struct {
 	Changelog         string `json:"changelog"`
 	SourceGitCommitID string `json:"source_git_commit_id"`
 	MarkdownContent   string `json:"markdown_content"`
+}
+
+type docDraftUpdateArgs struct {
+	ProjectID         string  `json:"project_id"`
+	DocumentID        string  `json:"document_id"`
+	DraftID           string  `json:"draft_id"`
+	VersionName       *string `json:"version_name"`
+	Changelog         *string `json:"changelog"`
+	SourceGitCommitID *string `json:"source_git_commit_id"`
+	MarkdownContent   string  `json:"markdown_content"`
 }
 
 func isJSONRPCRequest(body []byte) bool {
@@ -1050,7 +1070,8 @@ func draftInputSchema(includeDraftID bool) gin.H {
 		"schema_content":       stringProperty("Raw OpenAPI 3.0/3.1 JSON or YAML content."),
 	}
 	if includeDraftID {
-		required = append([]string{"draft_id"}, required...)
+		required = []string{"project_id", "document_id", "draft_id", "schema_content"}
+		delete(properties, "branch_id")
 		properties["draft_id"] = stringProperty("Draft ID.")
 	}
 	return inputSchema(required, properties)
@@ -1068,7 +1089,8 @@ func docDraftInputSchema(includeDraftID bool) gin.H {
 		"markdown_content":     stringProperty("Markdown document content."),
 	}
 	if includeDraftID {
-		required = append([]string{"draft_id"}, required...)
+		required = []string{"project_id", "document_id", "draft_id", "markdown_content"}
+		delete(properties, "branch_id")
 		properties["draft_id"] = stringProperty("Draft ID.")
 	}
 	return inputSchema(required, properties)

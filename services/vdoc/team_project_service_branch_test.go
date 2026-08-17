@@ -103,14 +103,14 @@ func TestCreateBranchValidatesFeatureNamesAndUniqueness(t *testing.T) {
 func TestProjectServiceAndBranchUpdateArchiveBehavior(t *testing.T) {
 	store := newTask5Store()
 
-	project, err := store.UpdateProject("admin", "project-a", "Project A Updated", "new project description")
+	project, err := store.UpdateProject("admin", "project-a", NameDescriptionPatch{Name: stringPtrValue("Project A Updated"), Description: stringPtrValue("new project description")})
 	if err != nil {
 		t.Fatalf("UpdateProject() error = %v", err)
 	}
 	if project.Name != "Project A Updated" || project.Description != "new project description" || project.Status != ProjectStatusActive {
 		t.Fatalf("updated project = %+v", project)
 	}
-	if _, err := store.UpdateProject("reader", "project-a", "Reader", ""); !Is(err, ErrPermissionDenied) {
+	if _, err := store.UpdateProject("reader", "project-a", NameDescriptionPatch{Name: stringPtrValue("Reader")}); !Is(err, ErrPermissionDenied) {
 		t.Fatalf("reader UpdateProject() error = %v, want permission denied", err)
 	}
 
@@ -134,17 +134,17 @@ func TestProjectServiceAndBranchUpdateArchiveBehavior(t *testing.T) {
 		t.Fatalf("CreateBranch() error = %v", err)
 	}
 	protected := true
-	updatedBranch, err := store.UpdateBranch("admin", "project-a", service.ID, branch.ID, "feature/checkout-v3", "branch description", nil, &protected)
+	updatedBranch, err := store.UpdateBranch("admin", "project-a", service.ID, branch.ID, BranchPatchInput{Name: stringPtrValue("feature/checkout-v3"), Description: stringPtrValue("branch description"), IsProtected: &protected})
 	if err != nil {
 		t.Fatalf("UpdateBranch() error = %v", err)
 	}
 	if updatedBranch.Name != "feature/checkout-v3" || updatedBranch.Description != "branch description" || !updatedBranch.IsProtected || updatedBranch.Kind != BranchKindFeature || updatedBranch.Status != BranchStatusActive {
 		t.Fatalf("updated branch = %+v", updatedBranch)
 	}
-	if _, err := store.UpdateBranch("admin", "project-b", service.ID, branch.ID, "feature/wrong", "", nil, nil); !Is(err, ErrNotFound) {
+	if _, err := store.UpdateBranch("admin", "project-b", service.ID, branch.ID, BranchPatchInput{Name: stringPtrValue("feature/wrong")}); !Is(err, ErrNotFound) {
 		t.Fatalf("cross-project UpdateBranch() error = %v, want not found", err)
 	}
-	if _, err := store.UpdateBranch("admin", "project-a", service.ID, branch.ID, "dev", "", nil, nil); !Is(err, ErrAlreadyExists) {
+	if _, err := store.UpdateBranch("admin", "project-a", service.ID, branch.ID, BranchPatchInput{Name: stringPtrValue("dev")}); !Is(err, ErrAlreadyExists) {
 		t.Fatalf("duplicate UpdateBranch() error = %v, want already exists", err)
 	}
 	branches, err := store.ListBranches("admin", "project-a", service.ID)
@@ -162,7 +162,7 @@ func TestProjectServiceAndBranchUpdateArchiveBehavior(t *testing.T) {
 		t.Fatal("default branch not found")
 	}
 	disableDefault := false
-	if _, err := store.UpdateBranch("admin", "project-a", service.ID, defaultBranch.ID, defaultBranch.Name, defaultBranch.Description, &disableDefault, nil); !Is(err, ErrFailedPrecondition) {
+	if _, err := store.UpdateBranch("admin", "project-a", service.ID, defaultBranch.ID, BranchPatchInput{IsDefault: &disableDefault}); !Is(err, ErrFailedPrecondition) {
 		t.Fatalf("unset default UpdateBranch() error = %v, want failed precondition", err)
 	}
 	if _, err := store.ArchiveBranch("admin", "project-a", service.ID, defaultBranch.ID); !Is(err, ErrFailedPrecondition) {
@@ -195,7 +195,7 @@ func TestProjectServiceAndBranchUpdateArchiveBehavior(t *testing.T) {
 func TestTeamUpdateAndArchiveBehavior(t *testing.T) {
 	store := newTask5Store()
 
-	team, err := store.UpdateTeam("super", "team-a", "Team A Updated", "new team description")
+	team, err := store.UpdateTeam("super", "team-a", NameDescriptionPatch{Name: stringPtrValue("Team A Updated"), Description: stringPtrValue("new team description")})
 	if err != nil {
 		t.Fatalf("UpdateTeam() error = %v", err)
 	}

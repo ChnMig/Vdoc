@@ -3,6 +3,7 @@ package team
 import (
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/response"
+	app "vdoc/appstore"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +21,10 @@ func createTeam(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req struct{ Name, Description string }
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		shared.ReturnBindError(c, err)
 		return
@@ -64,12 +68,15 @@ func updateTeam(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req struct{ Name, Description string }
+	var req struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	team, err := shared.Store().UpdateTeam(userID, c.Param("team_id"), req.Name, req.Description, shared.AuditContextFromGin(c))
+	team, err := shared.Store().UpdateTeam(userID, c.Param("team_id"), app.NameDescriptionPatch{Name: req.Name, Description: req.Description}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

@@ -22,8 +22,8 @@ type CreateParams struct {
 type UpdateParams struct {
 	Branch      *ContractBranch
 	Branches    []*ContractBranch
-	Name        string
-	Description string
+	Name        *string
+	Description *string
 	IsDefault   *bool
 	IsProtected *bool
 	Now         time.Time

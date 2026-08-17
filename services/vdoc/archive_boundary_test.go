@@ -323,7 +323,7 @@ func TestArchiveProjectIsSingleTransitionAndDoesNotDuplicateAudit(t *testing.T) 
 	}
 }
 
-func TestUpdateDocumentCannotArchiveOrPartiallyMutateThroughPatch(t *testing.T) {
+func TestUpdateDocumentRejectsInvalidPatchAtomicallyAndArchivedDocumentsRemainImmutable(t *testing.T) {
 	store, projectID, documentID, _ := newMarkdownDocumentFlowStore(t)
 	before, err := store.Document("admin", projectID, documentID)
 	if err != nil {
@@ -331,16 +331,20 @@ func TestUpdateDocumentCannotArchiveOrPartiallyMutateThroughPatch(t *testing.T) 
 	}
 	beforeAudits := countAuditAction(store.AuditLogsForTest(), "document.update")
 
-	_, err = store.UpdateDocument("admin", projectID, documentID, "changed-name", before.DocumentType, "changed/path.md", "changed description", DocumentStatusArchived)
+	_, err = store.UpdateDocument("admin", projectID, documentID, DocumentPatchInput{
+		Name:         stringPtrValue("  "),
+		RelativePath: stringPtrValue("changed/path.md"),
+		Description:  stringPtrValue("changed description"),
+	})
 	if !Is(err, ErrInvalidArgument) {
-		t.Fatalf("UpdateDocument(status archived) error = %v, want invalid argument", err)
+		t.Fatalf("UpdateDocument(invalid name) error = %v, want invalid argument", err)
 	}
 	after, err := store.Document("admin", projectID, documentID)
 	if err != nil {
 		t.Fatalf("Document() after rejected update error = %v", err)
 	}
 	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("document mutated after rejected status: before=%+v after=%+v", before, after)
+		t.Fatalf("document partially mutated after rejected patch: before=%+v after=%+v", before, after)
 	}
 	if got := countAuditAction(store.AuditLogsForTest(), "document.update"); got != beforeAudits {
 		t.Fatalf("document update audits = %d, want %d", got, beforeAudits)
@@ -353,7 +357,7 @@ func TestUpdateDocumentCannotArchiveOrPartiallyMutateThroughPatch(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Document() after archive error = %v", err)
 	}
-	if _, err := store.UpdateDocument("admin", projectID, documentID, "changed-after-archive", before.DocumentType, before.RelativePath, before.Description, DocumentStatusActive); !Is(err, ErrFailedPrecondition) {
+	if _, err := store.UpdateDocument("admin", projectID, documentID, DocumentPatchInput{Name: stringPtrValue("changed-after-archive")}); !Is(err, ErrFailedPrecondition) {
 		t.Fatalf("UpdateDocument() after archive error = %v, want failed precondition", err)
 	}
 	stored, err := store.Document("admin", projectID, documentID)

@@ -16,7 +16,7 @@ func TestOpenAPIDocumentDraftSubmitApprovePublishesVersion(t *testing.T) {
 		t.Fatalf("draft hashes raw=%q normalized=%q, want distinct populated hashes", draft.RawSchemaHash, draft.NormalizedSchemaHash)
 	}
 
-	updated, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftInput{BranchID: branchID, VersionName: "1.0.1", SchemaContent: testOpenAPI("documentUpdate"), SourceGitCommitID: "def456"})
+	updated, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.1"), SchemaContent: testOpenAPI("documentUpdate"), SourceGitCommitID: stringPtrValue("def456")})
 	if err != nil {
 		t.Fatalf("UpdateDocumentDraft() error = %v", err)
 	}

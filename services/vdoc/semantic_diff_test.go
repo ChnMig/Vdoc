@@ -110,6 +110,55 @@ func TestCompareVersionsDetectsRootSchemaTypeChanges(t *testing.T) {
 	assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.properties.name", SeverityBreaking, true, "Response field removed")
 }
 
+func TestCompareVersionsDetectsPreviouslyHiddenBreakingChanges(t *testing.T) {
+	t.Run("request body becomes required", func(t *testing.T) {
+		fromSchema := `{"openapi":"3.1.0","info":{"title":"Body","version":"1"},"paths":{"/widgets":{"post":{"requestBody":{"required":false,"content":{"application/json":{"schema":{"type":"object"}}}},"responses":{"200":{"description":"ok"}}}}}}`
+		toSchema := `{"openapi":"3.1.0","info":{"title":"Body","version":"2"},"paths":{"/widgets":{"post":{"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object"}}}},"responses":{"200":{"description":"ok"}}}}}}`
+		diff := compareSemanticSchemas(t, fromSchema, toSchema)
+		assertDiffItem(t, diff, ChangeRequestBodyChanged, "requestBody.required", SeverityBreaking, true, "Request body required flag changed")
+	})
+
+	t.Run("same name in query and header", func(t *testing.T) {
+		fromSchema := `{"openapi":"3.1.0","info":{"title":"Parameters","version":"1"},"paths":{"/widgets":{"get":{"parameters":[{"name":"filter","in":"query","schema":{"type":"string"}},{"name":"filter","in":"header","schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}}}}`
+		toSchema := `{"openapi":"3.1.0","info":{"title":"Parameters","version":"2"},"paths":{"/widgets":{"get":{"parameters":[{"name":"filter","in":"query","schema":{"type":"integer"}},{"name":"filter","in":"header","schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}}}}`
+		diff := compareSemanticSchemas(t, fromSchema, toSchema)
+		assertDiffItem(t, diff, ChangeParameterChanged, "parameters.query.filter", SeverityBreaking, true, "Parameter type changed")
+	})
+
+	t.Run("allOf response field removed", func(t *testing.T) {
+		fromSchema := `{"openapi":"3.1.0","info":{"title":"AllOf","version":"1"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"allOf":[{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}},{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}]}}}}}}}}}`
+		toSchema := `{"openapi":"3.1.0","info":{"title":"AllOf","version":"2"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"allOf":[{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}]}}}}}}}}}`
+		diff := compareSemanticSchemas(t, fromSchema, toSchema)
+		assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.properties.name", SeverityBreaking, true, "Response field removed")
+	})
+
+	t.Run("root array response field removed", func(t *testing.T) {
+		fromSchema := `{"openapi":"3.1.0","info":{"title":"Array","version":"1"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"array","items":{"type":"object","required":["id","name"],"properties":{"id":{"type":"string"},"name":{"type":"string"}}}}}}}}}}}}`
+		toSchema := `{"openapi":"3.1.0","info":{"title":"Array","version":"2"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"array","items":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}}}}}}}}}}`
+		diff := compareSemanticSchemas(t, fromSchema, toSchema)
+		assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.items.properties.name", SeverityBreaking, true, "Response field removed")
+	})
+
+	t.Run("nested array response field removed", func(t *testing.T) {
+		fromSchema := `{"openapi":"3.1.0","info":{"title":"Nested Array","version":"1"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","required":["code","label"],"properties":{"code":{"type":"string"},"label":{"type":"string"}}}}}}}}}}}}}}}`
+		toSchema := `{"openapi":"3.1.0","info":{"title":"Nested Array","version":"2"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","required":["code"],"properties":{"code":{"type":"string"}}}}}}}}}}}}}}}`
+		diff := compareSemanticSchemas(t, fromSchema, toSchema)
+		assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.properties.groups.items.properties.label", SeverityBreaking, true, "Response field removed")
+	})
+}
+
+func compareSemanticSchemas(t *testing.T, fromSchema, toSchema string) *Diff {
+	t.Helper()
+	store, _, projectID, serviceID, branchID := newContractPipelineStore(t)
+	from := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.0.0", fromSchema)
+	to := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.1.0", toSchema)
+	diff, err := store.CompareVersions("reader", projectID, serviceID, from.ID, to.ID)
+	if err != nil {
+		t.Fatalf("CompareVersions() error = %v", err)
+	}
+	return diff
+}
+
 func TestSemanticDiffMarksPRDRequestAnd2xxRemovalRulesBreaking(t *testing.T) {
 	store, _, projectID, serviceID, branchID := newContractPipelineStore(t)
 	fromSchema := `{"openapi":"3.1.0","info":{"title":"Rules","version":"1"},"paths":{"/widgets":{"post":{"requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"count":{"type":"string"}}}},"application/xml":{"schema":{"type":"object"}}}},"responses":{"200":{"description":"ok"},"404":{"description":"missing"}}}}}}`

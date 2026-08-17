@@ -8,6 +8,9 @@ import (
 )
 
 func TestNormalizeScopesAndScopeRoleIntersection(t *testing.T) {
+	if _, err := NormalizeScopes(nil); !errors.Is(err, commonvdoc.ErrInvalidArgument) {
+		t.Fatalf("empty scopes error = %v, want invalid argument", err)
+	}
 	scopes, err := NormalizeScopes([]int{commonvdoc.ScopeAPIDraft, commonvdoc.ScopeAPIRead, commonvdoc.ScopeAPIDraft})
 	if err != nil {
 		t.Fatalf("NormalizeScopes() error = %v", err)

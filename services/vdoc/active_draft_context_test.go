@@ -4,7 +4,7 @@ import "testing"
 
 func TestOpenAPIDraftMutationsRequireActiveProjectDocumentAndBranch(t *testing.T) {
 	testOpenAPIDraftActiveContexts(t, func(t *testing.T, store *Store, projectID, documentID, branchID, draftID string) {
-		if _, err := store.UpdateDraft("writer", projectID, documentID, draftID, DraftInput{VersionName: "1.0.1", SchemaContent: testOpenAPI("updated")}); !Is(err, ErrFailedPrecondition) {
+		if _, err := store.UpdateDraft("writer", projectID, documentID, draftID, DraftPatchInput{VersionName: stringPtrValue("1.0.1"), SchemaContent: testOpenAPI("updated")}); !Is(err, ErrFailedPrecondition) {
 			t.Fatalf("UpdateDraft() error = %v, want failed precondition", err)
 		}
 		if _, err := store.SubmitDraft("writer", projectID, documentID, draftID); !Is(err, ErrFailedPrecondition) {
@@ -79,7 +79,7 @@ func TestMarkdownDraftMutationsRequireActiveContext(t *testing.T) {
 				t.Fatalf("CreateMarkdownDraft() error = %v", err)
 			}
 			test.archive(store, projectID, documentID, branchID)
-			if _, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftInput{VersionName: "1.0.1", SchemaContent: markdownV2()}); !Is(err, ErrFailedPrecondition) {
+			if _, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.1"), SchemaContent: markdownV2()}); !Is(err, ErrFailedPrecondition) {
 				t.Fatalf("UpdateMarkdownDraft() error = %v, want failed precondition", err)
 			}
 			if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, draft.ID); !Is(err, ErrFailedPrecondition) {
@@ -117,7 +117,7 @@ func TestDocumentAndBranchMutationsRequireActiveParentContext(t *testing.T) {
 			if _, err := store.CreateBranch("admin", projectID, documentID, "feature/rejected", ""); !Is(err, ErrFailedPrecondition) {
 				t.Fatalf("CreateBranch() error = %v, want failed precondition", err)
 			}
-			if _, err := store.UpdateBranch("admin", projectID, documentID, branch.ID, "feature/rejected-update", "", nil, nil); !Is(err, ErrFailedPrecondition) {
+			if _, err := store.UpdateBranch("admin", projectID, documentID, branch.ID, BranchPatchInput{Name: stringPtrValue("feature/rejected-update")}); !Is(err, ErrFailedPrecondition) {
 				t.Fatalf("UpdateBranch() error = %v, want failed precondition", err)
 			}
 			if _, err := store.ArchiveBranch("admin", projectID, documentID, branch.ID); !Is(err, ErrFailedPrecondition) {

@@ -21,5 +21,10 @@ func me(c *gin.Context) {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	response.ReturnOk(c, shared.User(user))
+	canAccessAudit, err := shared.Store().CanAccessAudit(userID)
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	response.ReturnOk(c, shared.Identity(user, canAccessAudit))
 }

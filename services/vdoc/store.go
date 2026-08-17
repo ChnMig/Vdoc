@@ -357,6 +357,30 @@ func (s *Store) QueryAuditLogs(actorID string, query AuditLogQuery) ([]*AuditLog
 	return logs, nil
 }
 
+// CanAccessAudit reports whether the current identity may open at least one
+// audit scope. It keeps navigation authorization aligned with QueryAuditLogs
+// without forcing clients to enumerate every project and member list.
+func (s *Store) CanAccessAudit(actorID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return false, err
+	}
+	actor := s.users[actorID]
+	if actor == nil || actor.Status != UserStatusActive {
+		return false, ErrUnauthenticated
+	}
+	if actor.IsSuperAdmin {
+		return true, nil
+	}
+	for _, member := range s.members {
+		if member.UserID == actorID && s.isActiveProjectAdminLocked(member.ProjectID, actorID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *Store) QueryMCPUsage(actorID string, query MCPUsageQuery) ([]*AuditLog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -903,7 +927,7 @@ func (s *Store) Team(actorID, teamID string) (*Team, error) {
 	return cloneTeam(t), nil
 }
 
-func (s *Store) UpdateTeam(actorID, teamID, name, description string, auditCtx ...AuditContext) (*Team, error) {
+func (s *Store) UpdateTeam(actorID, teamID string, input NameDescriptionPatch, auditCtx ...AuditContext) (*Team, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -918,10 +942,19 @@ func (s *Store) UpdateTeam(actorID, teamID, name, description string, auditCtx .
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if strings.TrimSpace(name) != "" {
-		t.Name = strings.TrimSpace(name)
+	if input.Name == nil && input.Description == nil {
+		return nil, fmt.Errorf("%w: at least one team field is required", ErrInvalidArgument)
 	}
-	t.Description = description
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+		}
+		t.Name = name
+	}
+	if input.Description != nil {
+		t.Description = *input.Description
+	}
 	t.UpdatedAt = time.Now()
 	s.auditLocked(ctx, AuditActorUser, actorID, "team.update", "team", teamID, "", "", auditMetadata("result", "success", "name", t.Name))
 	if err := s.persistLocked(); err != nil {
@@ -1040,7 +1073,7 @@ func (s *Store) Project(actorID, projectID string) (*Project, error) {
 	return cloneProject(p), nil
 }
 
-func (s *Store) UpdateProject(actorID, projectID, name, description string, auditCtx ...AuditContext) (*Project, error) {
+func (s *Store) UpdateProject(actorID, projectID string, input NameDescriptionPatch, auditCtx ...AuditContext) (*Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -1057,10 +1090,19 @@ func (s *Store) UpdateProject(actorID, projectID, name, description string, audi
 	if p.Status == ProjectStatusArchived {
 		return nil, ErrFailedPrecondition
 	}
-	if strings.TrimSpace(name) != "" {
-		p.Name = strings.TrimSpace(name)
+	if input.Name == nil && input.Description == nil {
+		return nil, fmt.Errorf("%w: at least one project field is required", ErrInvalidArgument)
 	}
-	p.Description = description
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+		}
+		p.Name = name
+	}
+	if input.Description != nil {
+		p.Description = *input.Description
+	}
 	p.UpdatedAt = time.Now()
 	s.auditLocked(ctx, AuditActorUser, actorID, "project.update", "project", projectID, projectID, "", auditMetadata("result", "success", "name", p.Name))
 	if err := s.persistLocked(); err != nil {
@@ -1339,7 +1381,7 @@ func (s *Store) Document(actorID, projectID, documentID string) (*APIService, er
 	return s.Service(actorID, projectID, documentID)
 }
 
-func (s *Store) UpdateDocument(actorID, projectID, documentID, name string, documentType int, relativePath, description string, status int, auditCtx ...AuditContext) (*APIService, error) {
+func (s *Store) UpdateDocument(actorID, projectID, documentID string, input DocumentPatchInput, auditCtx ...AuditContext) (*APIService, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -1363,19 +1405,29 @@ func (s *Store) UpdateDocument(actorID, projectID, documentID, name string, docu
 	if document.Status != DocumentStatusActive {
 		return nil, ErrFailedPrecondition
 	}
-	switch status {
-	case 0, DocumentStatusActive:
-	default:
-		return nil, fmt.Errorf("%w: document status is managed by the archive action", ErrInvalidArgument)
+	if input.Name == nil && input.RelativePath == nil && input.Description == nil {
+		return nil, fmt.Errorf("%w: at least one document field is required", ErrInvalidArgument)
+	}
+	name := document.Name
+	if input.Name != nil {
+		name = strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+		}
+	}
+	relativePath := document.RelativePath
+	if input.RelativePath != nil {
+		relativePath = strings.TrimSpace(*input.RelativePath)
+		if relativePath == "" {
+			return nil, fmt.Errorf("%w: relative_path is required", ErrInvalidArgument)
+		}
+	}
+	description := document.Description
+	if input.Description != nil {
+		description = *input.Description
 	}
 	updated := *document
-	if documentType != 0 {
-		if updated.DocumentType != 0 && updated.DocumentType != documentType {
-			return nil, fmt.Errorf("%w: document_type cannot change", ErrInvalidArgument)
-		}
-		updated.DocumentType = documentType
-	}
-	if err := domaindocument.Update(domaindocument.UpdateParams{Document: &updated, Name: name, Description: description, RelativePath: relativePath, Now: time.Now(), Existing: s.servicesForProjectLocked(projectID)}); err != nil {
+	if err := domaindocument.Update(domaindocument.UpdateParams{Document: &updated, Name: name, DisplayName: document.DisplayName, Description: description, BasePath: document.BasePath, RelativePath: relativePath, Now: time.Now(), Existing: s.servicesForProjectLocked(projectID)}); err != nil {
 		return nil, err
 	}
 	s.apiServices[documentID] = &updated
@@ -1395,7 +1447,7 @@ func (s *Store) CreateDocumentDraft(actorID, projectID, documentID string, input
 	return s.CreateDraft(actorID, projectID, documentID, input, auditCtx...)
 }
 
-func (s *Store) UpdateDocumentDraft(actorID, projectID, documentID, draftID string, input DraftInput, auditCtx ...AuditContext) (*ContractDraft, error) {
+func (s *Store) UpdateDocumentDraft(actorID, projectID, documentID, draftID string, input DraftPatchInput, auditCtx ...AuditContext) (*ContractDraft, error) {
 	return s.UpdateDraft(actorID, projectID, documentID, draftID, input, auditCtx...)
 }
 
@@ -1491,7 +1543,7 @@ func (s *Store) CreateMarkdownDraft(actorID, projectID, documentID string, input
 	return s.createMarkdownDraftLocked(actorID, projectID, documentID, input, SourceTypeWebUpload, ctx)
 }
 
-func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID string, input DraftInput, auditCtx ...AuditContext) (*ContractDraft, error) {
+func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID string, input DraftPatchInput, auditCtx ...AuditContext) (*ContractDraft, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -1514,7 +1566,11 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
 		return nil, err
 	}
-	if err := domaindraft.ValidateCreate(firstNonEmpty(input.VersionName, d.VersionName), input.SchemaContent); err != nil {
+	versionName := d.VersionName
+	if input.VersionName != nil {
+		versionName = *input.VersionName
+	}
+	if err := domaindraft.ValidateCreate(versionName, input.SchemaContent); err != nil {
 		return nil, err
 	}
 	stableContent := input.SchemaContent
@@ -1528,9 +1584,13 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 		return nil, err
 	}
 	updated := *d
-	updated.VersionName = firstNonEmpty(input.VersionName, d.VersionName)
-	updated.Changelog = input.Changelog
-	updated.SourceGitCommitID = input.SourceGitCommitID
+	updated.VersionName = versionName
+	if input.Changelog != nil {
+		updated.Changelog = *input.Changelog
+	}
+	if input.SourceGitCommitID != nil {
+		updated.SourceGitCommitID = *input.SourceGitCommitID
+	}
 	updated.SchemaFormat = DocumentFormatMarkdown
 	updated.RawSchema = input.SchemaContent
 	updated.NormalizedSchema = stableContent
@@ -1926,7 +1986,7 @@ func (s *Store) CreateBranch(actorID, projectID, serviceID, name, description st
 	return cloneBranch(b), nil
 }
 
-func (s *Store) UpdateBranch(actorID, projectID, serviceID, branchID, name, description string, isDefault, isProtected *bool, auditCtx ...AuditContext) (*ContractBranch, error) {
+func (s *Store) UpdateBranch(actorID, projectID, serviceID, branchID string, input BranchPatchInput, auditCtx ...AuditContext) (*ContractBranch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -1943,15 +2003,18 @@ func (s *Store) UpdateBranch(actorID, projectID, serviceID, branchID, name, desc
 	if branch == nil || branch.ServiceID != serviceID {
 		return nil, ErrNotFound
 	}
-	if err := domainbranch.Update(domainbranch.UpdateParams{Branch: branch, Branches: s.branchesForServiceLocked(serviceID), Name: name, Description: description, IsDefault: isDefault, IsProtected: isProtected, Now: time.Now()}); err != nil {
+	if input.Name == nil && input.Description == nil && input.IsDefault == nil && input.IsProtected == nil {
+		return nil, fmt.Errorf("%w: at least one branch field is required", ErrInvalidArgument)
+	}
+	if err := domainbranch.Update(domainbranch.UpdateParams{Branch: branch, Branches: s.branchesForServiceLocked(serviceID), Name: input.Name, Description: input.Description, IsDefault: input.IsDefault, IsProtected: input.IsProtected, Now: time.Now()}); err != nil {
 		return nil, err
 	}
 	metadata := auditMetadata("result", "success", "name", branch.Name, "kind", fmt.Sprint(branch.Kind))
-	if isDefault != nil {
-		metadata["is_default"] = fmt.Sprint(*isDefault)
+	if input.IsDefault != nil {
+		metadata["is_default"] = fmt.Sprint(*input.IsDefault)
 	}
-	if isProtected != nil {
-		metadata["is_protected"] = fmt.Sprint(*isProtected)
+	if input.IsProtected != nil {
+		metadata["is_protected"] = fmt.Sprint(*input.IsProtected)
 	}
 	s.auditLocked(ctx, AuditActorUser, actorID, "contract_branch.update", "contract_branch", branchID, projectID, serviceID, metadata)
 	if err := s.persistLocked(); err != nil {
@@ -2005,7 +2068,7 @@ func (s *Store) CreateMCPDraft(actorID, projectID, serviceID string, input Draft
 	}
 	return s.createDraftLocked(actorID, projectID, serviceID, input, SourceTypeMCPUpload, ctx)
 }
-func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input DraftInput, auditCtx ...AuditContext) (*ContractDraft, error) {
+func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input DraftPatchInput, auditCtx ...AuditContext) (*ContractDraft, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -2028,6 +2091,13 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
 		return nil, err
 	}
+	versionName := d.VersionName
+	if input.VersionName != nil {
+		versionName = *input.VersionName
+	}
+	if err := domaindraft.ValidateCreate(versionName, input.SchemaContent); err != nil {
+		return nil, err
+	}
 	parsed, err := ParseOpenAPI(input.SchemaContent)
 	if err != nil {
 		return nil, err
@@ -2037,9 +2107,13 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 		return nil, fmt.Errorf("%w: schema has no changes from latest version", ErrFailedPrecondition)
 	}
 	updated := *d
-	updated.VersionName = firstNonEmpty(input.VersionName, d.VersionName)
-	updated.Changelog = input.Changelog
-	updated.SourceGitCommitID = input.SourceGitCommitID
+	updated.VersionName = versionName
+	if input.Changelog != nil {
+		updated.Changelog = *input.Changelog
+	}
+	if input.SourceGitCommitID != nil {
+		updated.SourceGitCommitID = *input.SourceGitCommitID
+	}
 	updated.SchemaFormat = parsed.SchemaFormat
 	updated.RawSchema = input.SchemaContent
 	updated.NormalizedSchema = parsed.Normalized
@@ -2465,6 +2539,14 @@ func (s *Store) CreateMCPToken(actorID, name string, scopes []int, expiresAt *ti
 	if !ok || actor.Status != UserStatusActive {
 		return nil, ErrUnauthenticated
 	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+	}
+	now := time.Now()
+	if expiresAt != nil && !expiresAt.After(now) {
+		return nil, fmt.Errorf("%w: expires_at must be in the future", ErrInvalidArgument)
+	}
 	normalizedScopes, err := normalizeMCPTokenScopes(scopes)
 	if err != nil {
 		return nil, err
@@ -2473,13 +2555,12 @@ func (s *Store) CreateMCPToken(actorID, name string, scopes []int, expiresAt *ti
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
 	secret := "vdoc_" + tokenRaw
 	ciphertext, cipherKID, err := encryption.EncryptMCPToken(secret, s.cipherKeyring)
 	if err != nil {
 		return nil, err
 	}
-	t := &MCPToken{ID: id.GenerateID(), UserID: actorID, Name: firstNonEmpty(name, "default"), TokenHash: sha(secret), TokenCiphertext: ciphertext, CipherKID: cipherKID, Scopes: normalizedScopes, Status: MCPTokenStatusActive, CreatedAt: now, UpdatedAt: now, ExpiresAt: copyTimePtr(expiresAt)}
+	t := &MCPToken{ID: id.GenerateID(), UserID: actorID, Name: name, TokenHash: sha(secret), TokenCiphertext: ciphertext, CipherKID: cipherKID, Scopes: normalizedScopes, Status: MCPTokenStatusActive, CreatedAt: now, UpdatedAt: now, ExpiresAt: copyTimePtr(expiresAt)}
 	s.tokens[t.ID] = t
 	s.auditLocked(ctx, AuditActorUser, actorID, "mcp_token.create", "mcp_token", t.ID, "", "", auditMetadata("result", "success", "token_id", t.ID, "name", t.Name, "scopes", intsCSV(normalizedScopes), "expires_at", timePtrString(expiresAt)))
 	if err := s.persistLocked(); err != nil {
@@ -2697,7 +2778,31 @@ func (s *Store) AuthenticateMCPToken(token string, auditCtx ...AuditContext) (*M
 	return nil, nil, ErrUnauthenticated
 }
 
+type NameDescriptionPatch struct {
+	Name        *string
+	Description *string
+}
+
+type DocumentPatchInput struct {
+	Name         *string
+	RelativePath *string
+	Description  *string
+}
+
+type BranchPatchInput struct {
+	Name        *string
+	Description *string
+	IsDefault   *bool
+	IsProtected *bool
+}
+
 type DraftInput struct{ BranchID, VersionName, Changelog, SourceGitCommitID, SchemaContent, SourceBranchID, SourceVersionID, BaseVersionID string }
+type DraftPatchInput struct {
+	VersionName       *string
+	Changelog         *string
+	SourceGitCommitID *string
+	SchemaContent     string
+}
 type PromoteInput struct{ SourceBranchID, TargetBranchID, VersionName, Changelog string }
 
 func schemaDocument(ownerType, ownerID, kind, rawContent, normalizedContent, rawObjectKey, normalizedObjectKey, rawHash, normalizedHash string) (*SchemaDocument, error) {

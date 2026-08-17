@@ -33,7 +33,7 @@ func TestRegenerateAISummaryRejectsCompletion_whenDraftContextChangesDuringProvi
 		result <- regenerateErr
 	}()
 	waitForAIRequest(t, started)
-	if _, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: testOpenAPIYAML("afterSummary")}); err != nil {
+	if _, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.0"), SchemaContent: testOpenAPIYAML("afterSummary")}); err != nil {
 		t.Fatalf("UpdateDocumentDraft() error = %v", err)
 	}
 	close(release)

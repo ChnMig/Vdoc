@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-func TestMCPTokenCreateRevealListRedactionAndDefaultScope(t *testing.T) {
+func TestMCPTokenCreateRevealListRedaction(t *testing.T) {
 	store := newMCPTokenTestStore()
 
-	token, err := store.CreateMCPToken("owner", "CLI", nil, nil)
+	token, err := store.CreateMCPToken("owner", "CLI", []int{ScopeAPIRead}, nil)
 	if err != nil {
 		t.Fatalf("CreateMCPToken() error = %v", err)
 	}
@@ -20,7 +20,7 @@ func TestMCPTokenCreateRevealListRedactionAndDefaultScope(t *testing.T) {
 		t.Fatalf("token hash = %q must be set and distinct from token", token.TokenHash)
 	}
 	if len(token.Scopes) != 1 || token.Scopes[0] != ScopeAPIRead {
-		t.Fatalf("default scopes = %#v, want api:read", token.Scopes)
+		t.Fatalf("scopes = %#v, want api:read", token.Scopes)
 	}
 	if token.CipherKID == "" || len(token.TokenCiphertext) == 0 {
 		t.Fatalf("cipher fields missing: kid=%q ciphertext=%d", token.CipherKID, len(token.TokenCiphertext))
@@ -56,8 +56,26 @@ func TestMCPTokenCreateRevealListRedactionAndDefaultScope(t *testing.T) {
 func TestMCPTokenRejectsInvalidScope(t *testing.T) {
 	store := newMCPTokenTestStore()
 
+	if _, err := store.CreateMCPToken("owner", "  ", []int{ScopeAPIRead}, nil); !Is(err, ErrInvalidArgument) {
+		t.Fatalf("CreateMCPToken(blank name) error = %v, want invalid argument", err)
+	}
+	if _, err := store.CreateMCPToken("owner", "empty", nil, nil); !Is(err, ErrInvalidArgument) {
+		t.Fatalf("CreateMCPToken(empty scopes) error = %v, want invalid argument", err)
+	}
 	if _, err := store.CreateMCPToken("owner", "invalid", []int{ScopeAPIRead, 99}, nil); !Is(err, ErrInvalidArgument) {
 		t.Fatalf("CreateMCPToken(invalid scope) error = %v, want invalid argument", err)
+	}
+}
+
+func TestMCPTokenRejectsPastExpiry(t *testing.T) {
+	store := newMCPTokenTestStore()
+	past := time.Now().Add(-time.Minute)
+
+	if _, err := store.CreateMCPToken("owner", "expired", []int{ScopeAPIRead}, &past); !Is(err, ErrInvalidArgument) {
+		t.Fatalf("CreateMCPToken(past expiry) error = %v, want invalid argument", err)
+	}
+	if len(store.tokens) != 0 {
+		t.Fatalf("tokens after rejected expiry = %d, want 0", len(store.tokens))
 	}
 }
 

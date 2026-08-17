@@ -3,6 +3,7 @@ package branch
 import (
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/response"
+	app "vdoc/appstore"
 
 	"github.com/gin-gonic/gin"
 )
@@ -65,16 +66,16 @@ func updateBranch(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		IsDefault   *bool  `json:"is_default"`
-		IsProtected *bool  `json:"is_protected"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		IsDefault   *bool   `json:"is_default"`
+		IsProtected *bool   `json:"is_protected"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	branch, err := shared.Store().UpdateBranch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"), req.Name, req.Description, req.IsDefault, req.IsProtected, shared.AuditContextFromGin(c))
+	branch, err := shared.Store().UpdateBranch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"), app.BranchPatchInput{Name: req.Name, Description: req.Description, IsDefault: req.IsDefault, IsProtected: req.IsProtected}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

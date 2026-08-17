@@ -6,6 +6,7 @@ import (
 
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/response"
+	app "vdoc/appstore"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,12 +19,17 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	private.POST("/projects/:project_id/documents/:document_id/archive", archiveDocument)
 }
 
-type documentRequest struct {
+type createDocumentRequest struct {
 	Name         string `json:"name"`
 	DocumentType int    `json:"document_type"`
 	RelativePath string `json:"relative_path"`
 	Description  string `json:"description"`
-	Status       int    `json:"status"`
+}
+
+type patchDocumentRequest struct {
+	Name         *string `json:"name"`
+	RelativePath *string `json:"relative_path"`
+	Description  *string `json:"description"`
 }
 
 func createDocument(c *gin.Context) {
@@ -31,7 +37,7 @@ func createDocument(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req documentRequest
+	var req createDocumentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		shared.ReturnBindError(c, err)
 		return
@@ -84,12 +90,12 @@ func updateDocument(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req documentRequest
+	var req patchDocumentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	document, err := shared.Store().UpdateDocument(userID, c.Param("project_id"), c.Param("document_id"), req.Name, req.DocumentType, req.RelativePath, req.Description, req.Status, shared.AuditContextFromGin(c))
+	document, err := shared.Store().UpdateDocument(userID, c.Param("project_id"), c.Param("document_id"), app.DocumentPatchInput{Name: req.Name, RelativePath: req.RelativePath, Description: req.Description}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

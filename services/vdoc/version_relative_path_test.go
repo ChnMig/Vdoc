@@ -70,7 +70,7 @@ func TestDocumentVersionRelativePathSurvivesPublishRenameAndReload(t *testing.T)
 				}
 				published = result.(*ContractVersion)
 			}
-			if _, err := store.UpdateDocument("admin", "project-a", document.ID, "renamed-"+test.name, test.documentType, test.renamedPath, "", DocumentStatusActive); err != nil {
+			if _, err := store.UpdateDocument("admin", "project-a", document.ID, DocumentPatchInput{Name: stringPtrValue("renamed-" + test.name), RelativePath: stringPtrValue(test.renamedPath)}); err != nil {
 				t.Fatalf("UpdateDocument() error = %v", err)
 			}
 			store.mu.Lock()

@@ -30,12 +30,31 @@ type draftRequest struct {
 	Content           string `json:"content"`
 }
 
+type draftPatchRequest struct {
+	VersionName       *string `json:"version_name"`
+	Changelog         *string `json:"changelog"`
+	SourceGitCommitID *string `json:"source_git_commit_id"`
+	SchemaContent     *string `json:"schema_content"`
+	Content           *string `json:"content"`
+}
+
 func (r draftRequest) input() app.DraftInput {
 	content := r.SchemaContent
 	if content == "" {
 		content = r.Content
 	}
 	return app.DraftInput{BranchID: r.BranchID, VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
+}
+
+func (r draftPatchRequest) input() app.DraftPatchInput {
+	content := ""
+	if r.SchemaContent != nil {
+		content = *r.SchemaContent
+	}
+	if content == "" && r.Content != nil {
+		content = *r.Content
+	}
+	return app.DraftPatchInput{VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
 }
 
 func createDraft(c *gin.Context) {
@@ -128,7 +147,7 @@ func updateDraft(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req draftRequest
+	var req draftPatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		shared.ReturnBindError(c, err)
 		return

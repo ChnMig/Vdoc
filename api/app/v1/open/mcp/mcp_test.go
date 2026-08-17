@@ -206,7 +206,7 @@ func TestMCPDocDraftScopeCanManageMarkdownDrafts(t *testing.T) {
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID}), "submit_doc_draft")
 }
 
-func TestMCPRevokedAndExpiredTokensAreRejected(t *testing.T) {
+func TestMCPRevokedTokensAreRejectedAndPastExpiryCannotBeCreated(t *testing.T) {
 	fixture := newMCPFixture(t)
 	revoked, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "revoked", []int{app.ScopeAPIRead}, nil)
 	if err != nil {
@@ -220,12 +220,8 @@ func TestMCPRevokedAndExpiredTokensAreRejected(t *testing.T) {
 	}
 
 	past := time.Now().Add(-time.Minute)
-	expired, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "expired", []int{app.ScopeAPIRead}, &past)
-	if err != nil {
-		t.Fatalf("CreateMCPToken(expired) error = %v", err)
-	}
-	if envelope := callMCPTool(t, fixture.router, expired.Token, "list_projects", nil); envelope.Code != 401 || envelope.Status != "UNAUTHENTICATED" {
-		t.Fatalf("expired token response = code %d status %q", envelope.Code, envelope.Status)
+	if _, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "expired", []int{app.ScopeAPIRead}, &past); !app.Is(err, app.ErrInvalidArgument) {
+		t.Fatalf("CreateMCPToken(past expiry) error = %v, want invalid argument", err)
 	}
 }
 

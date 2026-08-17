@@ -17,7 +17,7 @@ func TestProjectRolesAuthorizeExpectedCapabilities(t *testing.T) {
 	if _, err := store.CreateDraft("reader", "project-a", "service-a", DraftInput{BranchID: "branch-a", VersionName: "reader", SchemaContent: testOpenAPI("readerCreate")}); !Is(err, ErrPermissionDenied) {
 		t.Fatalf("reader CreateDraft error = %v, want permission denied", err)
 	}
-	if _, err := store.UpdateDraft("reader", "project-a", "service-a", "draft-a", DraftInput{VersionName: "reader", SchemaContent: testOpenAPI("readerUpdate")}); !Is(err, ErrPermissionDenied) {
+	if _, err := store.UpdateDraft("reader", "project-a", "service-a", "draft-a", DraftPatchInput{VersionName: stringPtrValue("reader"), SchemaContent: testOpenAPI("readerUpdate")}); !Is(err, ErrPermissionDenied) {
 		t.Fatalf("reader UpdateDraft error = %v, want permission denied", err)
 	}
 	if _, err := store.SubmitDraft("reader", "project-a", "service-a", "draft-a"); !Is(err, ErrPermissionDenied) {
@@ -27,7 +27,7 @@ func TestProjectRolesAuthorizeExpectedCapabilities(t *testing.T) {
 	if _, err := store.CreateDraft("writer", "project-a", "service-a", DraftInput{BranchID: "branch-a", VersionName: "writer-create", SchemaContent: testOpenAPI("writerCreate")}); err != nil {
 		t.Fatalf("writer CreateDraft error = %v", err)
 	}
-	if _, err := store.UpdateDraft("writer", "project-a", "service-a", "draft-a", DraftInput{VersionName: "writer", SchemaContent: testOpenAPI("writerUpdate")}); err != nil {
+	if _, err := store.UpdateDraft("writer", "project-a", "service-a", "draft-a", DraftPatchInput{VersionName: stringPtrValue("writer"), SchemaContent: testOpenAPI("writerUpdate")}); err != nil {
 		t.Fatalf("writer UpdateDraft error = %v", err)
 	}
 	if _, err := store.SubmitDraft("writer", "project-a", "service-a", "draft-a"); err != nil {
@@ -145,7 +145,7 @@ func TestDraftRoutesRejectMismatchedBranchBinding(t *testing.T) {
 	if draft, err := store.Draft("writer", "project-a", "service-a", "draft-a"); err == nil || !Is(err, ErrNotFound) {
 		t.Fatalf("Draft mismatched branch result = draft %v error %v, want not found", draft, err)
 	}
-	if draft, err := store.UpdateDraft("writer", "project-a", "service-a", "draft-a", DraftInput{VersionName: "updated", SchemaContent: testOpenAPI("updatedMismatchedDraft")}); err == nil || !Is(err, ErrNotFound) {
+	if draft, err := store.UpdateDraft("writer", "project-a", "service-a", "draft-a", DraftPatchInput{VersionName: stringPtrValue("updated"), SchemaContent: testOpenAPI("updatedMismatchedDraft")}); err == nil || !Is(err, ErrNotFound) {
 		t.Fatalf("UpdateDraft mismatched branch result = draft %v error %v, want not found", draft, err)
 	}
 	if draft, err := store.SubmitDraft("writer", "project-a", "service-a", "draft-a"); err == nil || !Is(err, ErrNotFound) {

@@ -51,6 +51,47 @@ var listRouteKeys = map[string]struct{}{
 	"GET /api/v1/private/projects/{project_id}/ai/chat-sessions":                                        {},
 }
 
+type requestBodyContract struct {
+	required  bool
+	schemaRef string
+}
+
+var requestBodyContracts = map[string]requestBodyContract{
+	"POST /api/v1/open/auth/register":                                                                      {required: true, schemaRef: "#/components/schemas/AuthRequest"},
+	"POST /api/v1/open/auth/login":                                                                         {required: true, schemaRef: "#/components/schemas/AuthRequest"},
+	"POST /api/v1/open/mcp":                                                                                {required: true, schemaRef: "#/components/schemas/MCPCallRequest"},
+	"POST /api/v1/open/document-shares/{share_id}/unlock":                                                  {required: true, schemaRef: "#/components/schemas/DocumentShareUnlockRequest"},
+	"POST /api/v1/private/system/users":                                                                    {required: true, schemaRef: "#/components/schemas/CreateUserRequest"},
+	"PATCH /api/v1/private/system/users/{user_id}":                                                         {required: true, schemaRef: "#/components/schemas/PatchUserRequest"},
+	"POST /api/v1/private/teams":                                                                           {required: true, schemaRef: "#/components/schemas/NameDescriptionRequest"},
+	"PATCH /api/v1/private/teams/{team_id}":                                                                {required: true, schemaRef: "#/components/schemas/PatchNameDescriptionRequest"},
+	"POST /api/v1/private/projects":                                                                        {required: true, schemaRef: "#/components/schemas/CreateProjectRequest"},
+	"PATCH /api/v1/private/projects/{project_id}":                                                          {required: true, schemaRef: "#/components/schemas/PatchNameDescriptionRequest"},
+	"POST /api/v1/private/projects/{project_id}/members":                                                   {required: true, schemaRef: "#/components/schemas/AddProjectMemberRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/members/{user_id}/role":                                   {required: true, schemaRef: "#/components/schemas/PatchProjectMemberRoleRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents":                                                 {required: true, schemaRef: "#/components/schemas/DocumentRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}":                                  {required: true, schemaRef: "#/components/schemas/PatchDocumentRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                            {required: true, schemaRef: "#/components/schemas/CreateDocumentShareRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                          {required: true, schemaRef: "#/components/schemas/CreateBranchRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}/branches/{branch_id}":             {required: true, schemaRef: "#/components/schemas/PatchBranchRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                            {required: true, schemaRef: "#/components/schemas/DraftRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}":                {required: true, schemaRef: "#/components/schemas/PatchDraftRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/approve":         {required: false, schemaRef: "#/components/schemas/ReviewRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/request-changes": {required: false, schemaRef: "#/components/schemas/ReviewRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/reject":          {required: false, schemaRef: "#/components/schemas/ReviewRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/promote":                    {required: true, schemaRef: "#/components/schemas/PromoteDraftRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs":                             {required: true, schemaRef: "#/components/schemas/CreateDiffRequest"},
+	"PUT /api/v1/private/ai/provider":                                                                      {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/ai/provider/test":                                                                {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"PUT /api/v1/private/projects/{project_id}/ai/provider":                                                {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/provider/test":                                          {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"PUT /api/v1/private/ai/prompts/{prompt_key}":                                                          {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
+	"PUT /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}":                                    {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions":                                          {required: true, schemaRef: "#/components/schemas/AIChatSessionRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages":                    {required: true, schemaRef: "#/components/schemas/AIChatMessageRequest"},
+	"POST /api/v1/private/mcp-tokens":                                                                      {required: true, schemaRef: "#/components/schemas/CreateMCPTokenRequest"},
+}
+
 var requiredMCPTools = []string{
 	"list_projects",
 	"list_documents",
@@ -145,6 +186,7 @@ func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
 	}
 
 	assertMCPToolEnum(t)
+	assertRequestBodyContracts(t, operations)
 	assertOpenAPICurrentDescriptions(t)
 }
 
@@ -216,6 +258,54 @@ func assertMCPToolEnum(t *testing.T) {
 	}
 	if len(found) != len(requiredMCPTools) {
 		t.Fatalf("MCPToolName enum count = %d, want %d", len(found), len(requiredMCPTools))
+	}
+}
+
+func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
+	t.Helper()
+	if len(requestBodyContracts) != 33 {
+		t.Fatalf("request body route contract count = %d, want 33", len(requestBodyContracts))
+	}
+
+	found := make(map[string]struct{}, len(requestBodyContracts))
+	for path, methods := range operations {
+		for method, operation := range methods {
+			key := strings.ToUpper(method) + " " + path
+			bodyValue, hasBody := operation["requestBody"]
+			contract, expectedBody := requestBodyContracts[key]
+			if !expectedBody {
+				if hasBody {
+					t.Fatalf("%s declares an untracked requestBody", key)
+				}
+				continue
+			}
+			if !hasBody {
+				t.Fatalf("%s missing requestBody", key)
+			}
+
+			body := asMap(t, bodyValue, key+" requestBody")
+			actualRequired, ok := body["required"].(bool)
+			if !ok {
+				t.Fatalf("%s requestBody.required has type %T, want bool", key, body["required"])
+			}
+			if actualRequired != contract.required {
+				t.Fatalf("%s requestBody.required = %t, want %t", key, actualRequired, contract.required)
+			}
+
+			content := asMap(t, body["content"], key+" requestBody.content")
+			jsonMedia := asMap(t, content["application/json"], key+" requestBody.content.application/json")
+			schema := asMap(t, jsonMedia["schema"], key+" requestBody.content.application/json.schema")
+			if ref, _ := schema["$ref"].(string); ref != contract.schemaRef {
+				t.Fatalf("%s JSON requestBody schema ref = %q, want %q", key, ref, contract.schemaRef)
+			}
+			found[key] = struct{}{}
+		}
+	}
+
+	for key := range requestBodyContracts {
+		if _, ok := found[key]; !ok {
+			t.Fatalf("request body route contract not found in OpenAPI operations: %s", key)
+		}
 	}
 }
 

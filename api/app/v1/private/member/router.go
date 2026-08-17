@@ -47,6 +47,7 @@ func listMembers(c *gin.Context) {
 		}
 		details[index].UserEmail = user.Email
 		details[index].UserName = user.Name
+		details[index].UserStatus = user.Status
 	}
 	response.ReturnOkWithTotal(c, len(members), details)
 }

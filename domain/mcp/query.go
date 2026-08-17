@@ -15,7 +15,7 @@ const (
 
 func NormalizeScopes(scopes []int) ([]int, error) {
 	if len(scopes) == 0 {
-		return []int{commonvdoc.ScopeAPIRead}, nil
+		return nil, commonvdoc.ErrInvalidArgument
 	}
 	seen := map[int]bool{}
 	normalized := make([]int, 0, len(scopes))
@@ -30,7 +30,7 @@ func NormalizeScopes(scopes []int) ([]int, error) {
 		normalized = append(normalized, scope)
 	}
 	if len(normalized) == 0 {
-		return []int{commonvdoc.ScopeAPIRead}, nil
+		return nil, commonvdoc.ErrInvalidArgument
 	}
 	return normalized, nil
 }

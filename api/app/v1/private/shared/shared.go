@@ -98,11 +98,20 @@ type UserDTO struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type IdentityDTO struct {
+	UserDTO
+	CanAccessAudit bool `json:"can_access_audit"`
+}
+
 func User(v *app.User) UserDTO {
 	if v == nil {
 		return UserDTO{}
 	}
 	return UserDTO{ID: v.ID, Email: v.Email, Name: v.Name, IsSuperAdmin: v.IsSuperAdmin, Status: v.Status, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+}
+
+func Identity(v *app.User, canAccessAudit bool) IdentityDTO {
+	return IdentityDTO{UserDTO: User(v), CanAccessAudit: canAccessAudit}
 }
 
 func Users(values []*app.User) []UserDTO {
@@ -164,15 +173,16 @@ func Projects(values []*app.Project) []ProjectDTO {
 }
 
 type ProjectMemberDTO struct {
-	ProjectID string    `json:"project_id"`
-	UserID    string    `json:"user_id"`
-	UserEmail string    `json:"user_email,omitempty"`
-	UserName  string    `json:"user_name,omitempty"`
-	Role      int       `json:"role"`
-	Status    int       `json:"status"`
-	AddedBy   string    `json:"added_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ProjectID  string    `json:"project_id"`
+	UserID     string    `json:"user_id"`
+	UserEmail  string    `json:"user_email,omitempty"`
+	UserName   string    `json:"user_name,omitempty"`
+	UserStatus int       `json:"user_status"`
+	Role       int       `json:"role"`
+	Status     int       `json:"status"`
+	AddedBy    string    `json:"added_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type ProjectMemberCandidateDTO struct {

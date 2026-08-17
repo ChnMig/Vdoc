@@ -17,8 +17,8 @@ func Update(params UpdateParams) error {
 	if params.IsDefault != nil && !*params.IsDefault && branch.IsDefault {
 		return commonvdoc.ErrFailedPrecondition
 	}
-	if strings.TrimSpace(params.Name) != "" {
-		name := strings.TrimSpace(params.Name)
+	if params.Name != nil {
+		name := strings.TrimSpace(*params.Name)
 		kind, err := KindForName(name)
 		if err != nil {
 			return err
@@ -29,7 +29,9 @@ func Update(params UpdateParams) error {
 		branch.Name = name
 		branch.Kind = kind
 	}
-	branch.Description = params.Description
+	if params.Description != nil {
+		branch.Description = *params.Description
+	}
 	if params.IsDefault != nil {
 		if *params.IsDefault {
 			for _, other := range params.Branches {

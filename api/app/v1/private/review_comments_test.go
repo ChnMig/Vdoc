@@ -46,21 +46,25 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	if resubmitEnvelope.Code != 200 || resubmitEnvelope.Status != "OK" {
 		t.Fatalf("resubmit response = code %d status %q body %s", resubmitEnvelope.Code, resubmitEnvelope.Status, resubmitEnvelope.Message)
 	}
-	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "reject"}), fixture.adminToken, `{"reason":"  does not match the contract  "}`))
+	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "reject"}), fixture.adminToken, `{"comment":"  does not match the contract  "}`))
 	if rejectEnvelope.Code != 200 || rejectEnvelope.Status != "OK" {
 		t.Fatalf("reject response = code %d status %q body %s", rejectEnvelope.Code, rejectEnvelope.Status, rejectEnvelope.Message)
 	}
 	var rejected app.ContractDraft
 	if err := json.Unmarshal(rejectEnvelope.Detail, &rejected); err != nil || rejected.ReviewComment != "does not match the contract" {
-		t.Fatalf("rejected draft = %+v error=%v, want persisted reason", rejected, err)
+		t.Fatalf("rejected draft = %+v error=%v, want persisted comment", rejected, err)
 	}
 	rejectAudit := requirePrivateReviewAudit(t, changesDraft.ID, "reject")
 	if rejectAudit.Metadata["review_comment"] != "does not match the contract" {
-		t.Fatalf("reject audit metadata = %+v, want reason alias", rejectAudit.Metadata)
+		t.Fatalf("reject audit metadata = %+v, want comment", rejectAudit.Metadata)
 	}
 
 	publishDraft := createSubmittedReviewDraft(t, reviewDraftInput{Fixture: fixture, Document: document, BranchID: branchID, Version: "1.0.1", Operation: "reviewBodyApprove"})
-	approveEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"comment":"  approved note wins  ","reason":"ignored alias"}`))
+	legacyAliasEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"reason":"obsolete alias"}`))
+	if legacyAliasEnvelope.Code != 400 || legacyAliasEnvelope.Status != "INVALID_ARGUMENT" {
+		t.Fatalf("legacy reason alias response = code %d status %q body %s", legacyAliasEnvelope.Code, legacyAliasEnvelope.Status, legacyAliasEnvelope.Message)
+	}
+	approveEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"comment":"  approved note wins  "}`))
 	if approveEnvelope.Code != 200 || approveEnvelope.Status != "OK" {
 		t.Fatalf("approve response = code %d status %q body %s", approveEnvelope.Code, approveEnvelope.Status, approveEnvelope.Message)
 	}
