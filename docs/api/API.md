@@ -159,6 +159,7 @@ MCP_TOKEN_RESPONSE=$(curl -sS "$API_BASE/api/v1/private/mcp-tokens" \
   -H "Authorization: $JWT" \
   -d '{"name":"docs-agent","scopes":[1,2]}')
 MCP_TOKEN=$(printf '%s' "$MCP_TOKEN_RESPONSE" | jq -r '.detail.token')
+MCP_TOKEN_ID=$(printf '%s' "$MCP_TOKEN_RESPONSE" | jq -r '.detail.id')
 
 curl -sS "$API_BASE/api/v1/open/mcp" \
   -H 'Content-Type: application/json' \
@@ -169,9 +170,14 @@ curl -sS "$API_BASE/api/v1/open/mcp" \
   -H 'Content-Type: application/json' \
   -H "Authorization: $MCP_TOKEN" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":\"endpoint-detail\",\"method\":\"tools/call\",\"params\":{\"name\":\"get_endpoint_detail\",\"arguments\":{\"project_id\":\"$PROJECT_ID\",\"document_id\":\"$DOCUMENT_ID\",\"version_id\":\"$VERSION_ONE_ID\",\"endpoint_id\":\"$ENDPOINT_ID\"}}}"
+
+curl -sS "$API_BASE/api/v1/private/mcp-usage?token_id=$MCP_TOKEN_ID&limit=20" \
+  -H "Authorization: $JWT"
 ```
 
 The token value in `.detail.token` is returned on creation and may be revealed again by the token owner with `GET /api/v1/private/mcp-tokens/{token_id}` while the token remains active. List, revoked, and expired token responses stay redacted. Storage uses `token_hash` for authentication and encrypted `token_ciphertext` for owner reveal; neither storage field is exposed by the API.
+
+`GET /api/v1/private/mcp-usage` returns newest-first sanitized `mcp.tool_call` evidence for the authenticated user's tokens. `token_id` selects one owned token; SuperAdmins may specify another user's token, but an omitted `token_id` always means the current user's own tokens. The response is capped at 200 records and retains only the tool, adapter, result/reason, token ID, and canonical project/document/branch/draft/version/endpoint/diff IDs. Entity IDs are recorded only after a successful tool call, so a failed request cannot turn caller-supplied IDs into entity evidence. Successful published-content reads use `evidence_kind=published_content_read`. Raw MCP secrets, request arguments, schema/Markdown content, IP addresses, and User-Agent values are not returned.
 
 Current MCP tools include `list_projects`, `list_documents`, `list_api_versions`, `list_doc_versions`, `get_latest_schema`, `get_endpoint_detail`, `compare_api_versions`, `get_change_summary`, `create_api_version_draft`, `update_api_version_draft`, `submit_api_version_draft`, `get_api_version_draft`, `get_latest_doc`, `compare_doc_versions`, `create_doc_draft`, `update_doc_draft`, `submit_doc_draft`, and `get_doc_draft`. Direct publish tools are intentionally not exposed in v0.1. `list_api_versions` is retained for API-document clients; Markdown agents should use the discoverable `list_doc_versions` tool with a `doc:read` scope.
 
@@ -337,5 +343,6 @@ Send the proof as `X-Vdoc-Share-Unlock`. Invalid capabilities, passwords, proofs
 | AI | `GET` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}` | JWT |
 | AI | `POST` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages` | JWT |
 | MCP Tokens | `GET`, `POST` | `/api/v1/private/mcp-tokens` | JWT |
+| MCP Tokens | `GET` | `/api/v1/private/mcp-usage` | JWT; owner-scoped unless SuperAdmin supplies `token_id` |
 | MCP Tokens | `GET` | `/api/v1/private/mcp-tokens/{token_id}` | JWT |
 | MCP Tokens | `POST` | `/api/v1/private/mcp-tokens/{token_id}/revoke` | JWT |

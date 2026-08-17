@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,43 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestHistoricalMigrationChecksumsAreFrozen(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	expected := map[string]string{
+		"000": "60890cbc782984e7e5e4256511b71adb0b4491b88c82dbd23434c6e3d4ab21fd",
+		"001": "6938bb3c042e38bd38d4c19719b6a3329fae07fac972f6681191cc1509d6c8ce",
+		"002": "8d19b71da40adc59959d1c2c6cd9f9d3d7811d0fe248fdd9d39379d8afbf967b",
+		"003": "3bce09d045935ea159c344c25aa2ba8afc0a8b4c2cbd687a7d5d4ed39848d413",
+		"004": "2058513d63bef1b181964fae114bec70406f97f0d758c1675f77a9034e4c3420",
+	}
+	if len(migrations) != len(expected) {
+		t.Fatalf("embedded migration count = %d, frozen list = %d; add new versions to the list without rewriting old SQL", len(migrations), len(expected))
+	}
+	for _, migration := range migrations {
+		want, ok := expected[migration.Version]
+		if !ok {
+			t.Fatalf("migration %s %s is not in the frozen checksum list", migration.Version, migration.Name)
+		}
+		if migration.Checksum != want {
+			t.Fatalf("migration %s %s checksum changed: got %s, want %s; add a new migration instead of editing applied SQL", migration.Version, migration.Name, migration.Checksum, want)
+		}
+	}
+}
+
+func TestInitialLegacyMigrationFixtureIsHistoricalArtifact(t *testing.T) {
+	body, err := os.ReadFile("testdata/001_initial_legacy.sql")
+	if err != nil {
+		t.Fatalf("read initial legacy migration: %v", err)
+	}
+	const historicalChecksum = "3f0433999455af3ba99d8789a66ae6f8f534ef3fc4fbc665599f173bdbf0aa0d"
+	if checksum := fmt.Sprintf("%x", sha256.Sum256(body)); checksum != historicalChecksum {
+		t.Fatalf("initial legacy migration fixture checksum = %s, want %s", checksum, historicalChecksum)
+	}
+}
 
 func TestEmbeddedMigrationsCoverV01Schema(t *testing.T) {
 	migrations, err := EmbeddedMigrations()
@@ -134,6 +172,111 @@ func TestRunMigrationsCreatesSchemaAndIsIdempotent(t *testing.T) {
 	if tableExists(t, database, "vdoc_state") {
 		t.Fatal("vdoc_state must not exist after normalized migrations")
 	}
+	assertAllMigrationChecksumsRecorded(t, database)
+}
+
+func TestRunMigrationsUpgradesInitialChecksumlessV01AndPreservesRows(t *testing.T) {
+	dsn := os.Getenv("VDOC_TEST_DATABASE_DSN")
+	if dsn == "" {
+		t.Skip("VDOC_TEST_DATABASE_DSN not set; skipping historical PostgreSQL upgrade test")
+	}
+	database := openTestDB(t, dsn)
+	defer closeTestDB(t, database)
+	resetPublicSchema(t, database)
+
+	legacySQL, err := os.ReadFile("testdata/001_initial_legacy.sql")
+	if err != nil {
+		t.Fatalf("read initial legacy migration: %v", err)
+	}
+	if err := database.Exec(string(legacySQL)).Error; err != nil {
+		t.Fatalf("apply initial historical 001: %v", err)
+	}
+	if err := database.Exec(`INSERT INTO schema_migrations(version, name) VALUES('001', 'v01_schema')`).Error; err != nil {
+		t.Fatalf("record historical 001: %v", err)
+	}
+
+	const (
+		userID    = "11111111-1111-1111-1111-111111111111"
+		teamID    = "22222222-2222-2222-2222-222222222222"
+		projectID = "33333333-3333-3333-3333-333333333333"
+		serviceID = "44444444-4444-4444-4444-444444444444"
+		branchID  = "55555555-5555-5555-5555-555555555555"
+	)
+	if err := database.Exec(`INSERT INTO users(id,email,password_hash,display_name) VALUES(?,?,?,?)`, userID, "legacy@example.com", "hash", "Legacy User").Error; err != nil {
+		t.Fatalf("insert legacy user: %v", err)
+	}
+	if err := database.Exec(`INSERT INTO teams(id,name,slug,created_by) VALUES(?,?,?,?)`, teamID, "Legacy Team", "legacy-team", userID).Error; err != nil {
+		t.Fatalf("insert legacy team: %v", err)
+	}
+	if err := database.Exec(`INSERT INTO projects(id,team_id,name,slug,created_by) VALUES(?,?,?,?,?)`, projectID, teamID, "Legacy Project", "legacy-project", userID).Error; err != nil {
+		t.Fatalf("insert legacy project: %v", err)
+	}
+	if err := database.Exec(`INSERT INTO api_services(id,project_id,name,base_path,created_by) VALUES(?,?,?,?,?)`, serviceID, projectID, "Legacy API", "/legacy", userID).Error; err != nil {
+		t.Fatalf("insert legacy API service: %v", err)
+	}
+	if err := database.Exec(`INSERT INTO api_contract_branches(id,service_id,name,kind,is_default,created_by) VALUES(?,?,?,?,?,?)`, branchID, serviceID, "main", 1, true, userID).Error; err != nil {
+		t.Fatalf("insert legacy API branch: %v", err)
+	}
+
+	if err := RunMigrations(context.Background(), database); err != nil {
+		t.Fatalf("upgrade initial historical 001: %v", err)
+	}
+	if err := RunMigrations(context.Background(), database); err != nil {
+		t.Fatalf("repeat upgraded migrations: %v", err)
+	}
+
+	for _, oldTable := range []string{"api_services", "api_contract_branches", "api_contract_drafts", "api_contract_versions", "api_version_diffs", "api_diff_items"} {
+		if tableExists(t, database, oldTable) {
+			t.Fatalf("legacy table %s remains after reconciliation", oldTable)
+		}
+	}
+	for _, currentTable := range []string{"documents", "document_branches", "ai_providers", "document_shares"} {
+		if !tableExists(t, database, currentTable) {
+			t.Fatalf("current table %s missing after historical upgrade", currentTable)
+		}
+	}
+	var document struct {
+		ID           string
+		ProjectID    string
+		Name         string
+		DocumentType int
+		RelativePath string
+	}
+	if err := database.Raw(`SELECT id, project_id, name, document_type, relative_path FROM documents WHERE id=?`, serviceID).Scan(&document).Error; err != nil {
+		t.Fatalf("load reconciled document: %v", err)
+	}
+	if document.ID != serviceID || document.ProjectID != projectID || document.Name != "Legacy API" || document.DocumentType != 1 || document.RelativePath == "" {
+		t.Fatalf("reconciled document = %+v", document)
+	}
+	var branchDocumentID string
+	if err := database.Raw(`SELECT document_id FROM document_branches WHERE id=?`, branchID).Scan(&branchDocumentID).Error; err != nil {
+		t.Fatalf("load reconciled branch: %v", err)
+	}
+	if branchDocumentID != serviceID {
+		t.Fatalf("reconciled branch document_id = %s, want %s", branchDocumentID, serviceID)
+	}
+	assertAllMigrationChecksumsRecorded(t, database)
+}
+
+func TestRunMigrationsRejectsAppliedMigrationChecksumDrift(t *testing.T) {
+	dsn := os.Getenv("VDOC_TEST_DATABASE_DSN")
+	if dsn == "" {
+		t.Skip("VDOC_TEST_DATABASE_DSN not set; skipping migration checksum drift test")
+	}
+	database := openTestDB(t, dsn)
+	defer closeTestDB(t, database)
+	resetPublicSchema(t, database)
+	if err := RunMigrations(context.Background(), database); err != nil {
+		t.Fatalf("initial RunMigrations: %v", err)
+	}
+	if err := database.Exec(`UPDATE schema_migrations SET checksum=repeat('0', 64) WHERE version='001'`).Error; err != nil {
+		t.Fatalf("tamper migration checksum: %v", err)
+	}
+
+	err := RunMigrations(context.Background(), database)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("RunMigrations checksum drift error = %v, want checksum mismatch", err)
+	}
 }
 
 func TestRunMigrationsEnforcesKeyConstraints(t *testing.T) {
@@ -234,6 +377,17 @@ func tableExists(t *testing.T, database *gorm.DB, name string) bool {
 		t.Fatalf("check table %s: %v", name, err)
 	}
 	return exists
+}
+
+func assertAllMigrationChecksumsRecorded(t *testing.T, database *gorm.DB) {
+	t.Helper()
+	var missing int64
+	if err := database.Raw(`SELECT count(*) FROM schema_migrations WHERE checksum IS NULL OR checksum !~ '^[0-9a-f]{64}$'`).Scan(&missing).Error; err != nil {
+		t.Fatalf("count missing migration checksums: %v", err)
+	}
+	if missing != 0 {
+		t.Fatalf("schema_migrations has %d rows without a valid checksum", missing)
+	}
 }
 
 func insertUser(t *testing.T, database *gorm.DB, id, email string) {

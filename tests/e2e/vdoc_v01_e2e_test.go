@@ -36,8 +36,22 @@ type happyPathEvidence struct {
 		CompareSummary         e2eDiffSummary `json:"compare_summary"`
 		ChangeSummaryMustItems int            `json:"change_summary_must_items"`
 		ChangeSummaryOptional  int            `json:"change_summary_optional_items"`
+		UsageEventCount        int            `json:"usage_event_count"`
+		PublishedReadTools     []string       `json:"published_read_tools"`
+		ReaderUsageDenied      bool           `json:"reader_cross_owner_usage_denied"`
 	} `json:"mcp"`
 	Audit map[string]int `json:"audit_action_counts"`
+}
+
+type e2eMCPUsageLog struct {
+	ActorTokenID string            `json:"actor_token_id"`
+	Action       string            `json:"action"`
+	ResourceID   string            `json:"resource_id"`
+	ProjectID    string            `json:"project_id"`
+	DocumentID   string            `json:"document_id"`
+	Metadata     map[string]string `json:"metadata"`
+	IPAddress    string            `json:"ip_address"`
+	UserAgent    string            `json:"user_agent"`
 }
 
 func TestVdocV01EndToEnd(t *testing.T) {
@@ -215,6 +229,61 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 		t.Fatalf("MCP change summary = must_handle %d optional %d, want both categories", len(mcpSummary.MustHandle), len(mcpSummary.Optional))
 	}
 
+	usageEnvelope := fixture.requireOK(t, http.MethodGet, "/api/v1/private/mcp-usage?token_id="+mcpToken.ID+"&limit=20", workspace.AdminToken, nil)
+	usage := decodeDetail[[]e2eMCPUsageLog](t, usageEnvelope)
+	if usageEnvelope.Total == nil || *usageEnvelope.Total != 4 || len(usage) != 4 {
+		t.Fatalf("MCP usage total=%v rows=%d, want four audited calls", usageEnvelope.Total, len(usage))
+	}
+	allowedUsageMetadata := map[string]bool{
+		"adapter": true, "evidence_kind": true, "result": true, "tool_name": true,
+		"token_id": true, "reason": true, "project_id": true, "document_id": true,
+		"branch_id": true, "draft_id": true, "version_id": true, "endpoint_id": true,
+		"from_version_id": true, "to_version_id": true, "diff_id": true,
+	}
+	usageByTool := make(map[string]e2eMCPUsageLog, len(usage))
+	for _, log := range usage {
+		if log.Action != "mcp.tool_call" || log.ActorTokenID != mcpToken.ID {
+			t.Fatalf("MCP usage log = %+v, want exact token mcp.tool_call", log)
+		}
+		if log.IPAddress != "" || log.UserAgent != "" {
+			t.Fatalf("MCP usage leaked request context: %+v", log)
+		}
+		for key := range log.Metadata {
+			if !allowedUsageMetadata[key] {
+				t.Fatalf("MCP usage metadata contains non-allowlisted key %q: %+v", key, log.Metadata)
+			}
+		}
+		if log.Metadata["adapter"] != "direct" || log.Metadata["result"] != "success" || log.Metadata["token_id"] != mcpToken.ID {
+			t.Fatalf("MCP usage provenance = %+v, want direct successful exact-token evidence", log.Metadata)
+		}
+		usageByTool[log.Metadata["tool_name"]] = log
+	}
+	capabilityUsage := requireMCPUsageTool(t, usageByTool, "tools/list", "capability_list")
+	if capabilityUsage.ProjectID != "" || capabilityUsage.DocumentID != "" {
+		t.Fatalf("tools/list usage unexpectedly claimed entity context: %+v", capabilityUsage)
+	}
+	endpointUsage := requireMCPUsageTool(t, usageByTool, "get_endpoint_detail", "published_content_read")
+	requireMCPUsageIDs(t, endpointUsage, map[string]string{
+		"project_id": workspace.ProjectID, "document_id": workspace.DocumentID,
+		"version_id": versionOne.ID, "endpoint_id": endpointDetail.ID,
+	})
+	compareUsage := requireMCPUsageTool(t, usageByTool, "compare_api_versions", "published_content_read")
+	requireMCPUsageIDs(t, compareUsage, map[string]string{
+		"project_id": workspace.ProjectID, "document_id": workspace.DocumentID,
+		"from_version_id": versionOne.ID, "to_version_id": versionTwo.ID, "diff_id": mcpDiff.ID,
+	})
+	summaryUsage := requireMCPUsageTool(t, usageByTool, "get_change_summary", "published_content_read")
+	requireMCPUsageIDs(t, summaryUsage, map[string]string{
+		"project_id": workspace.ProjectID, "document_id": workspace.DocumentID, "diff_id": mcpDiff.ID,
+	})
+	usageJSON := string(usageEnvelope.Detail)
+	for _, forbidden := range []string{mcpToken.Token, "openapi: 3.0.3", "schema_content", "markdown_content", "\"ip_address\"", "\"user_agent\""} {
+		if strings.Contains(usageJSON, forbidden) {
+			t.Fatalf("MCP usage response leaked forbidden value %q: %s", forbidden, usageJSON)
+		}
+	}
+	fixture.requireStatus(t, http.MethodGet, "/api/v1/private/mcp-usage?token_id="+mcpToken.ID, workspace.ReaderToken, nil, 403, "PERMISSION_DENIED")
+
 	audits, err := app.DefaultStore().ListAuditLogs()
 	if err != nil {
 		t.Fatalf("list audit logs: %v", err)
@@ -271,9 +340,36 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 	evidence.MCP.CompareSummary = mcpDiff.Summary
 	evidence.MCP.ChangeSummaryMustItems = len(mcpSummary.MustHandle)
 	evidence.MCP.ChangeSummaryOptional = len(mcpSummary.Optional)
+	evidence.MCP.UsageEventCount = len(usage)
+	evidence.MCP.PublishedReadTools = []string{"get_endpoint_detail", "compare_api_versions", "get_change_summary"}
+	evidence.MCP.ReaderUsageDenied = true
 
 	writeJSONEvidence(t, "task-17-e2e-happy-path.json", evidence)
 	return evidence
+}
+
+func requireMCPUsageTool(t *testing.T, usageByTool map[string]e2eMCPUsageLog, tool, evidenceKind string) e2eMCPUsageLog {
+	t.Helper()
+	usage, ok := usageByTool[tool]
+	if !ok {
+		t.Fatalf("missing MCP usage evidence for tool %s", tool)
+	}
+	if usage.Metadata["evidence_kind"] != evidenceKind {
+		t.Fatalf("MCP usage %s evidence_kind=%q, want %q", tool, usage.Metadata["evidence_kind"], evidenceKind)
+	}
+	return usage
+}
+
+func requireMCPUsageIDs(t *testing.T, usage e2eMCPUsageLog, expected map[string]string) {
+	t.Helper()
+	for key, value := range expected {
+		if usage.Metadata[key] != value {
+			t.Fatalf("MCP usage %s %s=%q, want %q; metadata=%+v", usage.Metadata["tool_name"], key, usage.Metadata[key], value, usage.Metadata)
+		}
+	}
+	if usage.ProjectID != expected["project_id"] || usage.DocumentID != expected["document_id"] {
+		t.Fatalf("MCP usage %s top-level entity IDs project=%q document=%q, want project=%q document=%q", usage.Metadata["tool_name"], usage.ProjectID, usage.DocumentID, expected["project_id"], expected["document_id"])
+	}
 }
 
 func assertSchemaDocument(t *testing.T, schema e2eSchemaDocument, normalized bool) {

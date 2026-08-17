@@ -1024,6 +1024,82 @@ func TestPrivateMCPTokenInvalidScopeAndSuperAdminArbitraryRevoke(t *testing.T) {
 	}
 }
 
+func TestPrivateMCPUsageIsOwnerScopedAndSanitized(t *testing.T) {
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	superUser, err := store.Register("usage-super@example.com", "Super", privateTestPassword)
+	if err != nil {
+		t.Fatalf("register super: %v", err)
+	}
+	ownerUser, err := store.CreateUser(superUser.ID, "usage-owner@example.com", "Owner", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	otherUser, err := store.CreateUser(superUser.ID, "usage-other@example.com", "Other", privateTestPassword, false)
+	if err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+	ownerToken, err := store.CreateMCPToken(ownerUser.ID, "owner-usage", []int{app.ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("create owner token: %v", err)
+	}
+	otherToken, err := store.CreateMCPToken(otherUser.ID, "other-usage", []int{app.ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("create other token: %v", err)
+	}
+	if err := store.RecordAudit(app.MCPToolAudit(ownerUser.ID, ownerToken.ID, "project-owner", "document-owner", map[string]string{
+		"adapter":       "stdio",
+		"evidence_kind": "published_content_read",
+		"result":        "success",
+		"tool_name":     "get_latest_schema",
+		"token_id":      ownerToken.ID,
+		"version_id":    "version-owner",
+		"content":       "private schema content",
+	}, app.AuditContext{IPAddress: "192.0.2.10", UserAgent: "raw-agent", RequestID: "usage-trace"})); err != nil {
+		t.Fatalf("record owner usage: %v", err)
+	}
+	if err := store.RecordAudit(app.MCPToolAudit(otherUser.ID, otherToken.ID, "project-other", "document-other", map[string]string{
+		"evidence_kind": "published_content_read",
+		"result":        "success",
+		"tool_name":     "get_latest_doc",
+		"token_id":      otherToken.ID,
+	}, app.AuditContext{})); err != nil {
+		t.Fatalf("record other usage: %v", err)
+	}
+
+	ownerJWT := issuePrivateTestToken(t, ownerUser.ID)
+	otherJWT := issuePrivateTestToken(t, otherUser.ID)
+	superJWT := issuePrivateTestToken(t, superUser.ID)
+	ownerEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-usage?limit=10", ownerJWT, ""))
+	if ownerEnvelope.Code != 200 || ownerEnvelope.Total == nil || *ownerEnvelope.Total != 1 {
+		t.Fatalf("owner usage response = code %d total %v body %s", ownerEnvelope.Code, ownerEnvelope.Total, ownerEnvelope.Detail)
+	}
+	var ownerLogs []app.AuditLog
+	if err := json.Unmarshal(ownerEnvelope.Detail, &ownerLogs); err != nil || len(ownerLogs) != 1 {
+		t.Fatalf("decode owner usage = %+v error=%v", ownerLogs, err)
+	}
+	ownerLog := ownerLogs[0]
+	if ownerLog.ActorTokenID != ownerToken.ID || ownerLog.Metadata["version_id"] != "version-owner" || ownerLog.Metadata["evidence_kind"] != "published_content_read" {
+		t.Fatalf("owner usage log = %+v", ownerLog)
+	}
+	if ownerLog.Metadata["content"] != "" || ownerLog.IPAddress != "" || ownerLog.UserAgent != "" || strings.Contains(string(ownerEnvelope.Detail), "private schema content") {
+		t.Fatalf("owner usage was not sanitized: %+v", ownerLog)
+	}
+
+	forbidden := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-usage?token_id="+ownerToken.ID, otherJWT, ""))
+	if forbidden.Code != 403 {
+		t.Fatalf("other owner usage response = code %d body %s", forbidden.Code, forbidden.Detail)
+	}
+	superEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-usage?token_id="+ownerToken.ID, superJWT, ""))
+	if superEnvelope.Code != 200 || superEnvelope.Total == nil || *superEnvelope.Total != 1 {
+		t.Fatalf("super exact-token usage response = code %d total %v body %s", superEnvelope.Code, superEnvelope.Total, superEnvelope.Detail)
+	}
+	invalidLimit := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-usage?limit=0", ownerJWT, ""))
+	if invalidLimit.Code != 400 {
+		t.Fatalf("invalid usage limit response = code %d body %s", invalidLimit.Code, invalidLimit.Detail)
+	}
+}
+
 func branchesByName(branches []*app.ContractBranch) map[string]*app.ContractBranch {
 	out := map[string]*app.ContractBranch{}
 	for _, branch := range branches {

@@ -323,9 +323,19 @@ export VDOC_STORAGE_ENDPOINT="127.0.0.1:9000"
 export VDOC_STORAGE_BUCKET="vdoc"
 export VDOC_STORAGE_ACCESS_KEY="<access-key>"
 export VDOC_STORAGE_SECRET_KEY="<secret-key>"
+export VDOC_MCP_TOKEN_CIPHER_KEY="<independent-key-at-least-32-characters>"
+export VDOC_MCP_TOKEN_CIPHER_KID="local-aes-gcm-v1"
+export VDOC_MCP_TOKEN_CIPHER_KEYRING='{}'
 ```
 
 Anonymous HTTP registration is disabled by default. Keep `auth.allow_registration=false` in production and configure `initial_admin.email` plus `initial_admin.password` for a fresh deployment. Registration may be explicitly enabled only for a trusted disposable or pilot environment with `VDOC_AUTH_ALLOW_REGISTRATION=true`; while enabled, any network caller can create an active account. The initial admin is created only when the loaded user table is empty, and its password is bcrypt-hashed before persistence. When `database.enabled=true`, Vdoc connects to PostgreSQL during startup, creates its runtime tables, and loads existing state. Connection or migration failure aborts startup instead of silently falling back to memory. When `storage.enabled=true`, raw and normalized OpenAPI schemas are written to RustFS or any S3-compatible object storage; the bucket is created automatically when missing.
+
+The cipher KID is a key identity, not an algorithm switch: never reuse a KID
+with different key material. During rotation, set a new active KID/key and put
+the old KID/key in the JSON `mcp_token.cipher_keyring`. Startup validates and
+transactionally re-encrypts MCP token, AI Provider, and public-share ciphertext
+to the active KID. Remove the historical keyring only after the database shows
+no old KIDs; the full procedure is in the workspace `RELEASE_DEPLOY.md`.
 
 Register and login always have an independent per-IP limiter, configured by `auth.rate_limit` and `auth.rate_burst`, even when the optional global server limiter is disabled.
 

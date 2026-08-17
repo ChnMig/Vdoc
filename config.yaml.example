@@ -92,3 +92,6 @@ storage:
 mcp_token:
   cipher_key: ""  # 可选；为空时复用 jwt.key，生产环境建议设置独立的至少32字符密钥
   cipher_kid: "local-aes-gcm-v1"
+  # 仅用于解密旧数据；启动时验证并把旧 KID 的 MCP token、AI key、分享密文原子重加密到 active KID。
+  # 不要复用 KID 对应不同 key。完成一次成功轮换并确认数据库只剩 active KID 后删除旧 key。
+  cipher_keyring: {}

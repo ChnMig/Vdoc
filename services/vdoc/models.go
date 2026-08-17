@@ -121,6 +121,11 @@ type AuditLogQuery struct {
 	ResourceID   string
 	Limit        int
 }
+
+type MCPUsageQuery struct {
+	TokenID string
+	Limit   int
+}
 type AIProviderConfig = domainvdoc.AIProviderConfig
 type AIProviderInput = domainvdoc.AIProviderInput
 type AIPromptOverride = domainvdoc.AIPromptOverride

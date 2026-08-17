@@ -74,7 +74,7 @@ func (s *Store) CreateDocumentShare(actorID, projectID, documentID string, input
 	}
 
 	shareID := id.GenerateID()
-	secret, capability, err := encryption.GenerateDocumentShareCapability(shareID, mcpTokenCipherKey())
+	secret, capability, err := encryption.GenerateDocumentShareCapability(shareID, s.cipherKeyring)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func (s *Store) RevealDocumentShare(actorID, projectID, documentID, shareID stri
 	if err := domainshare.EnsureRevealable(share, time.Now().UTC()); err != nil {
 		return nil, err
 	}
-	secret, err := encryption.RevealDocumentShareCapability(share.ID, mcpTokenCipherKey(), encryption.DocumentShareCapabilityRecord{Hash: share.TokenHash, Ciphertext: share.TokenCiphertext, KID: share.CipherKID})
+	secret, err := encryption.RevealDocumentShareCapability(share.ID, s.cipherKeyring, encryption.DocumentShareCapabilityRecord{Hash: share.TokenHash, Ciphertext: share.TokenCiphertext, KID: share.CipherKID})
 	if err != nil {
 		return nil, err
 	}

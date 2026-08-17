@@ -31,38 +31,39 @@ func CheckConfig(
 	JWTExpiration int64,
 ) {
 	cfg := loadedConfig{
-		ListenHost:           ListenHost,
-		ListenPort:           ListenPort,
-		MaxBodySize:          MaxBodySize,
-		MaxHeaderBytes:       MaxHeaderBytes,
-		ShutdownTimeout:      ShutdownTimeout,
-		ReadTimeout:          ReadTimeout,
-		WriteTimeout:         WriteTimeout,
-		IdleTimeout:          IdleTimeout,
-		EnableRateLimit:      EnableRateLimit,
-		GlobalRateLimit:      GlobalRateLimit,
-		GlobalRateBurst:      GlobalRateBurst,
-		AuthRateLimit:        AuthRateLimit,
-		AuthRateBurst:        AuthRateBurst,
-		JWTKey:               JWTKey,
-		JWTExpiration:        time.Duration(JWTExpiration),
-		DatabaseEnabled:      DatabaseEnabled,
-		DatabaseDSN:          DatabaseDSN,
-		DatabaseMaxOpenConn:  DatabaseMaxOpenConn,
-		DatabaseMaxIdleConn:  DatabaseMaxIdleConn,
-		StorageEnabled:       StorageEnabled,
-		StorageEndpoint:      StorageEndpoint,
-		StorageBucket:        StorageBucket,
-		StorageAccessKey:     StorageAccessKey,
-		StorageSecretKey:     StorageSecretKey,
-		InitialAdminEmail:    InitialAdminEmail,
-		InitialAdminName:     InitialAdminName,
-		InitialAdminPassword: InitialAdminPassword,
-		MCPTokenCipherKey:    MCPTokenCipherKey,
-		MCPTokenCipherKID:    MCPTokenCipherKID,
-		CORSAllowedOrigins:   append([]string(nil), CORSAllowedOrigins...),
-		TrustedProxies:       append([]string(nil), TrustedProxies...),
-		StaticDir:            StaticDir,
+		ListenHost:            ListenHost,
+		ListenPort:            ListenPort,
+		MaxBodySize:           MaxBodySize,
+		MaxHeaderBytes:        MaxHeaderBytes,
+		ShutdownTimeout:       ShutdownTimeout,
+		ReadTimeout:           ReadTimeout,
+		WriteTimeout:          WriteTimeout,
+		IdleTimeout:           IdleTimeout,
+		EnableRateLimit:       EnableRateLimit,
+		GlobalRateLimit:       GlobalRateLimit,
+		GlobalRateBurst:       GlobalRateBurst,
+		AuthRateLimit:         AuthRateLimit,
+		AuthRateBurst:         AuthRateBurst,
+		JWTKey:                JWTKey,
+		JWTExpiration:         time.Duration(JWTExpiration),
+		DatabaseEnabled:       DatabaseEnabled,
+		DatabaseDSN:           DatabaseDSN,
+		DatabaseMaxOpenConn:   DatabaseMaxOpenConn,
+		DatabaseMaxIdleConn:   DatabaseMaxIdleConn,
+		StorageEnabled:        StorageEnabled,
+		StorageEndpoint:       StorageEndpoint,
+		StorageBucket:         StorageBucket,
+		StorageAccessKey:      StorageAccessKey,
+		StorageSecretKey:      StorageSecretKey,
+		InitialAdminEmail:     InitialAdminEmail,
+		InitialAdminName:      InitialAdminName,
+		InitialAdminPassword:  InitialAdminPassword,
+		MCPTokenCipherKey:     MCPTokenCipherKey,
+		MCPTokenCipherKID:     MCPTokenCipherKID,
+		MCPTokenCipherKeyring: cloneCipherKeyring(MCPTokenCipherKeyring),
+		CORSAllowedOrigins:    append([]string(nil), CORSAllowedOrigins...),
+		TrustedProxies:        append([]string(nil), TrustedProxies...),
+		StaticDir:             StaticDir,
 	}
 	if err := validateConfig(cfg); err != nil {
 		zap.L().Fatal("配置安全校验失败", zap.Error(err))
@@ -277,9 +278,6 @@ func validateMCPTokenCipherConfig(cfg loadedConfig) error {
 	if cipherKID == "" {
 		return fmt.Errorf("mcp_token.cipher_kid is required")
 	}
-	if cipherKID != encryption.MCPTokenCipherKID {
-		return fmt.Errorf("mcp_token.cipher_kid %q is not supported", cipherKID)
-	}
 	cipherKey := strings.TrimSpace(cfg.MCPTokenCipherKey)
 	if cipherKey == "" {
 		cipherKey = cfg.JWTKey
@@ -290,7 +288,30 @@ func validateMCPTokenCipherConfig(cfg loadedConfig) error {
 	if len(cipherKey) < minMCPTokenCipherKeyLength {
 		return fmt.Errorf("MCP token cipher key length不足: current_length=%d min_required=%d", len(cipherKey), minMCPTokenCipherKeyLength)
 	}
+	for kid, historicalKey := range cfg.MCPTokenCipherKeyring {
+		historicalKey = strings.TrimSpace(historicalKey)
+		if historicalKey == "" {
+			return fmt.Errorf("mcp_token.cipher_keyring[%q] must not be empty", kid)
+		}
+		if isUnsafeExampleJWTKey(historicalKey) {
+			return fmt.Errorf("mcp_token.cipher_keyring[%q] uses an unsafe example value", kid)
+		}
+		if len(historicalKey) < minMCPTokenCipherKeyLength {
+			return fmt.Errorf("MCP token historical cipher key %q length不足: current_length=%d min_required=%d", kid, len(historicalKey), minMCPTokenCipherKeyLength)
+		}
+	}
+	if _, err := encryption.NewKeyring(cipherKID, cipherKey, cfg.MCPTokenCipherKeyring); err != nil {
+		return fmt.Errorf("invalid MCP token cipher keyring: %w", err)
+	}
 	return nil
+}
+
+func CurrentMCPTokenCipherKeyring() (encryption.Keyring, error) {
+	cipherKey := strings.TrimSpace(MCPTokenCipherKey)
+	if cipherKey == "" {
+		cipherKey = JWTKey
+	}
+	return encryption.NewKeyring(strings.TrimSpace(MCPTokenCipherKID), cipherKey, cloneCipherKeyring(MCPTokenCipherKeyring))
 }
 
 func isUnsafeExampleJWTKey(key string) bool {

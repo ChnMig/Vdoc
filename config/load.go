@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -17,47 +18,48 @@ var (
 )
 
 type loadedConfig struct {
-	ListenHost           string
-	ListenPort           int
-	MaxBodySize          int64
-	MaxHeaderBytes       int
-	ShutdownTimeout      time.Duration
-	ReadTimeout          time.Duration
-	WriteTimeout         time.Duration
-	IdleTimeout          time.Duration
-	EnableRateLimit      bool
-	GlobalRateLimit      int
-	GlobalRateBurst      int
-	CORSAllowedOrigins   []string
-	TrustedProxies       []string
-	PidFile              string
-	StaticDir            string
-	AllowRegistration    bool
-	AuthRateLimit        int
-	AuthRateBurst        int
-	JWTKey               string
-	JWTExpiration        time.Duration
-	LogMaxSize           int
-	LogMaxAge            int
-	LogLevel             string
-	GinLogLevel          string
-	DatabaseEnabled      bool
-	DatabaseDSN          string
-	DatabaseMaxOpenConn  int
-	DatabaseMaxIdleConn  int
-	StorageEnabled       bool
-	StorageEndpoint      string
-	StorageBucket        string
-	StorageAccessKey     string
-	StorageSecretKey     string
-	StorageRegion        string
-	StorageUseSSL        bool
-	StoragePathStyle     bool
-	InitialAdminEmail    string
-	InitialAdminName     string
-	InitialAdminPassword string
-	MCPTokenCipherKey    string
-	MCPTokenCipherKID    string
+	ListenHost            string
+	ListenPort            int
+	MaxBodySize           int64
+	MaxHeaderBytes        int
+	ShutdownTimeout       time.Duration
+	ReadTimeout           time.Duration
+	WriteTimeout          time.Duration
+	IdleTimeout           time.Duration
+	EnableRateLimit       bool
+	GlobalRateLimit       int
+	GlobalRateBurst       int
+	CORSAllowedOrigins    []string
+	TrustedProxies        []string
+	PidFile               string
+	StaticDir             string
+	AllowRegistration     bool
+	AuthRateLimit         int
+	AuthRateBurst         int
+	JWTKey                string
+	JWTExpiration         time.Duration
+	LogMaxSize            int
+	LogMaxAge             int
+	LogLevel              string
+	GinLogLevel           string
+	DatabaseEnabled       bool
+	DatabaseDSN           string
+	DatabaseMaxOpenConn   int
+	DatabaseMaxIdleConn   int
+	StorageEnabled        bool
+	StorageEndpoint       string
+	StorageBucket         string
+	StorageAccessKey      string
+	StorageSecretKey      string
+	StorageRegion         string
+	StorageUseSSL         bool
+	StoragePathStyle      bool
+	InitialAdminEmail     string
+	InitialAdminName      string
+	InitialAdminPassword  string
+	MCPTokenCipherKey     string
+	MCPTokenCipherKID     string
+	MCPTokenCipherKeyring map[string]string
 }
 
 // LoadConfig 使用 Viper 加载配置
@@ -154,6 +156,7 @@ func setDefaults() {
 
 	v.SetDefault("mcp_token.cipher_key", "")
 	v.SetDefault("mcp_token.cipher_kid", "local-aes-gcm-v1")
+	v.SetDefault("mcp_token.cipher_keyring", map[string]string{})
 }
 
 // applyConfig 将 Viper 配置应用到全局变量
@@ -245,6 +248,10 @@ func readConfig() (loadedConfig, error) {
 	cfg.InitialAdminPassword = v.GetString("initial_admin.password")
 	cfg.MCPTokenCipherKey = v.GetString("mcp_token.cipher_key")
 	cfg.MCPTokenCipherKID = v.GetString("mcp_token.cipher_kid")
+	cfg.MCPTokenCipherKeyring, err = parseCipherKeyring(v.Get("mcp_token.cipher_keyring"))
+	if err != nil {
+		return loadedConfig{}, fmt.Errorf("invalid mcp_token.cipher_keyring: %w", err)
+	}
 
 	return cfg, nil
 }
@@ -291,6 +298,41 @@ func applyLoadedConfig(cfg loadedConfig) {
 	InitialAdminPassword = cfg.InitialAdminPassword
 	MCPTokenCipherKey = cfg.MCPTokenCipherKey
 	MCPTokenCipherKID = cfg.MCPTokenCipherKID
+	MCPTokenCipherKeyring = cloneCipherKeyring(cfg.MCPTokenCipherKeyring)
+}
+
+func parseCipherKeyring(raw any) (map[string]string, error) {
+	if raw == nil {
+		return map[string]string{}, nil
+	}
+	if text, ok := raw.(string); ok {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return map[string]string{}, nil
+		}
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+			return nil, fmt.Errorf("must be a JSON object mapping KIDs to historical keys: %w", err)
+		}
+		return cloneCipherKeyring(parsed), nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal(encoded, &parsed); err != nil {
+		return nil, fmt.Errorf("must map KIDs to string key material: %w", err)
+	}
+	return cloneCipherKeyring(parsed), nil
+}
+
+func cloneCipherKeyring(source map[string]string) map[string]string {
+	cloned := make(map[string]string, len(source))
+	for kid, key := range source {
+		cloned[kid] = key
+	}
+	return cloned
 }
 
 func splitConfigValues(values []string) []string {

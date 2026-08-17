@@ -79,6 +79,7 @@ paths:
     post:
       tags: [Open]
       summary: Call MCP tools through JSON-RPC 2.0.
+      description: Every authenticated `tools/list` and `tools/call` request records a sanitized `mcp.tool_call` audit event. Successful published-content tools are marked with `evidence_kind=published_content_read` and retain only the tool, adapter, result/reason, MCP token ID, and referenced project/document/branch/draft/version/endpoint/diff IDs. Raw MCP token secrets, request arguments, OpenAPI schemas, and Markdown content are never copied into audit metadata.
       operationId: callMCP
       security:
         - MCPTokenAuth: []
@@ -966,6 +967,18 @@ paths:
       security: [{JWTAuth: []}]
       responses:
         '200': {$ref: '#/components/responses/VdocEnvelopeResponse'}
+  /api/v1/private/mcp-usage:
+    get:
+      tags: [MCP Tokens]
+      summary: List sanitized MCP tool activity.
+      description: Returns newest-first `mcp.tool_call` audit evidence for MCP tokens owned by the authenticated user. Supplying `token_id` selects one owned token; a SuperAdmin may use that parameter to inspect any user's token. Without `token_id`, even a SuperAdmin sees only activity for their own tokens. Results default to 100 and are capped at 200. Metadata is allowlisted to tool/adapter/result/reason plus referenced entity IDs and token ID. Entity IDs are retained only for successful tool calls, so caller-supplied IDs from failed requests cannot become entity evidence. IP address and User-Agent are removed, and raw token secrets, schemas, Markdown content, and request arguments are never returned.
+      operationId: listMCPUsage
+      security: [{JWTAuth: []}]
+      parameters:
+        - {name: token_id, in: query, required: false, schema: {type: string}, description: MCP token ID. Non-SuperAdmins may select only a token they own.}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses:
+        '200': {$ref: '#/components/responses/VdocListEnvelopeResponse'}
   /api/v1/private/mcp-tokens/{token_id}:
     parameters:
       - {$ref: '#/components/parameters/TokenID'}

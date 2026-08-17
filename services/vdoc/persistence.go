@@ -10,6 +10,7 @@ import (
 
 	"vdoc/config"
 	domainvdoc "vdoc/domain/vdoc"
+	"vdoc/utils/encryption"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -36,6 +37,7 @@ type RuntimeConfig struct {
 	InitialAdminPassword   string
 	AllowRegistration      bool
 	RequireBootstrapAccess bool
+	CipherKeyring          encryption.Keyring
 }
 
 type postgresPersistence struct {
@@ -95,6 +97,9 @@ type objectStorage struct {
 
 func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 	store := NewStore()
+	if cfg.CipherKeyring.ActiveKID() != "" {
+		store.cipherKeyring = cfg.CipherKeyring
+	}
 	if cfg.ObjectStorage != nil {
 		store.objects = cfg.ObjectStorage
 	} else if cfg.StorageEnabled {
@@ -117,6 +122,21 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 			return fmt.Errorf("load database-backed Vdoc state: %w", err)
 		}
 		store.persisted = store.cloneStateLocked()
+		rotated, err := store.rotateCiphertextsLocked()
+		if err != nil {
+			if p.close != nil {
+				_ = p.close()
+			}
+			return fmt.Errorf("rotate persisted secret ciphertexts: %w", err)
+		}
+		if rotated {
+			if err := store.persistLocked(); err != nil {
+				if p.close != nil {
+					_ = p.close()
+				}
+				return fmt.Errorf("persist rotated secret ciphertexts: %w", err)
+			}
+		}
 	}
 	if err := store.SeedInitialAdmin(cfg.InitialAdminEmail, cfg.InitialAdminName, cfg.InitialAdminPassword); err != nil {
 		if cfg.DatabaseClose != nil {

@@ -20,6 +20,9 @@ import (
 
 var errUnknownTool = fmt.Errorf("%w: unknown mcp tool", app.ErrNotFound)
 
+const vdocStdioUserAgent = "vdoc-mcp/0.1.0 (stdio)"
+const vdocAdapterHeader = "X-Vdoc-Adapter"
+
 type request struct {
 	Tool      string          `json:"tool"`
 	Arguments json.RawMessage `json:"arguments"`
@@ -284,26 +287,30 @@ func callJSONRPC(c *gin.Context, body []byte) {
 
 	switch method {
 	case "tools/list":
+		if err := recordMCPToolCall(c, mcpToken, user, "tools/list", nil, nil, "success", ""); err != nil {
+			returnRPCAppError(c, id, err)
+			return
+		}
 		returnRPCResult(c, id, gin.H{"tools": toolDefinitions})
 	case "tools/call":
 		params, err := decodeToolCallParams(req.Params)
 		if err != nil {
-			_ = recordMCPToolCall(c, mcpToken, user, "", nil, "failure", "invalid_params")
+			_ = recordMCPToolCall(c, mcpToken, user, "", nil, nil, "failure", "invalid_params")
 			returnRPCAppError(c, id, err)
 			return
 		}
 		if !knownTool(params.Name) {
-			_ = recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, "failure", "unknown_tool")
+			_ = recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, nil, "failure", "unknown_tool")
 			returnRPCError(c, id, -32602, "invalid tool", gin.H{"status": "INVALID_ARGUMENT", "tool": params.Name})
 			return
 		}
 		result, err := execute(user.ID, mcpToken.Scopes, params.Name, params.Arguments)
 		if err != nil {
-			_ = recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, "failure", auditErrorStatus(err))
+			_ = recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, nil, "failure", auditErrorStatus(err))
 			returnRPCAppError(c, id, err)
 			return
 		}
-		if err := recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, "success", ""); err != nil {
+		if err := recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, result, "success", ""); err != nil {
 			returnRPCAppError(c, id, err)
 			return
 		}
@@ -326,17 +333,17 @@ func callLegacyBridge(c *gin.Context, body []byte) {
 	}
 	req.Tool = strings.TrimSpace(req.Tool)
 	if req.Tool == "" {
-		_ = recordMCPToolCall(c, mcpToken, user, "", req.Arguments, "failure", "missing_tool")
+		_ = recordMCPToolCall(c, mcpToken, user, "", req.Arguments, nil, "failure", "missing_tool")
 		response.ReturnError(c, response.INVALID_ARGUMENT, "tool is required")
 		return
 	}
 	result, err := execute(user.ID, mcpToken.Scopes, req.Tool, req.Arguments)
 	if err != nil {
-		_ = recordMCPToolCall(c, mcpToken, user, req.Tool, req.Arguments, "failure", auditErrorStatus(err))
+		_ = recordMCPToolCall(c, mcpToken, user, req.Tool, req.Arguments, nil, "failure", auditErrorStatus(err))
 		returnAppError(c, err)
 		return
 	}
-	if err := recordMCPToolCall(c, mcpToken, user, req.Tool, req.Arguments, "success", ""); err != nil {
+	if err := recordMCPToolCall(c, mcpToken, user, req.Tool, req.Arguments, result, "success", ""); err != nil {
 		returnAppError(c, err)
 		return
 	}
@@ -787,9 +794,15 @@ func authenticateMCPToken(c *gin.Context) (*app.MCPToken, *app.User, error) {
 	return app.DefaultStore().AuthenticateMCPToken(token, auditContextFromGin(c))
 }
 
-func recordMCPToolCall(c *gin.Context, mcpToken *app.MCPToken, user *app.User, tool string, raw json.RawMessage, result, reason string) error {
+func recordMCPToolCall(c *gin.Context, mcpToken *app.MCPToken, user *app.User, tool string, raw json.RawMessage, output any, outcome, reason string) error {
 	ctx := auditContextFromGin(c)
-	metadata := map[string]string{"result": result, "tool_name": strings.TrimSpace(tool)}
+	normalizedTool := mcpAuditToolName(tool)
+	metadata := map[string]string{
+		"adapter":       mcpAdapter(c),
+		"evidence_kind": mcpEvidenceKind(normalizedTool, outcome),
+		"result":        outcome,
+		"tool_name":     normalizedTool,
+	}
 	actorUserID := ""
 	if user != nil {
 		actorUserID = user.ID
@@ -801,21 +814,130 @@ func recordMCPToolCall(c *gin.Context, mcpToken *app.MCPToken, user *app.User, t
 	if reason != "" {
 		metadata["reason"] = reason
 	}
-	projectID, documentID := mcpAuditResourceIDs(raw)
-	return app.DefaultStore().RecordAudit(app.MCPToolAudit(actorUserID, ctx.ActorTokenID, projectID, documentID, metadata, ctx))
+	if outcome == "success" {
+		for key, value := range mcpAuditEntityIDs(raw, output) {
+			metadata[key] = value
+		}
+	}
+	projectID := metadata["project_id"]
+	documentID := metadata["document_id"]
+	audit := app.MCPToolAudit(actorUserID, ctx.ActorTokenID, projectID, documentID, metadata, ctx)
+	audit.ResourceID = mcpAuditPrimaryResourceID(metadata)
+	return app.DefaultStore().RecordAudit(audit)
 }
 
-func mcpAuditResourceIDs(raw json.RawMessage) (string, string) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return "", ""
+func mcpAuditToolName(tool string) string {
+	normalized := strings.TrimSpace(tool)
+	if normalized == "tools/list" || knownTool(normalized) {
+		return normalized
 	}
-	var fields map[string]any
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return "", ""
+	return "unknown_tool"
+}
+
+var mcpAuditIDKeys = []string{
+	"project_id",
+	"document_id",
+	"branch_id",
+	"draft_id",
+	"version_id",
+	"endpoint_id",
+	"from_version_id",
+	"to_version_id",
+	"diff_id",
+}
+
+func mcpAuditEntityIDs(raw json.RawMessage, output any) map[string]string {
+	ids := map[string]string{}
+	if len(bytes.TrimSpace(raw)) > 0 {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) == nil {
+			for _, key := range mcpAuditIDKeys {
+				var value string
+				if json.Unmarshal(fields[key], &value) == nil {
+					setMCPAuditID(ids, key, value)
+				}
+			}
+		}
 	}
-	projectID, _ := fields["project_id"].(string)
-	documentID, _ := fields["document_id"].(string)
-	return strings.TrimSpace(projectID), strings.TrimSpace(documentID)
+	mergeMCPAuditOutputIDs(ids, output)
+	return ids
+}
+
+func mergeMCPAuditOutputIDs(ids map[string]string, output any) {
+	switch value := output.(type) {
+	case gin.H:
+		mergeMCPAuditOutputIDs(ids, value["version"])
+		mergeMCPAuditOutputIDs(ids, value["draft"])
+	case mcpVersionDTO:
+		setMCPAuditID(ids, "project_id", value.ProjectID)
+		setMCPAuditID(ids, "document_id", value.DocumentID)
+		setMCPAuditID(ids, "branch_id", value.BranchID)
+		setMCPAuditID(ids, "draft_id", value.DraftID)
+		setMCPAuditID(ids, "version_id", value.ID)
+	case mcpDraftDTO:
+		setMCPAuditID(ids, "project_id", value.ProjectID)
+		setMCPAuditID(ids, "document_id", value.DocumentID)
+		setMCPAuditID(ids, "branch_id", value.BranchID)
+		setMCPAuditID(ids, "draft_id", value.ID)
+	case mcpEndpointDTO:
+		setMCPAuditID(ids, "endpoint_id", value.ID)
+		setMCPAuditID(ids, "version_id", value.VersionID)
+	case mcpDiffDTO:
+		setMCPAuditID(ids, "document_id", value.DocumentID)
+		setMCPAuditID(ids, "diff_id", value.ID)
+		setMCPAuditID(ids, "from_version_id", value.FromVersionID)
+		setMCPAuditID(ids, "to_version_id", value.ToVersionID)
+	}
+}
+
+func setMCPAuditID(ids map[string]string, key, value string) {
+	if normalized := canonicalMCPAuditID(value); normalized != "" {
+		ids[key] = normalized
+	}
+}
+
+func canonicalMCPAuditID(value string) string {
+	normalized := strings.TrimSpace(value)
+	if len(normalized) != 32 {
+		return ""
+	}
+	for _, character := range normalized {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return ""
+		}
+	}
+	return normalized
+}
+
+func mcpEvidenceKind(tool, outcome string) string {
+	if outcome != "success" {
+		return "tool_call"
+	}
+	if tool == "tools/list" {
+		return "capability_list"
+	}
+	switch tool {
+	case "get_latest_schema", "get_latest_doc", "get_endpoint_detail", "compare_api_versions", "compare_doc_versions", "get_change_summary":
+		return "published_content_read"
+	default:
+		return "tool_call"
+	}
+}
+
+func mcpAdapter(c *gin.Context) string {
+	if c != nil && c.Request != nil && strings.TrimSpace(c.Request.UserAgent()) == vdocStdioUserAgent && strings.TrimSpace(c.GetHeader(vdocAdapterHeader)) == "stdio" {
+		return "stdio"
+	}
+	return "direct"
+}
+
+func mcpAuditPrimaryResourceID(metadata map[string]string) string {
+	for _, key := range []string{"endpoint_id", "diff_id", "version_id", "draft_id", "document_id", "project_id"} {
+		if value := metadata[key]; value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func auditContextFromGin(c *gin.Context) app.AuditContext {

@@ -205,6 +205,10 @@ func configureE2EConfig() func() {
 	oldAllowRegistration := config.AllowRegistration
 	oldMCPTokenCipherKey := config.MCPTokenCipherKey
 	oldMCPTokenCipherKID := config.MCPTokenCipherKID
+	oldMCPTokenCipherKeyring := make(map[string]string, len(config.MCPTokenCipherKeyring))
+	for kid, key := range config.MCPTokenCipherKeyring {
+		oldMCPTokenCipherKeyring[kid] = key
+	}
 
 	config.JWTKey = e2eJWTKey
 	config.JWTExpiration = time.Hour
@@ -213,6 +217,7 @@ func configureE2EConfig() func() {
 	config.AllowRegistration = true
 	config.MCPTokenCipherKey = e2eJWTKey
 	config.MCPTokenCipherKID = "e2e-aes-gcm-v1"
+	config.MCPTokenCipherKeyring = map[string]string{}
 
 	return func() {
 		config.JWTKey = oldJWTKey
@@ -222,6 +227,7 @@ func configureE2EConfig() func() {
 		config.AllowRegistration = oldAllowRegistration
 		config.MCPTokenCipherKey = oldMCPTokenCipherKey
 		config.MCPTokenCipherKID = oldMCPTokenCipherKID
+		config.MCPTokenCipherKeyring = oldMCPTokenCipherKeyring
 	}
 }
 
@@ -259,6 +265,12 @@ func setupLiveDefaultStore(t *testing.T) string {
 		StorageUseSSL:       boolEnv("VDOC_TEST_STORAGE_USE_SSL"),
 		StoragePathStyle:    boolEnvDefault("VDOC_TEST_STORAGE_PATH_STYLE", true),
 	}
+	cipherKeyring, err := config.CurrentMCPTokenCipherKeyring()
+	if err != nil {
+		_ = client.Close()
+		t.Fatalf("build live cipher keyring: %v", err)
+	}
+	cfg.CipherKeyring = cipherKeyring
 	if err := app.InitDefaultStore(ctx, cfg); err != nil {
 		_ = client.Close()
 		t.Fatalf("initialize live Vdoc store: %v", err)

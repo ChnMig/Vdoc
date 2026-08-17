@@ -1,14 +1,10 @@
 package encryption
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"io"
 	"regexp"
 
 	"vdoc/utils/random"
@@ -29,7 +25,7 @@ type DocumentShareCapabilityRecord struct {
 	KID        string
 }
 
-func GenerateDocumentShareCapability(shareID, keyMaterial string) (string, DocumentShareCapabilityRecord, error) {
+func GenerateDocumentShareCapability(shareID string, keyring Keyring) (string, DocumentShareCapabilityRecord, error) {
 	if !documentShareIDPattern.MatchString(shareID) {
 		return "", DocumentShareCapabilityRecord{}, ErrInvalidDocumentShareCapability
 	}
@@ -39,45 +35,25 @@ func GenerateDocumentShareCapability(shareID, keyMaterial string) (string, Docum
 	}
 	secret := "vdoc_share_" + randomHex
 
-	block, err := aes.NewCipher(deriveMCPTokenKey(keyMaterial))
+	record, err := encryptDocumentShareCapability(shareID, secret, keyring)
 	if err != nil {
 		return "", DocumentShareCapabilityRecord{}, ErrInvalidDocumentShareCapability
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", DocumentShareCapabilityRecord{}, ErrInvalidDocumentShareCapability
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", DocumentShareCapabilityRecord{}, ErrInvalidDocumentShareCapability
-	}
-	ciphertext := gcm.Seal(append([]byte(nil), nonce...), nonce, []byte(secret), documentShareAAD(shareID))
-
-	return secret, DocumentShareCapabilityRecord{
-		Hash:       hashDocumentShareCapability(secret),
-		Ciphertext: ciphertext,
-		KID:        DocumentShareCipherKID,
-	}, nil
+	return secret, record, nil
 }
 
-func RevealDocumentShareCapability(shareID, keyMaterial string, record DocumentShareCapabilityRecord) (string, error) {
+func RevealDocumentShareCapability(shareID string, keyring Keyring, record DocumentShareCapabilityRecord) (string, error) {
 	if !documentShareIDPattern.MatchString(shareID) ||
-		record.KID != DocumentShareCipherKID ||
+		record.KID == "" ||
 		!documentShareCapabilityHashPattern.MatchString(record.Hash) {
 		return "", ErrInvalidDocumentShareCapability
 	}
 
-	block, err := aes.NewCipher(deriveMCPTokenKey(keyMaterial))
+	keyMaterial, err := keyring.keyFor(record.KID)
 	if err != nil {
 		return "", ErrInvalidDocumentShareCapability
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil || len(record.Ciphertext) < gcm.NonceSize() {
-		return "", ErrInvalidDocumentShareCapability
-	}
-	nonce := record.Ciphertext[:gcm.NonceSize()]
-	sealed := record.Ciphertext[gcm.NonceSize():]
-	plaintext, err := gcm.Open(nil, nonce, sealed, documentShareAAD(shareID))
+	plaintext, err := decryptAESGCM(record.Ciphertext, keyMaterial, documentShareAAD(shareID, record.KID))
 	if err != nil {
 		return "", ErrInvalidDocumentShareCapability
 	}
@@ -86,6 +62,14 @@ func RevealDocumentShareCapability(shareID, keyMaterial string, record DocumentS
 		return "", ErrInvalidDocumentShareCapability
 	}
 	return secret, nil
+}
+
+func ReencryptDocumentShareCapability(shareID string, keyring Keyring, record DocumentShareCapabilityRecord) (DocumentShareCapabilityRecord, error) {
+	secret, err := RevealDocumentShareCapability(shareID, keyring, record)
+	if err != nil {
+		return DocumentShareCapabilityRecord{}, err
+	}
+	return encryptDocumentShareCapability(shareID, secret, keyring)
 }
 
 func VerifyDocumentShareCapability(secret, storedHash string) bool {
@@ -101,8 +85,25 @@ func VerifyDocumentShareCapability(secret, storedHash string) bool {
 	return subtle.ConstantTimeCompare(actual[:], expected) == 1
 }
 
-func documentShareAAD(shareID string) []byte {
-	return []byte("vdoc.document-share\x00" + DocumentShareCipherKID + "\x00" + shareID)
+func encryptDocumentShareCapability(shareID, secret string, keyring Keyring) (DocumentShareCapabilityRecord, error) {
+	kid := keyring.ActiveKID()
+	keyMaterial, err := keyring.keyFor(kid)
+	if err != nil {
+		return DocumentShareCapabilityRecord{}, err
+	}
+	ciphertext, _, err := encryptAESGCM([]byte(secret), keyMaterial, documentShareAAD(shareID, kid), kid)
+	if err != nil {
+		return DocumentShareCapabilityRecord{}, err
+	}
+	return DocumentShareCapabilityRecord{
+		Hash:       hashDocumentShareCapability(secret),
+		Ciphertext: ciphertext,
+		KID:        kid,
+	}, nil
+}
+
+func documentShareAAD(shareID, kid string) []byte {
+	return []byte("vdoc.document-share\x00" + kid + "\x00" + shareID)
 }
 
 func hashDocumentShareCapability(secret string) string {

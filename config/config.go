@@ -83,8 +83,9 @@ var (
 	InitialAdminPassword string
 
 	// MCP token encryption
-	MCPTokenCipherKey string
-	MCPTokenCipherKID string
+	MCPTokenCipherKey     string
+	MCPTokenCipherKID     string
+	MCPTokenCipherKeyring map[string]string
 )
 
 // 分页配置

@@ -16,7 +16,7 @@ jobs:
       VDOC_POSTGRES_DB: vdoc
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
         env:
           POSTGRES_USER: vdoc_test
           POSTGRES_PASSWORD: vdoc_test

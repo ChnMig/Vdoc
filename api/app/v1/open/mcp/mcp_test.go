@@ -504,6 +504,103 @@ func TestMCPListProjectsAuditsTokenUseAndToolCall(t *testing.T) {
 	}
 }
 
+func TestMCPPublishedReadAuditCapturesExactSanitizedEntityEvidence(t *testing.T) {
+	fixture := newMCPFixture(t)
+	version := publishMCPFixtureVersion(t, fixture, "audit-1.0.0", mcpTestOpenAPI("auditedEndpoint"))
+	token, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "published-read-audit", []int{app.ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("CreateMCPToken(audit) error = %v", err)
+	}
+
+	response := callMCPToolRPC(t, fixture.router, token.Token, "get_latest_schema", gin.H{
+		"project_id":     fixture.projectID,
+		"document_id":    fixture.documentID,
+		"branch_id":      fixture.branchID,
+		"schema_content": "must-never-enter-audit",
+	})
+	assertRPCResult(t, response, "published read audit")
+
+	audit := findMCPAudit(t, "mcp.tool_call", token.ID)
+	if audit.ResourceID != version.ID || audit.ProjectID != fixture.projectID || audit.ServiceID != fixture.documentID {
+		t.Fatalf("published read audit resource = %+v, want exact project/document/version", audit)
+	}
+	wantMetadata := map[string]string{
+		"adapter":       "direct",
+		"evidence_kind": "published_content_read",
+		"result":        "success",
+		"tool_name":     "get_latest_schema",
+		"token_id":      token.ID,
+		"project_id":    fixture.projectID,
+		"document_id":   fixture.documentID,
+		"branch_id":     fixture.branchID,
+		"version_id":    version.ID,
+	}
+	for key, value := range wantMetadata {
+		if audit.Metadata[key] != value {
+			t.Fatalf("published read audit metadata[%q] = %q, want %q; metadata=%+v", key, audit.Metadata[key], value, audit.Metadata)
+		}
+	}
+	if _, ok := audit.Metadata["schema_content"]; ok || mcpAuditContainsValue([]*app.AuditLog{audit}, "must-never-enter-audit") {
+		t.Fatalf("published read audit leaked request content: %+v", audit.Metadata)
+	}
+}
+
+func TestMCPFailureAuditRejectsUntrustedToolAndEntityValues(t *testing.T) {
+	fixture := newMCPFixture(t)
+	token, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "failure-audit-sanitization", []int{app.ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("CreateMCPToken(audit) error = %v", err)
+	}
+
+	untrustedTool := "sensitive-tool-name-must-never-enter-audit"
+	untrustedProjectID := strings.Repeat("a", 32)
+	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, untrustedTool, gin.H{
+		"project_id": untrustedProjectID,
+	}), -32602, "unknown tool audit sanitization")
+
+	audit := findMCPAudit(t, "mcp.tool_call", token.ID)
+	if audit.Metadata["tool_name"] != "unknown_tool" || audit.Metadata["project_id"] != "" || audit.ProjectID != "" {
+		t.Fatalf("failure audit retained untrusted values: %+v", audit)
+	}
+	if mcpAuditContainsValue([]*app.AuditLog{audit}, untrustedTool) || mcpAuditContainsValue([]*app.AuditLog{audit}, untrustedProjectID) {
+		t.Fatalf("failure audit leaked untrusted request text: %+v", audit.Metadata)
+	}
+}
+
+func TestMCPToolsListAuditAndAdapterAllowlist(t *testing.T) {
+	fixture := newMCPFixture(t)
+	token, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "tools-list-audit", []int{app.ScopeAPIRead}, nil)
+	if err != nil {
+		t.Fatalf("CreateMCPToken(audit) error = %v", err)
+	}
+	body, err := json.Marshal(gin.H{"jsonrpc": "2.0", "id": "tools-list-audit", "method": "tools/list"})
+	if err != nil {
+		t.Fatalf("marshal tools/list: %v", err)
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/open/mcp", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(middleware.AuthorizationHeader, token.Token)
+	request.Header.Set("User-Agent", vdocStdioUserAgent)
+	request.Header.Set(vdocAdapterHeader, "stdio")
+	fixture.router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("tools/list HTTP status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	audit := findMCPAudit(t, "mcp.tool_call", token.ID)
+	if audit.Metadata["tool_name"] != "tools/list" || audit.Metadata["evidence_kind"] != "capability_list" || audit.Metadata["adapter"] != "stdio" {
+		t.Fatalf("tools/list audit metadata = %+v", audit.Metadata)
+	}
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	context.Request.Header.Set("User-Agent", vdocStdioUserAgent)
+	if got := mcpAdapter(context); got != "direct" {
+		t.Fatalf("spoofed user agent adapter = %q, want direct without adapter header", got)
+	}
+}
+
 func TestMCPJSONRPCEvidenceWriter(t *testing.T) {
 	evidenceDir := os.Getenv("VDOC_TASK11_EVIDENCE_DIR")
 	if evidenceDir == "" {

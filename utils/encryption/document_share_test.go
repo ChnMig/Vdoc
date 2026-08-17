@@ -21,13 +21,14 @@ var (
 func TestDocumentShareCapabilityGenerate_roundTrips100UniqueValues(t *testing.T) {
 	// Given
 	keyMaterial := "document-share-capability-test-key-material"
+	keyring := mustEncryptionKeyring(t, DocumentShareCipherKID, keyMaterial, nil)
 	seen := make(map[string]struct{}, 100)
 
 	for index := range 100 {
 		shareID := fmt.Sprintf("%032x", index+1)
 
 		// When
-		secret, record, err := GenerateDocumentShareCapability(shareID, keyMaterial)
+		secret, record, err := GenerateDocumentShareCapability(shareID, keyring)
 
 		// Then
 		if err != nil {
@@ -55,7 +56,7 @@ func TestDocumentShareCapabilityGenerate_roundTrips100UniqueValues(t *testing.T)
 			t.Fatalf("generated capability iteration %d hash mismatch", index)
 		}
 
-		revealed, revealErr := RevealDocumentShareCapability(shareID, keyMaterial, record)
+		revealed, revealErr := RevealDocumentShareCapability(shareID, keyring, record)
 		if revealErr != nil {
 			t.Fatalf("RevealDocumentShareCapability() iteration %d error = %v", index, revealErr)
 		}
@@ -72,9 +73,10 @@ func TestDocumentShareCapabilityGenerate_usesExactAADAndExistingCipherKeyDerivat
 	// Given
 	shareID := "0123456789abcdef0123456789abcdef"
 	keyMaterial := "  configured-mcp-token-cipher-material  "
+	keyring := mustEncryptionKeyring(t, DocumentShareCipherKID, keyMaterial, nil)
 
 	// When
-	secret, record, err := GenerateDocumentShareCapability(shareID, keyMaterial)
+	secret, record, err := GenerateDocumentShareCapability(shareID, keyring)
 	if err != nil {
 		t.Fatalf("GenerateDocumentShareCapability() error = %v", err)
 	}
@@ -103,10 +105,44 @@ func TestDocumentShareCapabilityGenerate_usesExactAADAndExistingCipherKeyDerivat
 	}
 }
 
+func TestDocumentShareCapabilityRotationPreservesSecretAndHash(t *testing.T) {
+	const (
+		shareID = "4123456789abcdef0123456789abcdef"
+		oldKey  = "old-document-share-rotation-key-material"
+		newKID  = "prod-2026-08"
+		newKey  = "new-document-share-rotation-key-material"
+	)
+	legacy := mustEncryptionKeyring(t, DocumentShareCipherKID, oldKey, nil)
+	secret, legacyRecord, err := GenerateDocumentShareCapability(shareID, legacy)
+	if err != nil {
+		t.Fatalf("GenerateDocumentShareCapability(legacy) error = %v", err)
+	}
+
+	// Operators only need to retain the historical MCP KID. NewKeyring adds
+	// the old document-share KID alias because both formats used the same key.
+	rotated := mustEncryptionKeyring(t, newKID, newKey, map[string]string{MCPTokenCipherKID: oldKey})
+	newRecord, err := ReencryptDocumentShareCapability(shareID, rotated, legacyRecord)
+	if err != nil {
+		t.Fatalf("ReencryptDocumentShareCapability() error = %v", err)
+	}
+	if newRecord.KID != newKID || newRecord.Hash != legacyRecord.Hash || bytes.Equal(newRecord.Ciphertext, legacyRecord.Ciphertext) {
+		t.Fatalf("rotated record = %+v, legacy = %+v", newRecord, legacyRecord)
+	}
+	revealed, err := RevealDocumentShareCapability(shareID, rotated, newRecord)
+	if err != nil || revealed != secret {
+		t.Fatalf("RevealDocumentShareCapability(rotated) = %q, %v", revealed, err)
+	}
+	activeOnly := mustEncryptionKeyring(t, newKID, newKey, nil)
+	if revealed, err := RevealDocumentShareCapability(shareID, activeOnly, newRecord); err != nil || revealed != secret {
+		t.Fatalf("active-only keyring could not reveal re-encrypted record: %q, %v", revealed, err)
+	}
+}
+
 func TestVerifyDocumentShareCapability_rejectsMalformedOrMismatchedValues(t *testing.T) {
 	// Given
 	shareID := "1123456789abcdef0123456789abcdef"
-	secret, record, err := GenerateDocumentShareCapability(shareID, "hash-verification-key-material")
+	keyring := mustEncryptionKeyring(t, DocumentShareCipherKID, "hash-verification-key-material", nil)
+	secret, record, err := GenerateDocumentShareCapability(shareID, keyring)
 	if err != nil {
 		t.Fatalf("GenerateDocumentShareCapability() error = %v", err)
 	}
@@ -146,15 +182,17 @@ func TestRevealDocumentShareCapability_rejectsWrongBindingAndMalformedInputs(t *
 	shareIDA := "2123456789abcdef0123456789abcdef"
 	shareIDB := "3123456789abcdef0123456789abcdef"
 	keyMaterial := "row-binding-capability-key-material"
-	secretA, recordA, err := GenerateDocumentShareCapability(shareIDA, keyMaterial)
+	keyring := mustEncryptionKeyring(t, DocumentShareCipherKID, keyMaterial, nil)
+	secretA, recordA, err := GenerateDocumentShareCapability(shareIDA, keyring)
 	if err != nil {
 		t.Fatalf("GenerateDocumentShareCapability(A) error = %v", err)
 	}
-	_, recordB, err := GenerateDocumentShareCapability(shareIDB, keyMaterial)
+	_, recordB, err := GenerateDocumentShareCapability(shareIDB, keyring)
 	if err != nil {
 		t.Fatalf("GenerateDocumentShareCapability(B) error = %v", err)
 	}
-	mcpCiphertext, _, err := EncryptMCPToken(secretA, keyMaterial)
+	mcpKeyring := mustEncryptionKeyring(t, MCPTokenCipherKID, keyMaterial, nil)
+	mcpCiphertext, _, err := EncryptMCPToken(secretA, mcpKeyring)
 	if err != nil {
 		t.Fatalf("EncryptMCPToken() error = %v", err)
 	}
@@ -196,7 +234,8 @@ func TestRevealDocumentShareCapability_rejectsWrongBindingAndMalformedInputs(t *
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// When
-			_, revealErr := RevealDocumentShareCapability(test.shareID, test.keyMaterial, test.record)
+			testKeyring := mustEncryptionKeyring(t, DocumentShareCipherKID, test.keyMaterial, nil)
+			_, revealErr := RevealDocumentShareCapability(test.shareID, testKeyring, test.record)
 
 			// Then
 			if !errors.Is(revealErr, ErrInvalidDocumentShareCapability) {

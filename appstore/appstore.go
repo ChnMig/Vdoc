@@ -111,6 +111,7 @@ type DiffItem = app.DiffItem
 type MCPToken = app.MCPToken
 type AuditLog = app.AuditLog
 type AuditLogQuery = app.AuditLogQuery
+type MCPUsageQuery = app.MCPUsageQuery
 type AIProviderConfig = app.AIProviderConfig
 type AIProviderInput = app.AIProviderInput
 type AIPromptOverride = app.AIPromptOverride

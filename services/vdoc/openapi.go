@@ -307,7 +307,7 @@ func stringSlice(v any) []string {
 	if !ok {
 		return nil
 	}
-	out := []string{}
+	var out []string
 	for _, item := range arr {
 		if s, ok := item.(string); ok {
 			out = append(out, s)

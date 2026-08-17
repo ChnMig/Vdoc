@@ -16,7 +16,6 @@ import (
 	"time"
 
 	commonvdoc "vdoc/common/vdoc"
-	"vdoc/config"
 	domainai "vdoc/domain/ai"
 	domainaudit "vdoc/domain/audit"
 	domaindocument "vdoc/domain/document"
@@ -75,6 +74,7 @@ type Store struct {
 	persistence         *postgresPersistence
 	persisted           *domainvdoc.State
 	objects             ObjectStorage
+	cipherKeyring       encryption.Keyring
 }
 
 var defaultStore = NewStore()
@@ -82,6 +82,10 @@ var defaultStore = NewStore()
 func DefaultStore() *Store { return defaultStore }
 
 func NewStore() *Store {
+	defaultKeyring, err := encryption.NewKeyring(encryption.MCPTokenCipherKID, "", nil)
+	if err != nil {
+		panic(err)
+	}
 	return &Store{
 		verifyLoginPassword: encryption.VerifyBcryptPassword,
 		users:               map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
@@ -89,6 +93,7 @@ func NewStore() *Store {
 		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{}, shares: map[string]*DocumentShare{},
 		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
 		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: newAIHTTPClient(), audits: map[string]*AuditLog{},
+		cipherKeyring: defaultKeyring,
 	}
 }
 
@@ -350,6 +355,102 @@ func (s *Store) QueryAuditLogs(actorID string, query AuditLogQuery) ([]*AuditLog
 		logs = logs[:query.Limit]
 	}
 	return logs, nil
+}
+
+func (s *Store) QueryMCPUsage(actorID string, query MCPUsageQuery) ([]*AuditLog, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return nil, err
+	}
+	actor := s.users[actorID]
+	if actor == nil || actor.Status != UserStatusActive {
+		return nil, ErrUnauthenticated
+	}
+	query.TokenID = strings.TrimSpace(query.TokenID)
+	if query.Limit < 0 {
+		return nil, fmt.Errorf("%w: limit must not be negative", ErrInvalidArgument)
+	}
+	if query.Limit == 0 {
+		query.Limit = 100
+	}
+	if query.Limit > 200 {
+		query.Limit = 200
+	}
+
+	allowedTokenIDs := map[string]struct{}{}
+	if query.TokenID != "" {
+		token := s.tokens[query.TokenID]
+		if token == nil {
+			return nil, ErrNotFound
+		}
+		if !actor.IsSuperAdmin && token.UserID != actorID {
+			return nil, ErrPermissionDenied
+		}
+		allowedTokenIDs[token.ID] = struct{}{}
+	} else {
+		for _, token := range s.tokens {
+			if token.UserID == actorID {
+				allowedTokenIDs[token.ID] = struct{}{}
+			}
+		}
+	}
+
+	logs := make([]*AuditLog, 0, min(query.Limit, len(s.audits)))
+	for _, audit := range s.audits {
+		if audit.Action != "mcp.tool_call" {
+			continue
+		}
+		if _, ok := allowedTokenIDs[audit.ActorTokenID]; !ok {
+			continue
+		}
+		logs = append(logs, sanitizedMCPUsageAudit(audit))
+	}
+	sort.Slice(logs, func(first, second int) bool {
+		if logs[first].CreatedAt.Equal(logs[second].CreatedAt) {
+			return logs[first].ID > logs[second].ID
+		}
+		return logs[first].CreatedAt.After(logs[second].CreatedAt)
+	})
+	if len(logs) > query.Limit {
+		logs = logs[:query.Limit]
+	}
+	return logs, nil
+}
+
+var mcpUsageMetadataKeys = []string{
+	"adapter",
+	"evidence_kind",
+	"result",
+	"tool_name",
+	"token_id",
+	"reason",
+	"project_id",
+	"document_id",
+	"branch_id",
+	"draft_id",
+	"version_id",
+	"endpoint_id",
+	"from_version_id",
+	"to_version_id",
+	"diff_id",
+}
+
+func sanitizedMCPUsageAudit(audit *AuditLog) *AuditLog {
+	value := cloneAuditLog(audit)
+	if value == nil {
+		return nil
+	}
+	metadata := map[string]string{}
+	for _, key := range mcpUsageMetadataKeys {
+		if field := strings.TrimSpace(value.Metadata[key]); field != "" {
+			metadata[key] = field
+		}
+	}
+	value.Metadata = metadata
+	value.IPAddress = ""
+	value.UserAgent = ""
+	return value
 }
 
 func (s *Store) AuditLogsForTest() []*AuditLog {
@@ -2374,7 +2475,7 @@ func (s *Store) CreateMCPToken(actorID, name string, scopes []int, expiresAt *ti
 	}
 	now := time.Now()
 	secret := "vdoc_" + tokenRaw
-	ciphertext, cipherKID, err := encryption.EncryptMCPToken(secret, mcpTokenCipherKey())
+	ciphertext, cipherKID, err := encryption.EncryptMCPToken(secret, s.cipherKeyring)
 	if err != nil {
 		return nil, err
 	}
@@ -2480,7 +2581,7 @@ func (s *Store) MCPToken(actorID, tokenID string, auditCtx ...AuditContext) (*MC
 		}
 		return cloneToken(t), nil
 	}
-	revealed, err := cloneTokenWithSecret(t)
+	revealed, err := s.cloneTokenWithSecret(t)
 	if err != nil {
 		return nil, err
 	}
@@ -3452,7 +3553,7 @@ func draftCanBeChangedByWriter(status int) bool {
 	return domaindraft.CanBeChangedByWriter(status)
 }
 
-func cloneTokenWithSecret(token *MCPToken) (*MCPToken, error) {
+func (s *Store) cloneTokenWithSecret(token *MCPToken) (*MCPToken, error) {
 	clone := cloneToken(token)
 	if clone == nil {
 		return nil, nil
@@ -3461,19 +3562,12 @@ func cloneTokenWithSecret(token *MCPToken) (*MCPToken, error) {
 		clone.Token = token.Token
 		return clone, nil
 	}
-	secret, err := encryption.DecryptMCPToken(token.TokenCiphertext, mcpTokenCipherKey(), token.CipherKID)
+	secret, err := encryption.DecryptMCPToken(token.TokenCiphertext, s.cipherKeyring, token.CipherKID)
 	if err != nil {
 		return nil, err
 	}
 	clone.Token = secret
 	return clone, nil
-}
-
-func mcpTokenCipherKey() string {
-	if strings.TrimSpace(config.MCPTokenCipherKey) != "" {
-		return config.MCPTokenCipherKey
-	}
-	return config.JWTKey
 }
 
 func copyTimePtr(value *time.Time) *time.Time {

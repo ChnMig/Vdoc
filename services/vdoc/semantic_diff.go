@@ -415,9 +415,36 @@ func boolValue(value any) bool {
 }
 
 func valuesEqual(left, right any) bool {
-	leftBytes, _ := json.Marshal(left)
-	rightBytes, _ := json.Marshal(right)
+	leftBytes, _ := json.Marshal(canonicalDiffValue(left))
+	rightBytes, _ := json.Marshal(canonicalDiffValue(right))
 	return string(leftBytes) == string(rightBytes)
+}
+
+func canonicalDiffValue(value any) any {
+	switch typed := value.(type) {
+	case []string:
+		if len(typed) == 0 {
+			return nil
+		}
+		return typed
+	case []any:
+		if len(typed) == 0 {
+			return nil
+		}
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = canonicalDiffValue(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = canonicalDiffValue(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func fieldTypeChangeMessage(response bool) string {

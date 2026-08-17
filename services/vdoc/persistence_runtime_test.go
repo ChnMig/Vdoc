@@ -4,7 +4,71 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	domainvdoc "vdoc/domain/vdoc"
+	"vdoc/utils/encryption"
 )
+
+func TestInitDefaultStorePersistsCiphertextRotationBeforeServing(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	const (
+		oldKey = "old-runtime-cipher-key-0123456789"
+		newKID = "prod-2026-08"
+		newKey = "new-runtime-cipher-key-9876543210"
+		secret = "vdoc_0123456789abcdef0123456789abcdef0123456789abcdef"
+	)
+	legacy := mustServiceKeyring(t, encryption.MCPTokenCipherKID, oldKey, nil)
+	ciphertext, kid, err := encryption.EncryptMCPToken(secret, legacy)
+	if err != nil {
+		t.Fatalf("encrypt legacy token: %v", err)
+	}
+	state := domainvdoc.NewState()
+	state.Tokens["token-1"] = &MCPToken{
+		ID: "token-1", TokenHash: sha(secret), TokenCiphertext: ciphertext, CipherKID: kid,
+	}
+	repo := newRecordingRepository(state)
+	rotated := mustServiceKeyring(t, newKID, newKey, map[string]string{encryption.MCPTokenCipherKID: oldKey})
+
+	if err := InitDefaultStore(context.Background(), RuntimeConfig{
+		DatabaseEnabled: true, DatabaseRepository: repo, CipherKeyring: rotated,
+	}); err != nil {
+		t.Fatalf("InitDefaultStore() rotation error = %v", err)
+	}
+	if repo.saves != 1 {
+		t.Fatalf("ciphertext rotation saves = %d, want 1 atomic persistence pass", repo.saves)
+	}
+	persisted := repo.state.Tokens["token-1"]
+	if persisted == nil || persisted.CipherKID != newKID {
+		t.Fatalf("persisted rotated token = %+v", persisted)
+	}
+	activeOnly := mustServiceKeyring(t, newKID, newKey, nil)
+	if got, err := encryption.DecryptMCPToken(persisted.TokenCiphertext, activeOnly, persisted.CipherKID); err != nil || got != secret {
+		t.Fatalf("decrypt persisted rotated token = %q, %v", got, err)
+	}
+}
+
+func TestInitDefaultStoreRejectsPersistedUnknownCipherKIDWithoutSaving(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+
+	state := domainvdoc.NewState()
+	state.Tokens["token-unknown"] = &MCPToken{
+		ID: "token-unknown", TokenHash: sha("secret"), TokenCiphertext: []byte("ciphertext"), CipherKID: "unknown",
+	}
+	repo := newRecordingRepository(state)
+	active := mustServiceKeyring(t, "active", "active-runtime-cipher-key-0123456789", nil)
+	err := InitDefaultStore(context.Background(), RuntimeConfig{
+		DatabaseEnabled: true, DatabaseRepository: repo, CipherKeyring: active,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown cipher KID") {
+		t.Fatalf("InitDefaultStore(unknown KID) error = %v", err)
+	}
+	if repo.saves != 0 {
+		t.Fatalf("unknown-KID startup persisted %d saves, want zero", repo.saves)
+	}
+}
 
 func TestInitDefaultStoreRequiresObjectStorageConfigWhenEnabled(t *testing.T) {
 	ResetDefaultStoreForTest()

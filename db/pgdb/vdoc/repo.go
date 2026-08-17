@@ -1646,6 +1646,9 @@ func nullStringBytes(value sql.NullString) []byte {
 func stringArrayFromJSON(raw string) []string {
 	var values []string
 	_ = json.Unmarshal([]byte(raw), &values)
+	if len(values) == 0 {
+		return nil
+	}
 	return values
 }
 

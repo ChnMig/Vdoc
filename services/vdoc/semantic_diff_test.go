@@ -62,6 +62,34 @@ func TestCompareVersionsOptionalResponseFieldAdditionIsInfo(t *testing.T) {
 	assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.properties.email", SeverityInfo, false, "Response field added")
 }
 
+func TestCompareVersionsTreatsAbsentAndEmptyOptionalCollectionsAsEquivalent(t *testing.T) {
+	store, _, projectID, serviceID, branchID := newContractPipelineStore(t)
+	fromSchema := `{"openapi":"3.1.0","info":{"title":"Canonical API","version":"1.0.0"},"paths":{"/health":{"get":{"operationId":"health","responses":{"200":{"description":"ok"}}}}}}`
+	toSchema := `{"openapi":"3.1.0","info":{"title":"Canonical API","version":"1.1.0"},"paths":{"/health":{"get":{"operationId":"health","tags":[],"security":[],"servers":[],"responses":{"200":{"description":"ok"}}}}}}`
+	from := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.0.0", fromSchema)
+	to := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.1.0", toSchema)
+
+	diff, err := store.CompareVersions("reader", projectID, serviceID, from.ID, to.ID)
+	if err != nil {
+		t.Fatalf("CompareVersions() error = %v", err)
+	}
+	if len(diff.Items) != 0 || diff.Summary.AddedEndpoints != 0 || diff.Summary.RemovedEndpoints != 0 || diff.Summary.ModifiedEndpoints != 0 || diff.Summary.BreakingChanges != 0 {
+		t.Fatalf("diff = summary %+v items %+v, want no semantic changes", diff.Summary, diff.Items)
+	}
+}
+
+func TestSemanticDiffTreatsPersistenceEmptyTagsAsAbsent(t *testing.T) {
+	from := Endpoint{Method: "GET", Path: "/health", OperationID: "health", Tags: nil, Security: nil}
+	to := Endpoint{Method: "GET", Path: "/health", OperationID: "health", Tags: []string{}, Security: []any{}}
+	builder := semanticDiffBuilder{}
+
+	builder.compareEndpoint(from, to)
+
+	if len(builder.items) != 0 {
+		t.Fatalf("diff items = %+v, want nil/empty persistence representations to be equivalent", builder.items)
+	}
+}
+
 func TestCompareVersionsDetectsRootSchemaTypeChanges(t *testing.T) {
 	store, _, projectID, serviceID, branchID := newContractPipelineStore(t)
 	from := publishContractDraft(t, store, "admin", projectID, serviceID, branchID, "1.0.0", semanticDiffRootTypeOpenAPI("object", "object"))

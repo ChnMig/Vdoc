@@ -142,7 +142,8 @@ func TestLoadConfigWithEnv(t *testing.T) {
 	t.Setenv("VDOC_AUTH_RATE_LIMIT", "3")
 	t.Setenv("VDOC_AUTH_RATE_BURST", "7")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEY", "0123456789abcdef0123456789abcdef")
-	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KID", "local-aes-gcm-v1")
+	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KID", "prod-2026-08")
+	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEYRING", `{"local-aes-gcm-v1":"fedcba9876543210fedcba9876543210"}`)
 	t.Setenv("VDOC_SERVER_CORS_ALLOWED_ORIGINS", "https://admin.example.test,https://share.example.test")
 	t.Setenv("VDOC_SERVER_TRUSTED_PROXIES", "127.0.0.1,10.0.0.0/8")
 
@@ -176,8 +177,12 @@ func TestLoadConfigWithEnv(t *testing.T) {
 		t.Errorf("storage env override failed")
 	}
 
-	if MCPTokenCipherKey != "0123456789abcdef0123456789abcdef" || MCPTokenCipherKID != "local-aes-gcm-v1" {
+	if MCPTokenCipherKey != "0123456789abcdef0123456789abcdef" || MCPTokenCipherKID != "prod-2026-08" {
 		t.Errorf("mcp token cipher env override failed")
+	}
+	_, hasLegacyCipherKey := MCPTokenCipherKeyring["local-aes-gcm-v1"]
+	if MCPTokenCipherKeyring["local-aes-gcm-v1"] != "fedcba9876543210fedcba9876543210" || len(MCPTokenCipherKeyring) != 1 {
+		t.Errorf("mcp token cipher keyring env override failed: key_count=%d legacy_kid_present=%t", len(MCPTokenCipherKeyring), hasLegacyCipherKey)
 	}
 
 	if InitialAdminEmail != "admin@example.com" || InitialAdminName != "Root Admin" || InitialAdminPassword != "Password123456" {

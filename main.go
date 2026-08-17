@@ -108,6 +108,13 @@ func main() {
 		config.JWTKey,
 		int64(config.JWTExpiration),
 	)
+	cipherKeyring, err := config.CurrentMCPTokenCipherKeyring()
+	if err != nil {
+		zap.L().Error("初始化密钥环失败", zap.Error(err))
+		log.StopMonitor()
+		ctx.Exit(1)
+		return
+	}
 
 	// 尽早接管停止信号并取得 PID 文件所有权，避免两个实例并行执行启动副作用。
 	quit := make(chan os.Signal, 1)
@@ -185,6 +192,7 @@ func main() {
 		InitialAdminPassword:   config.InitialAdminPassword,
 		AllowRegistration:      config.AllowRegistration,
 		RequireBootstrapAccess: true,
+		CipherKeyring:          cipherKeyring,
 	}); err != nil {
 		if databaseClient != nil {
 			_ = databaseClient.Close()

@@ -280,9 +280,42 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "unsupported mcp cipher kid",
+			name: "rotated mcp cipher kid",
 			mutate: func(cfg *loadedConfig) {
-				cfg.MCPTokenCipherKID = "local-aes-gcm-v0"
+				cfg.MCPTokenCipherKID = "prod-2026-08"
+			},
+		},
+		{
+			name: "invalid mcp cipher kid",
+			mutate: func(cfg *loadedConfig) {
+				cfg.MCPTokenCipherKID = "bad kid/with spaces"
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid historical mcp cipher keyring",
+			mutate: func(cfg *loadedConfig) {
+				cfg.MCPTokenCipherKID = "prod-2026-08"
+				cfg.MCPTokenCipherKey = "fedcba9876543210fedcba9876543210"
+				cfg.MCPTokenCipherKeyring = map[string]string{
+					"local-aes-gcm-v1": "0123456789abcdef0123456789abcdef",
+				}
+			},
+		},
+		{
+			name: "active mcp KID repeated in historical keyring",
+			mutate: func(cfg *loadedConfig) {
+				cfg.MCPTokenCipherKeyring = map[string]string{
+					"local-aes-gcm-v1": "0123456789abcdef0123456789abcdef",
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "short historical mcp cipher key",
+			mutate: func(cfg *loadedConfig) {
+				cfg.MCPTokenCipherKID = "prod-2026-08"
+				cfg.MCPTokenCipherKeyring = map[string]string{"local-aes-gcm-v1": "short"}
 			},
 			wantErr: true,
 		},

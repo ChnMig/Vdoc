@@ -129,7 +129,7 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	provider.UpdatedBy = actorID
 	provider.UpdatedAt = now
 	if strings.TrimSpace(input.APIKey) != "" {
-		ciphertext, cipherKID, err := encryption.EncryptMCPToken(strings.TrimSpace(input.APIKey), mcpTokenCipherKey())
+		ciphertext, cipherKID, err := encryption.EncryptMCPToken(strings.TrimSpace(input.APIKey), s.cipherKeyring)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt ai api key: %w", err)
 		}
@@ -212,7 +212,7 @@ func (s *Store) resolveProviderForTest(actorID, projectID string, input *AIProvi
 		}
 		apiKey := strings.TrimSpace(input.APIKey)
 		if apiKey == "" {
-			apiKey, err = encryption.DecryptMCPToken(provider.APIKeyCiphertext, mcpTokenCipherKey(), provider.CipherKID)
+			apiKey, err = encryption.DecryptMCPToken(provider.APIKeyCiphertext, s.cipherKeyring, provider.CipherKID)
 			if err != nil {
 				return nil, "", fmt.Errorf("decrypt ai api key: %w", err)
 			}
@@ -234,7 +234,7 @@ func (s *Store) effectiveAIProviderLocked(projectID string) (*AIProviderConfig, 
 	if provider == nil || !provider.Enabled {
 		return nil, "", ErrFailedPrecondition
 	}
-	apiKey, err := encryption.DecryptMCPToken(provider.APIKeyCiphertext, mcpTokenCipherKey(), provider.CipherKID)
+	apiKey, err := encryption.DecryptMCPToken(provider.APIKeyCiphertext, s.cipherKeyring, provider.CipherKID)
 	if err != nil {
 		return nil, "", fmt.Errorf("decrypt ai api key: %w", err)
 	}

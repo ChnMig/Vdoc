@@ -1,0 +1,337 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version text PRIMARY KEY,
+  name text NOT NULL,
+  applied_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  password_hash text NOT NULL,
+  display_name text NOT NULL,
+  is_super_admin boolean NOT NULL DEFAULT false,
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT users_status_check CHECK (status IN (1, 2)),
+  last_login_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_active_uidx ON users (lower(email)) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS users_status_idx ON users (status);
+CREATE INDEX IF NOT EXISTS users_is_super_admin_idx ON users (is_super_admin);
+
+CREATE TABLE IF NOT EXISTS teams (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  slug text NOT NULL,
+  description text,
+  created_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS teams_slug_active_uidx ON teams (lower(slug)) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS teams_created_by_idx ON teams (created_by);
+
+CREATE TABLE IF NOT EXISTS projects (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id uuid NOT NULL REFERENCES teams(id),
+  name text NOT NULL,
+  slug text NOT NULL,
+  description text,
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT projects_status_check CHECK (status IN (1, 2)),
+  created_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS projects_team_slug_active_uidx ON projects (team_id, lower(slug)) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS projects_team_status_idx ON projects (team_id, status);
+CREATE INDEX IF NOT EXISTS projects_created_by_idx ON projects (created_by);
+
+CREATE TABLE IF NOT EXISTS project_members (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES projects(id),
+  user_id uuid NOT NULL REFERENCES users(id),
+  role smallint NOT NULL CONSTRAINT project_members_role_check CHECK (role IN (1, 2, 3)),
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT project_members_status_check CHECK (status IN (1, 2)),
+  added_by uuid NOT NULL REFERENCES users(id),
+  added_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS project_members_project_user_active_uidx ON project_members (project_id, user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS project_members_user_status_idx ON project_members (user_id, status);
+CREATE INDEX IF NOT EXISTS project_members_project_role_idx ON project_members (project_id, role);
+
+CREATE TABLE IF NOT EXISTS api_services (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES projects(id),
+  name text NOT NULL,
+  display_name text,
+  description text,
+  base_path text,
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT api_services_status_check CHECK (status IN (1, 2)),
+  created_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS api_services_project_name_active_uidx ON api_services (project_id, lower(name)) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS api_services_project_status_idx ON api_services (project_id, status);
+
+CREATE TABLE IF NOT EXISTS api_contract_branches (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_id uuid NOT NULL REFERENCES api_services(id),
+  name text NOT NULL,
+  kind smallint NOT NULL CONSTRAINT api_contract_branches_kind_check CHECK (kind IN (1, 2)),
+  description text,
+  is_default boolean NOT NULL DEFAULT false,
+  is_protected boolean NOT NULL DEFAULT false,
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT api_contract_branches_status_check CHECK (status IN (1, 2)),
+  created_by uuid NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
+  CONSTRAINT api_contract_branches_feature_name_check CHECK (kind <> 2 OR name LIKE 'feature/%')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS api_contract_branches_service_name_uidx ON api_contract_branches (service_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS api_contract_branches_default_uidx ON api_contract_branches (service_id) WHERE is_default = true AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS api_contract_branches_service_status_idx ON api_contract_branches (service_id, status);
+CREATE INDEX IF NOT EXISTS api_contract_branches_service_protected_idx ON api_contract_branches (service_id, is_protected);
+
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id),
+  name text NOT NULL,
+  token_hash text NOT NULL,
+  token_ciphertext bytea NOT NULL,
+  cipher_kid text NOT NULL,
+  scopes smallint[] NOT NULL DEFAULT '{}'::smallint[] CONSTRAINT mcp_tokens_scopes_check CHECK (scopes <@ ARRAY[1,2]::smallint[]),
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT mcp_tokens_status_check CHECK (status IN (1, 2, 3)),
+  expires_at timestamptz,
+  last_used_at timestamptz,
+  revoked_at timestamptz,
+  revoked_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
+  CONSTRAINT mcp_tokens_revoked_fields_check CHECK (status <> 2 OR revoked_at IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mcp_tokens_hash_uidx ON mcp_tokens (token_hash);
+CREATE INDEX IF NOT EXISTS mcp_tokens_user_status_idx ON mcp_tokens (user_id, status);
+CREATE INDEX IF NOT EXISTS mcp_tokens_expires_at_idx ON mcp_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS mcp_tokens_last_used_at_idx ON mcp_tokens (last_used_at DESC);
+
+CREATE TABLE IF NOT EXISTS api_contract_drafts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_id uuid NOT NULL REFERENCES api_services(id),
+  branch_id uuid NOT NULL REFERENCES api_contract_branches(id),
+  version_name text NOT NULL,
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT api_contract_drafts_status_check CHECK (status IN (1, 2, 3, 4, 5)),
+  schema_format smallint NOT NULL CONSTRAINT api_contract_drafts_schema_format_check CHECK (schema_format IN (1, 2)),
+  raw_schema_object_key text NOT NULL,
+  normalized_schema_object_key text NOT NULL,
+  raw_schema_hash text NOT NULL,
+  normalized_schema_hash text NOT NULL,
+  schema_size_bytes bigint NOT NULL,
+  schema_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  changelog text,
+  source_git_commit_id text,
+  source_type smallint NOT NULL DEFAULT 1 CONSTRAINT api_contract_drafts_source_type_check CHECK (source_type IN (1, 2, 3)),
+  source_branch_id uuid REFERENCES api_contract_branches(id),
+  source_version_id uuid,
+  base_version_id uuid,
+  diff_preview_json jsonb,
+  diff_preview_object_key text,
+  review_comment text,
+  created_by_actor_type smallint NOT NULL CONSTRAINT api_contract_drafts_actor_type_check CHECK (created_by_actor_type IN (1, 2, 3)),
+  created_by_user_id uuid NOT NULL REFERENCES users(id),
+  created_by_token_id uuid REFERENCES mcp_tokens(id),
+  submitted_at timestamptz,
+  reviewed_by uuid REFERENCES users(id),
+  reviewed_at timestamptz,
+  published_version_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
+  CONSTRAINT api_contract_drafts_promote_fields_check CHECK (source_type <> 3 OR (source_branch_id IS NOT NULL AND source_version_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS api_contract_drafts_active_version_uidx ON api_contract_drafts (service_id, branch_id, version_name) WHERE status IN (1, 2, 3) AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS api_contract_drafts_service_branch_status_idx ON api_contract_drafts (service_id, branch_id, status);
+CREATE INDEX IF NOT EXISTS api_contract_drafts_created_by_status_idx ON api_contract_drafts (created_by_user_id, status);
+CREATE INDEX IF NOT EXISTS api_contract_drafts_base_version_idx ON api_contract_drafts (base_version_id);
+
+CREATE TABLE IF NOT EXISTS api_contract_versions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_id uuid NOT NULL REFERENCES api_services(id),
+  branch_id uuid NOT NULL REFERENCES api_contract_branches(id),
+  version_name text NOT NULL,
+  version_no integer NOT NULL,
+  status smallint NOT NULL DEFAULT 1 CONSTRAINT api_contract_versions_status_check CHECK (status = 1),
+  source_draft_id uuid NOT NULL REFERENCES api_contract_drafts(id),
+  source_type smallint NOT NULL DEFAULT 1 CONSTRAINT api_contract_versions_source_type_check CHECK (source_type IN (1, 2, 3)),
+  source_branch_id uuid REFERENCES api_contract_branches(id),
+  source_version_id uuid REFERENCES api_contract_versions(id),
+  base_version_id uuid REFERENCES api_contract_versions(id),
+  schema_format smallint NOT NULL CONSTRAINT api_contract_versions_schema_format_check CHECK (schema_format IN (1, 2)),
+  raw_schema_object_key text NOT NULL,
+  normalized_schema_object_key text NOT NULL,
+  raw_schema_hash text NOT NULL,
+  normalized_schema_hash text NOT NULL,
+  schema_size_bytes bigint NOT NULL,
+  schema_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  changelog text,
+  source_git_commit_id text,
+  endpoint_count integer NOT NULL DEFAULT 0,
+  published_by uuid NOT NULL REFERENCES users(id),
+  published_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT api_contract_versions_source_draft_uidx UNIQUE (source_draft_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS api_contract_versions_branch_version_name_uidx ON api_contract_versions (service_id, branch_id, version_name);
+CREATE UNIQUE INDEX IF NOT EXISTS api_contract_versions_branch_version_no_uidx ON api_contract_versions (service_id, branch_id, version_no);
+CREATE INDEX IF NOT EXISTS api_contract_versions_hash_idx ON api_contract_versions (service_id, branch_id, normalized_schema_hash);
+CREATE INDEX IF NOT EXISTS api_contract_versions_published_at_idx ON api_contract_versions (service_id, branch_id, published_at DESC);
+
+ALTER TABLE api_contract_drafts
+  ADD CONSTRAINT api_contract_drafts_source_version_fk FOREIGN KEY (source_version_id) REFERENCES api_contract_versions(id),
+  ADD CONSTRAINT api_contract_drafts_base_version_fk FOREIGN KEY (base_version_id) REFERENCES api_contract_versions(id),
+  ADD CONSTRAINT api_contract_drafts_published_version_fk FOREIGN KEY (published_version_id) REFERENCES api_contract_versions(id);
+
+CREATE TABLE IF NOT EXISTS api_endpoints (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_version_id uuid NOT NULL REFERENCES api_contract_versions(id),
+  service_id uuid NOT NULL REFERENCES api_services(id),
+  branch_id uuid NOT NULL REFERENCES api_contract_branches(id),
+  method smallint NOT NULL CONSTRAINT api_endpoints_method_check CHECK (method IN (1, 2, 3, 4, 5, 6, 7, 8)),
+  path text NOT NULL,
+  operation_id text,
+  summary text,
+  description text,
+  tags text[] NOT NULL DEFAULT '{}'::text[],
+  deprecated boolean NOT NULL DEFAULT false,
+  request_hash text NOT NULL,
+  response_hash text NOT NULL,
+  security_hash text,
+  endpoint_hash text NOT NULL,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT api_endpoints_version_method_path_uidx UNIQUE (contract_version_id, method, path)
+);
+CREATE INDEX IF NOT EXISTS api_endpoints_version_sort_idx ON api_endpoints (contract_version_id, sort_order);
+CREATE INDEX IF NOT EXISTS api_endpoints_path_idx ON api_endpoints (service_id, branch_id, method, path);
+CREATE INDEX IF NOT EXISTS api_endpoints_operation_idx ON api_endpoints (contract_version_id, operation_id);
+CREATE INDEX IF NOT EXISTS api_endpoints_tags_gidx ON api_endpoints USING gin (tags);
+CREATE INDEX IF NOT EXISTS api_endpoints_hash_idx ON api_endpoints (contract_version_id, endpoint_hash);
+
+CREATE TABLE IF NOT EXISTS api_endpoint_details (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  endpoint_id uuid NOT NULL REFERENCES api_endpoints(id),
+  parameters_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  request_body_json jsonb,
+  responses_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  security_json jsonb,
+  servers_json jsonb,
+  normalized_operation_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  schema_refs_json jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT api_endpoint_details_endpoint_uidx UNIQUE (endpoint_id)
+);
+CREATE INDEX IF NOT EXISTS api_endpoint_details_normalized_operation_gidx ON api_endpoint_details USING gin (normalized_operation_json);
+
+CREATE TABLE IF NOT EXISTS api_version_diffs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_id uuid NOT NULL REFERENCES api_services(id),
+  from_branch_id uuid NOT NULL REFERENCES api_contract_branches(id),
+  to_branch_id uuid NOT NULL REFERENCES api_contract_branches(id),
+  from_version_id uuid NOT NULL REFERENCES api_contract_versions(id),
+  to_version_id uuid NOT NULL REFERENCES api_contract_versions(id),
+  diff_status smallint NOT NULL DEFAULT 1 CONSTRAINT api_version_diffs_status_check CHECK (diff_status IN (1, 2, 3, 4)),
+  diff_object_key text,
+  diff_hash text,
+  diff_summary_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  breaking_changes_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  added_count integer NOT NULL DEFAULT 0,
+  modified_count integer NOT NULL DEFAULT 0,
+  removed_count integer NOT NULL DEFAULT 0,
+  breaking_count integer NOT NULL DEFAULT 0,
+  summary_text text,
+  error_message text,
+  generated_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT api_version_diffs_versions_different_check CHECK (from_version_id <> to_version_id),
+  CONSTRAINT api_version_diffs_versions_uidx UNIQUE (from_version_id, to_version_id)
+);
+CREATE INDEX IF NOT EXISTS api_version_diffs_service_to_branch_created_idx ON api_version_diffs (service_id, to_branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS api_version_diffs_status_idx ON api_version_diffs (diff_status);
+
+CREATE TABLE IF NOT EXISTS api_diff_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  diff_id uuid NOT NULL REFERENCES api_version_diffs(id),
+  endpoint_id uuid REFERENCES api_endpoints(id),
+  change_type smallint NOT NULL,
+  severity smallint NOT NULL CONSTRAINT api_diff_items_severity_check CHECK (severity IN (1, 2, 3)),
+  method smallint CONSTRAINT api_diff_items_method_check CHECK (method IS NULL OR method IN (1, 2, 3, 4, 5, 6, 7, 8)),
+  path text,
+  operation_id text,
+  location text,
+  old_value jsonb,
+  new_value jsonb,
+  message text NOT NULL,
+  frontend_impact text,
+  is_breaking boolean NOT NULL DEFAULT false,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT api_diff_items_breaking_consistency_check CHECK (severity <> 3 OR is_breaking = true)
+);
+CREATE INDEX IF NOT EXISTS api_diff_items_diff_sort_idx ON api_diff_items (diff_id, sort_order);
+CREATE INDEX IF NOT EXISTS api_diff_items_diff_severity_idx ON api_diff_items (diff_id, severity);
+CREATE INDEX IF NOT EXISTS api_diff_items_endpoint_idx ON api_diff_items (diff_id, method, path);
+CREATE INDEX IF NOT EXISTS api_diff_items_change_type_idx ON api_diff_items (change_type);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_type smallint NOT NULL CONSTRAINT audit_logs_actor_type_check CHECK (actor_type IN (1, 2, 3)),
+  actor_user_id uuid REFERENCES users(id),
+  actor_token_id uuid REFERENCES mcp_tokens(id),
+  action text NOT NULL,
+  resource_type text NOT NULL,
+  resource_id uuid,
+  project_id uuid REFERENCES projects(id),
+  service_id uuid REFERENCES api_services(id),
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ip_address inet,
+  user_agent text,
+  request_id text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs (actor_type, actor_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_resource_idx ON audit_logs (resource_type, resource_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_project_idx ON audit_logs (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_action_idx ON audit_logs (action, created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_request_idx ON audit_logs (request_id);
+
+CREATE TABLE IF NOT EXISTS vdoc_schema_objects (
+  object_key text PRIMARY KEY,
+  kind text NOT NULL,
+  owner_type text NOT NULL,
+  owner_id uuid,
+  sha256 text NOT NULL,
+  content_type text NOT NULL DEFAULT 'application/json',
+  size_bytes bigint NOT NULL,
+  etag text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS vdoc_schema_objects_owner_idx ON vdoc_schema_objects (owner_type, owner_id, kind);
+CREATE INDEX IF NOT EXISTS vdoc_schema_objects_hash_idx ON vdoc_schema_objects (sha256);
