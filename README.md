@@ -1,3 +1,7 @@
+<p>
+  <img src="assets/vdoc-logo.png" width="96" height="96" alt="Vdoc logo" />
+</p>
+
 # Vdoc
 
 Languages: [English](README.md) | [简体中文](README.zh-CN.md)

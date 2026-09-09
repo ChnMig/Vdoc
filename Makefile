@@ -20,7 +20,7 @@ PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 DIST_DIR ?= dist
 CGO_ENABLED ?= 0
 PACKAGE_FILES ?= README.md config.yaml.example
-PACKAGE_DIRS ?= static
+PACKAGE_DIRS ?= static assets
 
 help: ## 显示帮助信息
 	@echo "可用命令:"
