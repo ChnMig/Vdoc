@@ -36,12 +36,12 @@ API 文档：
 - 机器可读 OpenAPI 规格：[docs/api/openapi.yaml](docs/api/openapi.yaml)
 - 已审计的上游脚手架差异：[docs/scaffold-sync.md](docs/scaffold-sync.md)
 
-试点和发布文档位于 workspace 根目录：
+试点和发布文档由 Vdoc-site 提供公开副本：
 
-- [../PILOT_RUNBOOK.md](../PILOT_RUNBOOK.md)
-- [../RELEASE_DEPLOY.md](../RELEASE_DEPLOY.md)
+- [PILOT_RUNBOOK.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/PILOT_RUNBOOK.md)
+- [RELEASE_DEPLOY.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/RELEASE_DEPLOY.md)
 
-本机闭环统一使用 workspace root 路径：
+先按[部署指南](https://vibe-doc.com/deployment)下载并初始化完整 workspace；单独克隆后端仓库不包含根级 Compose 文件。以下命令在初始化后的 workspace 根目录执行：
 
 ```sh
 scripts/vdoc-local-bootstrap.sh
@@ -171,7 +171,7 @@ get_doc_draft
 
 v0.1 不提供直接发布工具。版本发布必须由 Admin 或 SuperAdmin 人工审核触发。
 
-安装到用户 Agent 的分发物不放在后端仓库内：MCP stdio adapter 在 `../Vdoc-mcp/`，工作流 Skill 在 `../Vdoc-skill/`。
+安装到用户 Agent 的分发物不放在后端仓库内：MCP stdio adapter 在 [Vdoc-mcp](https://github.com/ChnMig/Vdoc-mcp)，工作流 Skill 在 [Vdoc-skill](https://github.com/ChnMig/Vdoc-skill)。
 
 ## 后端架构
 
@@ -333,12 +333,12 @@ unset NEW_PASSWORD
 
 ## 文档
 
-- [Product PRD](../PRD.md)
-- [Implementation plan](../IMPLEMENTATION_PLAN.md)
-- [Database schema design](../DATABASE_SCHEMA.md)
-- [Roadmap and improvements](../IMPROVEMENTS.md)
+- [Product PRD](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/PRD.md)
+- [Implementation plan](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/IMPLEMENTATION_PLAN.md)
+- [Database schema design](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/DATABASE_SCHEMA.md)
+- [Roadmap and improvements](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/IMPROVEMENTS.md)
 - [English README](README.md)
-- [中文路线图](../IMPROVEMENTS.zh-CN.md)
+- [中文路线图](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/IMPROVEMENTS.zh-CN.md)
 
 ## 贡献
 

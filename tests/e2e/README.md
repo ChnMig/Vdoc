@@ -17,7 +17,7 @@ The happy path writes `.sisyphus/evidence/task-17-e2e-happy-path.json`. The fail
 
 Live persistence is opt-in. Default tests do not connect to PostgreSQL or object storage. Use a disposable test database because the live E2E setup resets the PostgreSQL `public` schema before migrations.
 
-For the normal local closure path, start from the workspace root:
+First [download and initialize the full workspace](https://vibe-doc.com/en/deployment) to obtain the root Compose files and scripts. For the normal local closure path, start from that workspace root:
 
 ```sh
 scripts/vdoc-local-bootstrap.sh

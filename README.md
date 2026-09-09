@@ -36,12 +36,12 @@ API documentation:
 - Machine-readable OpenAPI spec: [docs/api/openapi.yaml](docs/api/openapi.yaml)
 - Reviewed upstream scaffold delta: [docs/scaffold-sync.md](docs/scaffold-sync.md)
 
-Pilot and release documentation lives at the workspace root:
+Public workspace deployment and release documents are maintained in Vdoc-site:
 
-- [../PILOT_RUNBOOK.md](../PILOT_RUNBOOK.md)
-- [../RELEASE_DEPLOY.md](../RELEASE_DEPLOY.md)
+- [PILOT_RUNBOOK.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/PILOT_RUNBOOK.md)
+- [RELEASE_DEPLOY.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/RELEASE_DEPLOY.md)
 
-Workspace local closure uses one root path:
+First [download and initialize the full workspace](https://vibe-doc.com/en/deployment). The backend repository alone does not contain the root Compose files. Run the following from the initialized workspace root:
 
 ```sh
 scripts/vdoc-local-bootstrap.sh
@@ -171,7 +171,7 @@ get_doc_draft
 
 Direct publish tools are not available in v0.1. Human Admin or SuperAdmin review publishes versions.
 
-Installable agent-facing assets are kept outside this backend repository: the MCP stdio adapter lives in `../Vdoc-mcp/`, and the workflow skill lives in `../Vdoc-skill/`.
+Installable agent-facing assets are kept outside this backend repository: the MCP stdio adapter lives in [Vdoc-mcp](https://github.com/ChnMig/Vdoc-mcp), and the workflow skill lives in [Vdoc-skill](https://github.com/ChnMig/Vdoc-skill).
 
 ## Backend Architecture
 
@@ -278,7 +278,7 @@ docker run --rm -p 8080:8080 \
   vdoc-backend:local
 ```
 
-The image exposes port `8080`, runs as a non-root user, and includes a healthcheck for `/api/v1/open/health`. Workspace Compose guidance lives in `../COMPOSE_DEPLOY.md`.
+The image exposes port `8080`, runs as a non-root user, and includes a healthcheck for `/api/v1/open/health`. Workspace Compose guidance lives in [COMPOSE_DEPLOY.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/COMPOSE_DEPLOY.md).
 
 ### Common Commands
 
@@ -340,7 +340,7 @@ with different key material. During rotation, set a new active KID/key and put
 the old KID/key in the JSON `mcp_token.cipher_keyring`. Startup validates and
 transactionally re-encrypts MCP token, AI Provider, and public-share ciphertext
 to the active KID. Remove the historical keyring only after the database shows
-no old KIDs; the full procedure is in the workspace `RELEASE_DEPLOY.md`.
+no old KIDs; the full procedure is in [RELEASE_DEPLOY.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/RELEASE_DEPLOY.md).
 
 Register and login always have an independent per-IP limiter, configured by `auth.rate_limit` and `auth.rate_burst`, even when the optional global server limiter is disabled.
 
@@ -362,12 +362,12 @@ Config file lookup order:
 
 ## Documentation
 
-- [Product PRD](../PRD.md)
-- [Implementation plan](../IMPLEMENTATION_PLAN.md)
-- [Database schema design](../DATABASE_SCHEMA.md)
-- [Roadmap and improvements](../IMPROVEMENTS.md)
+- [Product PRD](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/PRD.md)
+- [Implementation plan](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/IMPLEMENTATION_PLAN.md)
+- [Database schema design](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/DATABASE_SCHEMA.md)
+- [Roadmap and improvements](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/IMPROVEMENTS.md)
 - [中文 README](README.zh-CN.md)
-- [中文路线图](../IMPROVEMENTS.zh-CN.md)
+- [中文路线图](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/IMPROVEMENTS.zh-CN.md)
 
 ## Contributing
 
