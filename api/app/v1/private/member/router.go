@@ -2,6 +2,7 @@ package member
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 
 	"github.com/gin-gonic/gin"
@@ -61,7 +62,7 @@ func addMember(c *gin.Context) {
 		UserID string `json:"user_id"`
 		Role   int    `json:"role"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -81,7 +82,7 @@ func patchMemberRole(c *gin.Context) {
 	var req struct {
 		Role int `json:"role"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

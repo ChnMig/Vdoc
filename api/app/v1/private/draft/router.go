@@ -2,6 +2,7 @@ package draft
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -67,7 +68,7 @@ func createDraft(c *gin.Context) {
 		return
 	}
 	var req draftRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -148,7 +149,7 @@ func updateDraft(c *gin.Context) {
 		return
 	}
 	var req draftPatchRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -244,7 +245,7 @@ func promoteDraft(c *gin.Context) {
 		VersionName    string `json:"version_name"`
 		Changelog      string `json:"changelog"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

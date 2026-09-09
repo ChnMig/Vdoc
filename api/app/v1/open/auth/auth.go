@@ -50,7 +50,7 @@ func Register(c *gin.Context) {
 		return
 	}
 	var req authRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 		return
 	}
@@ -69,7 +69,7 @@ func Register(c *gin.Context) {
 
 func Login(c *gin.Context) {
 	var req authRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 		return
 	}

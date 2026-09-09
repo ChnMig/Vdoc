@@ -2,6 +2,7 @@ package systemuser
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,7 @@ func createUser(c *gin.Context) {
 		Password     string `json:"password"`
 		IsSuperAdmin bool   `json:"is_super_admin"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -60,7 +61,7 @@ func patchUser(c *gin.Context) {
 		Status       *int  `json:"status"`
 		IsSuperAdmin *bool `json:"is_super_admin"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

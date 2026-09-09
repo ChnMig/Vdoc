@@ -30,6 +30,7 @@ API 文档：
 
 - 人类可读指南：[docs/api/API.md](docs/api/API.md)
 - 机器可读 OpenAPI 规格：[docs/api/openapi.yaml](docs/api/openapi.yaml)
+- 已审计的上游脚手架差异：[docs/scaffold-sync.md](docs/scaffold-sync.md)
 
 试点和发布文档位于 workspace 根目录：
 
@@ -282,9 +283,9 @@ make build CROSS=1
 
 ## 配置
 
-配置来自 `config.yaml`、默认值和 `VDOC_` 环境变量。
+配置来自 `config.yaml`、默认值和 `VDOC_` 环境变量。Backend 进程不会自动加载 `.env`；原生运行时请由 shell 或进程管理器导出变量，官方 workspace 部署则由根 Docker Compose 读取根目录 `.env`。
 
-`server.host` 默认是 `0.0.0.0`；只允许本机直连时改为 `127.0.0.1`。`server.static_dir` 默认是相对工作目录的 `./static`，设为空字符串即可关闭 `/static`。PID 文件同样相对工作目录解析并独占创建，第二个实例不能覆盖第一个实例的所有权标记。非优雅退出可能遗留 PID 文件；只有确认没有 Vdoc 实例仍在使用后才可手动删除。
+`server.host` 默认是 `0.0.0.0`；只允许本机直连时改为 `127.0.0.1`。`server.static_dir` 默认是相对工作目录的 `./static`，设为空字符串即可关闭 `/static`。原生进程管理器部署可以显式设置 `VDOC_SERVER_PID_FILE`；Docker 镜像和官方 Compose 会把它设为空，因为进程监督由 Docker 负责。这样 OOM 或 `SIGKILL` 不会遗留 writable-layer PID 文件并阻断容器重启策略。
 
 示例：
 

@@ -238,12 +238,33 @@ func setupLiveDefaultStore(t *testing.T) string {
 		t.Skipf("missing %s; skipping live PostgreSQL/RustFS/S3 E2E. Set VDOC_E2E_LIVE=1 with the documented VDOC_TEST_DATABASE_DSN and VDOC_TEST_STORAGE_* variables", strings.Join(missing, ", "))
 	}
 
+	initLiveDefaultStore(t, true)
+	t.Cleanup(func() {
+		_ = app.CloseDefaultStore()
+		app.ResetDefaultStoreForTest()
+	})
+	return "live-postgres-rustfs-s3"
+}
+
+func restartLiveDefaultStore(t *testing.T) {
+	t.Helper()
+	if err := app.CloseDefaultStore(); err != nil {
+		t.Fatalf("close live Vdoc store before restart: %v", err)
+	}
+	app.ResetDefaultStoreForTest()
+	initLiveDefaultStore(t, false)
+}
+
+func initLiveDefaultStore(t *testing.T, reset bool) {
+	t.Helper()
 	ctx := context.Background()
 	client, err := pgdb.OpenWithConfig(ctx, pgdb.Config{DSN: os.Getenv("VDOC_TEST_DATABASE_DSN"), MaxOpenConn: 4, MaxIdleConn: 2, RunMigration: false})
 	if err != nil {
 		t.Fatalf("open live PostgreSQL test database: %v", err)
 	}
-	resetLiveDatabase(t, client.DB())
+	if reset {
+		resetLiveDatabase(t, client.DB())
+	}
 	if err := vdocdb.RunMigrations(ctx, client.DB()); err != nil {
 		_ = client.Close()
 		t.Fatalf("run live PostgreSQL migrations: %v", err)
@@ -275,11 +296,6 @@ func setupLiveDefaultStore(t *testing.T) string {
 		_ = client.Close()
 		t.Fatalf("initialize live Vdoc store: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = app.CloseDefaultStore()
-		app.ResetDefaultStoreForTest()
-	})
-	return "live-postgres-rustfs-s3"
 }
 
 func resetLiveDatabase(t *testing.T, database *gorm.DB) {

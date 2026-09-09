@@ -2,6 +2,7 @@ package ai
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -19,7 +20,7 @@ func createChatSession(c *gin.Context) {
 		ContextID   string `json:"context_id"`
 		Title       string `json:"title"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -71,7 +72,7 @@ func sendChatMessage(c *gin.Context) {
 	var req struct {
 		Content string `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

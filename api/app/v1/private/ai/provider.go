@@ -2,6 +2,7 @@ package ai
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 	domainai "vdoc/domain/ai"
@@ -109,7 +110,7 @@ func testProjectProvider(c *gin.Context) {
 
 func bindProvider(c *gin.Context) (app.AIProviderInput, bool) {
 	var req providerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return app.AIProviderInput{}, false
 	}

@@ -2,6 +2,7 @@ package branch
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -35,7 +36,7 @@ func createBranch(c *gin.Context) {
 		return
 	}
 	var req struct{ Name, Description string }
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -71,7 +72,7 @@ func updateBranch(c *gin.Context) {
 		IsDefault   *bool   `json:"is_default"`
 		IsProtected *bool   `json:"is_protected"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

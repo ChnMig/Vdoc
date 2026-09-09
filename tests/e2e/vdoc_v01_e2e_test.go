@@ -67,7 +67,53 @@ func TestVdocV01EndToEndLivePersistence(t *testing.T) {
 		t.Skip("VDOC_E2E_LIVE=1 not set; skipping live PostgreSQL/RustFS/S3 E2E. Default go test uses the in-memory E2E harness")
 	}
 	fixture := newE2EFixture(t, e2eFixtureOptions{LivePersistence: true})
-	runVdocV01HappyPath(t, fixture)
+	evidence := runVdocV01HappyPath(t, fixture)
+	restartLiveDefaultStore(t)
+	assertLiveDataSurvivesStoreRestart(t, fixture, evidence)
+	evidence.Statuses["store_restart"] = "passed"
+	writeJSONEvidence(t, "task-17-e2e-live-persistence.json", evidence)
+}
+
+func assertLiveDataSurvivesStoreRestart(t *testing.T, fixture *e2eFixture, evidence happyPathEvidence) {
+	t.Helper()
+	admin := decodeDetail[e2eAuthDetail](t, fixture.requireOK(t, http.MethodPost, "/api/v1/open/auth/login", "", map[string]any{
+		"email":    "e2e-admin-" + evidence.RunID + "@example.test",
+		"password": e2ePassword,
+	}))
+	reader := decodeDetail[e2eAuthDetail](t, fixture.requireOK(t, http.MethodPost, "/api/v1/open/auth/login", "", map[string]any{
+		"email":    "e2e-reader-" + evidence.RunID + "@example.test",
+		"password": e2ePassword,
+	}))
+	workspace := e2eWorkspace{
+		ProjectID:   evidence.IDs["project_id"],
+		DocumentID:  evidence.IDs["document_id"],
+		ReaderToken: reader.Token,
+	}
+	versionOneID := evidence.IDs["version_one_id"]
+	raw := decodeDetail[e2eSchemaDocument](t, fixture.requireOK(t, http.MethodGet, versionPath(workspace, versionOneID)+"/content/raw", reader.Token, nil))
+	assertSchemaDocument(t, raw, false)
+	endpoint := decodeDetail[e2eEndpoint](t, fixture.requireOK(t, http.MethodGet, endpointsPath(workspace, versionOneID)+"/"+evidence.MCP.EndpointDetailID, reader.Token, nil))
+	if endpoint.ID != evidence.MCP.EndpointDetailID || endpoint.OperationID != "listPets" {
+		t.Fatalf("endpoint after store restart = %+v, want persisted listPets endpoint", endpoint)
+	}
+	summary := decodeDetail[e2eDiffSummary](t, fixture.requireOK(t, http.MethodGet, diffsPath(workspace)+"/"+evidence.IDs["rest_diff_id"]+"/summary", reader.Token, nil))
+	if summary != evidence.REST.DiffSummary {
+		t.Fatalf("diff summary after store restart = %+v, want %+v", summary, evidence.REST.DiffSummary)
+	}
+
+	mcpToken := decodeDetail[e2eMCPToken](t, fixture.requireOK(t, http.MethodGet, "/api/v1/private/mcp-tokens/"+evidence.MCP.TokenID, admin.Token, nil))
+	if mcpToken.Token == "" {
+		t.Fatal("active MCP token could not be revealed after store restart")
+	}
+	mcpEndpoint := requireRPCResult[e2eEndpoint](t, fixture.callTool(t, mcpToken.Token, "get_endpoint_detail", map[string]any{
+		"project_id":  workspace.ProjectID,
+		"document_id": workspace.DocumentID,
+		"version_id":  versionOneID,
+		"endpoint_id": evidence.MCP.EndpointDetailID,
+	}), "get_endpoint_detail after store restart")
+	if mcpEndpoint.ID != evidence.MCP.EndpointDetailID || mcpEndpoint.OperationID != "listPets" {
+		t.Fatalf("MCP endpoint after store restart = %+v, want persisted listPets endpoint", mcpEndpoint)
+	}
 }
 
 func TestVdocV01FailureMatrix(t *testing.T) {

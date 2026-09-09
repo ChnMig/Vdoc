@@ -2,6 +2,7 @@ package diff
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -41,7 +42,7 @@ func createDiff(c *gin.Context) {
 		FromVersionID string `json:"from_version_id"`
 		ToVersionID   string `json:"to_version_id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

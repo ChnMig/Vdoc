@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -55,7 +56,7 @@ func createMCPToken(c *gin.Context) {
 		Scopes    []int      `json:"scopes"`
 		ExpiresAt *time.Time `json:"expires_at"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

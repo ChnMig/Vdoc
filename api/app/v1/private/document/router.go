@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -38,7 +39,7 @@ func createDocument(c *gin.Context) {
 		return
 	}
 	var req createDocumentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -91,7 +92,7 @@ func updateDocument(c *gin.Context) {
 		return
 	}
 	var req patchDocumentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

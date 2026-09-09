@@ -2,6 +2,7 @@ package project
 
 import (
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -27,7 +28,7 @@ func createProject(c *gin.Context) {
 		Description string `json:"description"`
 		AdminUserID string `json:"admin_user_id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
@@ -74,7 +75,7 @@ func updateProject(c *gin.Context) {
 		Name        *string `json:"name"`
 		Description *string `json:"description"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

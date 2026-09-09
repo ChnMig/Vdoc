@@ -30,6 +30,7 @@ API documentation:
 
 - Human-readable guide: [docs/api/API.md](docs/api/API.md)
 - Machine-readable OpenAPI spec: [docs/api/openapi.yaml](docs/api/openapi.yaml)
+- Reviewed upstream scaffold delta: [docs/scaffold-sync.md](docs/scaffold-sync.md)
 
 Pilot and release documentation lives at the workspace root:
 
@@ -301,9 +302,9 @@ Responses use a project envelope. HTTP status is currently always `200`; semanti
 
 ## Configuration
 
-Configuration is loaded from `config.yaml`, defaults, and `VDOC_` environment variables.
+Configuration is loaded from `config.yaml`, defaults, and `VDOC_` environment variables. The backend process does not auto-load `.env`; export variables through the shell or process manager. In the supported workspace deployment, root Docker Compose reads the root `.env` file.
 
-`server.host` defaults to `0.0.0.0`; use `127.0.0.1` for direct local-only access. `server.static_dir` defaults to `./static` relative to the working directory and can be set to an empty string to disable `/static`. PID files are also resolved from the working directory and are created exclusively, so a second instance cannot overwrite the first instance's ownership marker. An ungraceful termination can leave the PID file behind; remove it manually only after confirming that no Vdoc instance still owns it.
+`server.host` defaults to `0.0.0.0`; use `127.0.0.1` for direct local-only access. `server.static_dir` defaults to `./static` relative to the working directory and can be set to an empty string to disable `/static`. Native process-manager deployments may set `VDOC_SERVER_PID_FILE` explicitly; the Docker image and supported Compose stack set it to an empty value because Docker owns process supervision. This prevents an OOM or `SIGKILL` from leaving a writable-layer PID file that blocks the container restart policy.
 
 Examples:
 

@@ -52,7 +52,7 @@ func unlock(c *gin.Context) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		returnUnavailable(c)
 		return
 	}

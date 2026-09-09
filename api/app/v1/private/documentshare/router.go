@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"vdoc/api/app/v1/private/shared"
+	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
 
@@ -66,7 +67,7 @@ func createShare(c *gin.Context) {
 		ExpiryPreset string `json:"expiry_preset"`
 		Password     string `json:"password"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}

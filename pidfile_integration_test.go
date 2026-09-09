@@ -37,6 +37,7 @@ func TestPidFileLifecycle(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"VDOC_SERVER_HOST=127.0.0.1",
 		"VDOC_SERVER_PORT="+port,
+		"VDOC_SERVER_PID_FILE="+pidPath,
 		"VDOC_SERVER_SHUTDOWN_TIMEOUT=1s",
 		"VDOC_JWT_KEY=0123456789abcdef0123456789abcdef",
 		"VDOC_AUTH_ALLOW_REGISTRATION=true",
@@ -90,6 +91,7 @@ func TestPidFileLifecycle(t *testing.T) {
 	second.Env = append(os.Environ(),
 		"VDOC_SERVER_HOST=127.0.0.1",
 		"VDOC_SERVER_PORT="+secondPort,
+		"VDOC_SERVER_PID_FILE="+pidPath,
 		"VDOC_SERVER_SHUTDOWN_TIMEOUT=1s",
 		"VDOC_JWT_KEY=0123456789abcdef0123456789abcdef",
 		"VDOC_AUTH_ALLOW_REGISTRATION=true",
@@ -128,6 +130,101 @@ func TestPidFileLifecycle(t *testing.T) {
 
 	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
 		t.Fatalf("服务退出后 pid 文件应被删除，Stat() err=%v", err)
+	}
+}
+
+func TestSupervisorManagedRuntimeRestartsAfterSIGKILL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试（-short）")
+	}
+
+	tmpDir := t.TempDir()
+	binPath := filepath.Join(tmpDir, "vdoc-testbin")
+	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
+	var buildOut bytes.Buffer
+	buildCmd.Stdout = &buildOut
+	buildCmd.Stderr = &buildOut
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("构建测试二进制失败: %v\n%s", err, buildOut.String())
+	}
+
+	start := func(port string) (*exec.Cmd, <-chan error, *bytes.Buffer) {
+		cmd := exec.Command(binPath, "--dev")
+		cmd.Dir = tmpDir
+		cmd.Env = append(os.Environ(),
+			"VDOC_SERVER_HOST=127.0.0.1",
+			"VDOC_SERVER_PORT="+port,
+			"VDOC_SERVER_PID_FILE=",
+			"VDOC_SERVER_SHUTDOWN_TIMEOUT=1s",
+			"VDOC_JWT_KEY=0123456789abcdef0123456789abcdef",
+			"VDOC_AUTH_ALLOW_REGISTRATION=true",
+		)
+		out := &bytes.Buffer{}
+		cmd.Stdout = out
+		cmd.Stderr = out
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("启动 supervisor-managed 服务失败: %v", err)
+		}
+		waitCh := make(chan error, 1)
+		go func() { waitCh <- cmd.Wait() }()
+		return cmd, waitCh, out
+	}
+
+	firstPort := reserveLocalPort(t)
+	first, firstWait, firstOut := start(firstPort)
+	waitForServerPort(t, firstPort, firstWait, firstOut)
+	if _, err := os.Stat(filepath.Join(tmpDir, "vdoc.pid")); !os.IsNotExist(err) {
+		t.Fatalf("supervisor-managed runtime must not create vdoc.pid: %v", err)
+	}
+	if err := first.Process.Kill(); err != nil {
+		t.Fatalf("SIGKILL 第一个服务失败: %v", err)
+	}
+	if err := <-firstWait; err == nil {
+		t.Fatal("SIGKILL 后进程应返回非零状态")
+	}
+
+	secondPort := reserveLocalPort(t)
+	second, secondWait, secondOut := start(secondPort)
+	waitForServerPort(t, secondPort, secondWait, secondOut)
+	if _, err := os.Stat(filepath.Join(tmpDir, "vdoc.pid")); !os.IsNotExist(err) {
+		t.Fatalf("异常退出后的第二次启动不得创建或依赖 vdoc.pid: %v", err)
+	}
+
+	if err := second.Process.Signal(os.Interrupt); err != nil {
+		_ = second.Process.Kill()
+		_ = <-secondWait
+		t.Fatalf("停止第二个服务失败: %v", err)
+	}
+	select {
+	case err := <-secondWait:
+		if err != nil {
+			t.Fatalf("第二个服务优雅退出失败: %v\n%s", err, secondOut.String())
+		}
+	case <-time.After(5 * time.Second):
+		_ = second.Process.Kill()
+		_ = <-secondWait
+		t.Fatalf("第二个服务未按时退出\n%s", secondOut.String())
+	}
+}
+
+func waitForServerPort(t *testing.T, port string, waitCh <-chan error, out *bytes.Buffer) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		select {
+		case waitErr := <-waitCh:
+			t.Fatalf("服务在监听端口前退出: %v\n%s", waitErr, out.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("服务未在预期时间内监听端口 %s\n%s", port, out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
