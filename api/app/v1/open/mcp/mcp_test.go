@@ -244,6 +244,8 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 	required := map[string]bool{
 		"list_projects":            false,
 		"list_documents":           false,
+		"list_document_branches":   false,
+		"list_api_endpoints":       false,
 		"list_api_versions":        false,
 		"list_doc_versions":        false,
 		"get_latest_schema":        false,

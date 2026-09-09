@@ -68,6 +68,13 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	if len(out.Choices) == 0 {
 		return aiCompletionResult{}, fmt.Errorf("%w: provider returned no choices", ErrFailedPrecondition)
 	}
+	switch out.Choices[0].FinishReason {
+	case "", "stop": // 部分兼容服务省略完成原因。
+	case "length":
+		return aiCompletionResult{}, truncatedAIOutputError()
+	default:
+		return aiCompletionResult{}, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
+	}
 	content := strings.TrimSpace(out.Choices[0].Message.Content)
 	if content == "" {
 		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
@@ -85,6 +92,20 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 	if err := json.Unmarshal(body, &out); err != nil {
 		return aiCompletionResult{}, fmt.Errorf("parse responses response: %w", err)
 	}
+	if out.Status == "incomplete" {
+		if out.IncompleteDetails.Reason == "max_output_tokens" {
+			return aiCompletionResult{}, truncatedAIOutputError()
+		}
+		return aiCompletionResult{}, fmt.Errorf("%w: provider returned incomplete output", ErrFailedPrecondition)
+	}
+	if out.Status != "" && out.Status != "completed" {
+		return aiCompletionResult{}, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
+	}
+	for _, output := range out.Output {
+		if output.Status != "" && output.Status != "completed" {
+			return aiCompletionResult{}, fmt.Errorf("%w: provider returned an incomplete output item", ErrFailedPrecondition)
+		}
+	}
 	content := strings.TrimSpace(out.OutputText)
 	if content == "" {
 		content = strings.TrimSpace(out.JoinedText())
@@ -93,6 +114,10 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
 	return aiCompletionResult{Content: content, Usage: aiTokenUsage{InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, TotalTokens: out.Usage.TotalTokens}}, nil
+}
+
+func truncatedAIOutputError() error {
+	return fmt.Errorf("%w: AI output was truncated; increase the output token limit and retry", ErrFailedPrecondition)
 }
 
 func responsesConversationInput(history []aiMessagePayload, currentUser string) string {
@@ -130,6 +155,8 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	safeClient := *client
+	// 总请求时限由 provider 配置和上游 context 决定，避免客户端默认值再次缩短。
+	safeClient.Timeout = 0
 	safeClient.CheckRedirect = rejectAIProviderRedirect
 	resp, err := safeClient.Do(req)
 	if err != nil {
@@ -170,7 +197,8 @@ type chatCompletionPayload struct {
 
 type chatCompletionResponse struct {
 	Choices []struct {
-		Message struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
@@ -191,8 +219,13 @@ type responsesPayload struct {
 }
 
 type responsesResponse struct {
+	Status            string `json:"status"`
+	IncompleteDetails struct {
+		Reason string `json:"reason"`
+	} `json:"incomplete_details"`
 	OutputText string `json:"output_text"`
 	Output     []struct {
+		Status  string `json:"status"`
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`

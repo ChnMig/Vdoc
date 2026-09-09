@@ -55,6 +55,7 @@ func TestSetDefaults(t *testing.T) {
 		{"server host", "server.host", "0.0.0.0"},
 		{"server port", "server.port", 8080},
 		{"max body size", "server.max_body_size", "10MB"},
+		{"write timeout for long AI requests", "server.write_timeout", "180s"},
 		{"pid file", "server.pid_file", "vdoc.pid"},
 		{"static directory", "server.static_dir", "./static"},
 		{"jwt expiration", "jwt.expiration", "12h"},

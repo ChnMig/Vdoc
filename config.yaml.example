@@ -29,7 +29,7 @@ server:
   # 超时配置
   shutdown_timeout: "10s"         # 优雅关闭超时时间
   read_timeout: "30s"             # 读取超时
-  write_timeout: "30s"            # 写入超时
+  write_timeout: "180s"           # 响应写入超时，覆盖最长 120s 的 AI 请求及处理时间
   idle_timeout: "120s"            # 空闲连接超时
 
   # 全局限流配置（可选）

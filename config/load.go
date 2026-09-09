@@ -110,7 +110,8 @@ func setDefaults() {
 	v.SetDefault("server.max_header_bytes", 1<<20) // 1MB
 	v.SetDefault("server.shutdown_timeout", "10s")
 	v.SetDefault("server.read_timeout", "30s")
-	v.SetDefault("server.write_timeout", "30s")
+	// AI provider 最长可等待 120s，另留读取请求和持久化响应的时间。
+	v.SetDefault("server.write_timeout", "180s")
 	v.SetDefault("server.idle_timeout", "120s")
 	v.SetDefault("server.enable_rate_limit", false)
 	v.SetDefault("server.global_rate_limit", 100)

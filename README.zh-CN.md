@@ -147,7 +147,10 @@ v0.1 不包含：
 ```text
 list_projects
 list_documents
+list_document_branches
+list_api_endpoints
 list_api_versions
+list_doc_versions
 get_latest_schema
 get_endpoint_detail
 compare_api_versions

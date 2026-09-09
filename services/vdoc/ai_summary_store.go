@@ -3,6 +3,7 @@ package vdoc
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -441,17 +442,23 @@ func (s *Store) aiTargetBranchLocked(target AISummaryTarget) (string, error) {
 }
 
 func draftAIContext(draft *ContractDraft) string {
-	return fmt.Sprintf("Draft %s version %s status %d changelog: %s\nContent:\n%s", draft.ID, draft.VersionName, draft.Status, draft.Changelog, limitAIText(draft.NormalizedSchema))
+	return fmt.Sprintf("Draft %s document %s branch %s version %s status %d content_hash %s changelog: %s\nContent:\n%s", draft.ID, draft.ServiceID, draft.BranchID, draft.VersionName, draft.Status, draft.NormalizedSchemaHash, draft.Changelog, limitAIText(draft.NormalizedSchema))
 }
 
 func versionAIContext(version *ContractVersion) string {
-	return fmt.Sprintf("Version %s name %s changelog: %s\nContent:\n%s", version.ID, version.VersionName, version.Changelog, limitAIText(version.NormalizedSchema))
+	return fmt.Sprintf("Version %s document %s branch %s name %s content_hash %s changelog: %s\nContent:\n%s", version.ID, version.ServiceID, version.BranchID, version.VersionName, version.NormalizedSchemaHash, version.Changelog, limitAIText(version.NormalizedSchema))
 }
 
 func diffAIContext(diff *Diff) string {
-	parts := []string{fmt.Sprintf("Diff %s from %s to %s. Added=%d removed=%d modified=%d breaking=%d.", diff.ID, diff.FromVersionID, diff.ToVersionID, diff.Summary.AddedEndpoints, diff.Summary.RemovedEndpoints, diff.Summary.ModifiedEndpoints, diff.Summary.BreakingChanges)}
+	summary, _ := json.Marshal(diff.Summary)
+	parts := []string{fmt.Sprintf("Diff %s document %s from %s to %s. Total items=%d. Summary: %s", diff.ID, diff.ServiceID, diff.FromVersionID, diff.ToVersionID, len(diff.Items), summary)}
 	for _, item := range diff.Items {
-		parts = append(parts, fmt.Sprintf("- %s %s %s breaking=%t: %s", item.Method, item.Path, item.Location, item.IsBreaking, item.Message))
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("[Diff item %s could not be encoded; details unavailable]", item.ID))
+			continue
+		}
+		parts = append(parts, string(encoded))
 	}
 	return limitAIText(strings.Join(parts, "\n"))
 }
@@ -462,7 +469,7 @@ func limitAIText(value string) string {
 	if len(runes) <= maxRunes {
 		return value
 	}
-	return string(runes[:maxRunes])
+	return fmt.Sprintf("%s\n\n[Context truncated: showing the first %d of %d characters. Remaining content is unavailable; this is not an exhaustive view.]", string(runes[:maxRunes]), maxRunes, len(runes))
 }
 
 func aiSummaryKey(target AISummaryTarget) string {

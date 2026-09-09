@@ -95,6 +95,8 @@ var requestBodyContracts = map[string]requestBodyContract{
 var requiredMCPTools = []string{
 	"list_projects",
 	"list_documents",
+	"list_document_branches",
+	"list_api_endpoints",
 	"list_api_versions",
 	"list_doc_versions",
 	"get_latest_schema",

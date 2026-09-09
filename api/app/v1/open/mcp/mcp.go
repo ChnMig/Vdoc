@@ -93,6 +93,17 @@ type mcpDocumentDTO struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type mcpBranchDTO struct {
+	ID          string `json:"id"`
+	DocumentID  string `json:"document_id"`
+	Name        string `json:"name"`
+	Kind        int    `json:"kind"`
+	Description string `json:"description,omitempty"`
+	IsDefault   bool   `json:"is_default"`
+	IsProtected bool   `json:"is_protected"`
+	Status      int    `json:"status"`
+}
+
 type mcpDraftDTO struct {
 	ID                    string      `json:"id"`
 	ProjectID             string      `json:"project_id"`
@@ -221,6 +232,8 @@ type mcpDiffItemDTO struct {
 var toolDefinitions = []toolDefinition{
 	{Name: "list_projects", Description: "List projects visible to the authenticated MCP token user.", InputSchema: inputSchema(nil, nil)},
 	{Name: "list_documents", Description: "List documents in a project.", InputSchema: inputSchema([]string{"project_id"}, gin.H{"project_id": stringProperty("Project ID.")})},
+	{Name: "list_document_branches", Description: "List document branches with IDs and names, including branches with no published versions. Requires the document type's read scope.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
+	{Name: "list_api_endpoints", Description: "Find endpoint IDs in a published API version before calling get_endpoint_detail. Optional method and path filters match exactly.", InputSchema: inputSchema([]string{"project_id", "document_id", "version_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "version_id": stringProperty("Published version ID."), "method": stringProperty("Optional HTTP method, case-insensitive."), "path": stringProperty("Optional exact OpenAPI path, including parameter placeholders.")})},
 	{Name: "list_api_versions", Description: "List published API document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
 	{Name: "list_doc_versions", Description: "List published Markdown document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
 	{Name: "get_latest_schema", Description: "Get the latest raw OpenAPI document content, optionally limited to a branch.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "branch_id": stringProperty("Optional branch ID.")})},
@@ -384,6 +397,74 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 			return nil, err
 		}
 		return mcpDocuments(filterDocumentsForScopes(documents, scopes)), nil
+	case "list_document_branches":
+		if !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
+			return nil, app.ErrPermissionDenied
+		}
+		var a struct {
+			ProjectID  string `json:"project_id"`
+			DocumentID string `json:"document_id"`
+		}
+		if err := decodeArguments(raw, &a); err != nil {
+			return nil, err
+		}
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID)); err != nil {
+			return nil, err
+		}
+		document, err := store.Document(userID, a.ProjectID, a.DocumentID)
+		if err != nil {
+			return nil, err
+		}
+		if len(filterDocumentsForScopes([]*app.APIService{document}, scopes)) == 0 {
+			return nil, app.ErrNotFound
+		}
+		branches, err := store.ListBranches(userID, a.ProjectID, a.DocumentID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]mcpBranchDTO, 0, len(branches))
+		for _, branch := range branches {
+			out = append(out, mcpBranchDTO{ID: branch.ID, DocumentID: a.DocumentID, Name: branch.Name, Kind: branch.Kind, Description: branch.Description, IsDefault: branch.IsDefault, IsProtected: branch.IsProtected, Status: branch.Status})
+		}
+		return out, nil
+	case "list_api_endpoints":
+		if !hasScope(scopes, app.ScopeAPIRead) {
+			return nil, app.ErrPermissionDenied
+		}
+		var a struct {
+			ProjectID  string `json:"project_id"`
+			DocumentID string `json:"document_id"`
+			VersionID  string `json:"version_id"`
+			Method     string `json:"method"`
+			Path       string `json:"path"`
+		}
+		if err := decodeArguments(raw, &a); err != nil {
+			return nil, err
+		}
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("version_id", a.VersionID)); err != nil {
+			return nil, err
+		}
+		a.Method = strings.ToUpper(strings.TrimSpace(a.Method))
+		a.Path = strings.TrimSpace(a.Path)
+		switch a.Method {
+		case "", "GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE":
+		default:
+			return nil, invalidArgument("method must be a valid HTTP method")
+		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
+			return nil, err
+		}
+		endpoints, err := store.ListDocumentEndpoints(userID, a.ProjectID, a.DocumentID, a.VersionID, a.Path)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]mcpEndpointSummaryDTO, 0, len(endpoints))
+		for _, endpoint := range endpoints {
+			if (a.Method == "" || endpoint.Method == a.Method) && (a.Path == "" || endpoint.Path == a.Path) {
+				out = append(out, mcpEndpointSummary(endpoint))
+			}
+		}
+		return out, nil
 	case "list_api_versions":
 		if !hasScope(scopes, app.ScopeAPIRead) {
 			return nil, app.ErrPermissionDenied
