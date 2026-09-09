@@ -579,7 +579,7 @@ func TestMCPToolsListAuditAndAdapterAllowlist(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/open/mcp", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(middleware.AuthorizationHeader, token.Token)
-	request.Header.Set("User-Agent", vdocStdioUserAgent)
+	request.Header.Set("User-Agent", "vdoc-mcp/0.1.1 (stdio)")
 	request.Header.Set(vdocAdapterHeader, "stdio")
 	fixture.router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -593,9 +593,35 @@ func TestMCPToolsListAuditAndAdapterAllowlist(t *testing.T) {
 
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	context.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-	context.Request.Header.Set("User-Agent", vdocStdioUserAgent)
+	context.Request.Header.Set("User-Agent", "vdoc-mcp/0.1.1 (stdio)")
 	if got := mcpAdapter(context); got != "direct" {
 		t.Fatalf("spoofed user agent adapter = %q, want direct without adapter header", got)
+	}
+}
+
+func TestMCPAdapterVersionedUserAgent(t *testing.T) {
+	for _, tt := range []struct {
+		name, userAgent, adapter, want string
+	}{
+		{"original version", "vdoc-mcp/0.1.0 (stdio)", "stdio", "stdio"},
+		{"new version", "vdoc-mcp/2.1.3 (stdio)", "stdio", "stdio"},
+		{"prerelease", "vdoc-mcp/2.1.3-rc.1 (stdio)", "stdio", "stdio"},
+		{"build metadata", "vdoc-mcp/2.1.3+build.1 (stdio)", "stdio", "stdio"},
+		{"missing adapter header", "vdoc-mcp/2.1.3 (stdio)", "", "direct"},
+		{"unknown adapter header", "vdoc-mcp/2.1.3 (stdio)", "untrusted", "direct"},
+		{"incomplete version", "vdoc-mcp/2.1 (stdio)", "stdio", "direct"},
+		{"extra user agent text", "vdoc-mcp/2.1.3 (stdio) extra", "stdio", "direct"},
+		{"another client", "another-client/2.1.3 (stdio)", "stdio", "direct"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			context.Request.Header.Set("User-Agent", tt.userAgent)
+			context.Request.Header.Set(vdocAdapterHeader, tt.adapter)
+			if got := mcpAdapter(context); got != tt.want {
+				t.Fatalf("mcpAdapter() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

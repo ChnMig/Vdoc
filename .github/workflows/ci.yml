@@ -3,6 +3,7 @@ name: Backend CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -70,3 +71,56 @@ jobs:
 
       - name: Build binary
         run: go build -trimpath -o /tmp/vdoc-ci .
+
+      - name: Package tagged release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: make release-package RELEASE_TAG="$RELEASE_TAG"
+
+      - name: Upload verified release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: backend-release
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish Backend release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: backend-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Download verified release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: gh run download "$RUN_ID" --name backend-release --dir release
+
+      - name: Verify checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          options=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            options+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" release/* \
+            --verify-tag --generate-notes --title "$RELEASE_TAG" "${options[@]}"

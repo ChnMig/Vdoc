@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -20,7 +21,8 @@ import (
 
 var errUnknownTool = fmt.Errorf("%w: unknown mcp tool", app.ErrNotFound)
 
-const vdocStdioUserAgent = "vdoc-mcp/0.1.0 (stdio)"
+var vdocStdioUserAgentPattern = regexp.MustCompile(`^vdoc-mcp/[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)? \(stdio\)$`)
+
 const vdocAdapterHeader = "X-Vdoc-Adapter"
 
 type request struct {
@@ -1026,7 +1028,7 @@ func mcpEvidenceKind(tool, outcome string) string {
 }
 
 func mcpAdapter(c *gin.Context) string {
-	if c != nil && c.Request != nil && strings.TrimSpace(c.Request.UserAgent()) == vdocStdioUserAgent && strings.TrimSpace(c.GetHeader(vdocAdapterHeader)) == "stdio" {
+	if c != nil && c.Request != nil && vdocStdioUserAgentPattern.MatchString(strings.TrimSpace(c.Request.UserAgent())) && strings.TrimSpace(c.GetHeader(vdocAdapterHeader)) == "stdio" {
 		return "stdio"
 	}
 	return "direct"

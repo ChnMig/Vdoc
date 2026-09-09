@@ -2,7 +2,7 @@ SHELL := /bin/bash
 export GOTOOLCHAIN ?= go1.25.5
 export GOFLAGS ?= -mod=readonly
 
-.PHONY: help build build-local build-cross build-check run dev clean clean-dist version test test-race test-coverage test-e2e test-e2e-live fmt fmt-check lint mod-check verify
+.PHONY: help build build-local build-cross build-check release-package run dev clean clean-dist version test test-race test-coverage test-e2e test-e2e-live fmt fmt-check lint mod-check verify
 
 # 版本信息
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -19,7 +19,7 @@ BIN_DIR ?= bin
 PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 DIST_DIR ?= dist
 CGO_ENABLED ?= 0
-PACKAGE_FILES ?= README.md config.yaml.example
+PACKAGE_FILES ?= README.md README.zh-CN.md LICENSE config.yaml.example
 PACKAGE_DIRS ?= static assets
 
 help: ## 显示帮助信息
@@ -61,6 +61,9 @@ build-cross: clean-dist ## 跨平台构建并打包到 dist/
 		rm -rf "$$output_dir"; \
 	done
 	@echo "✓ 打包完成，产物位于 $(DIST_DIR)/"
+
+release-package: ## 为 RELEASE_TAG 构建多平台发布包与校验文件
+	@bash scripts/package-release.sh "$(RELEASE_TAG)" "$(DIST_DIR)"
 
 build-check: ## 在临时目录验证构建，不保留产物
 	@temp_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/$(OUTPUT_NAME)-build.XXXXXX")"; \

@@ -66,6 +66,16 @@ scripts/vdoc-release-dry-run.sh
 
 不要提交 `.env`，也不要暴露原始 JWT、MCP token、DB password、storage secret 或 `Authorization` header 值。
 
+## 自动发布
+
+提交发布改动后，推送 `v0.1.1` 或 `v0.1.1-rc.1` 这样的版本 tag。CI 通过现有测试、PostgreSQL 集成检查和 E2E 后，自动打包 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 二进制，并附带许可证、配置示例、文档和 `SHA256SUMS`。二进制内记录版本号、完整 Git commit 和该提交的时间。
+
+随后自动创建 [GitHub Release](https://github.com/ChnMig/Vdoc/releases) 并上传同一份已验证产物；带预发布后缀的 tag 会标记为预发布。普通分支提交和 PR 只运行检查。发布任务不会覆盖已有 Release。
+
+本地可用 `make release-package RELEASE_TAG=v0.1.0` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
+
+## 已实现能力
+
 v0.1 已经实现：
 
 - `/api/v1` 版本化路由树
