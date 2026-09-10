@@ -1522,6 +1522,9 @@ func (s *Store) ListDocumentDiffs(actorID, projectID, documentID, fromVersionID,
 		if diff.ToVersionID != "" && !s.versionInProjectLocked(projectID, documentID, diff.ToVersionID) {
 			continue
 		}
+		if err := s.ensureDiffFactsLocked(diff); err != nil {
+			return nil, err
+		}
 		diffs = append(diffs, cloneDiff(diff))
 	}
 	sort.Slice(diffs, func(first, second int) bool {
@@ -2103,6 +2106,11 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 		return nil, err
 	}
 	latest := s.latestVersionLocked(serviceID, d.BranchID)
+	if latest != nil {
+		if err := s.ensureVersionEndpointFactsLocked(latest.ID); err != nil {
+			return nil, err
+		}
+	}
 	if latest != nil && latest.NormalizedSchemaHash == sha(parsed.Normalized) {
 		return nil, fmt.Errorf("%w: schema has no changes from latest version", ErrFailedPrecondition)
 	}
@@ -2257,6 +2265,9 @@ func (s *Store) ListDrafts(actorID, projectID, serviceID string, branchID ...str
 	}
 	for _, d := range s.drafts {
 		if d.ProjectID == projectID && d.ServiceID == serviceID && s.branchInServiceLocked(d.BranchID, serviceID) && (wantedBranchID == "" || d.BranchID == wantedBranchID) {
+			if err := s.ensureDraftPreviewFactsLocked(d); err != nil {
+				return nil, err
+			}
 			out = append(out, cloneDraft(d))
 		}
 	}
@@ -2275,6 +2286,9 @@ func (s *Store) Draft(actorID, projectID, serviceID, draftID string) (*ContractD
 	d, ok := s.draftInProjectServiceLocked(projectID, serviceID, draftID)
 	if !ok {
 		return nil, ErrNotFound
+	}
+	if err := s.ensureDraftPreviewFactsLocked(d); err != nil {
+		return nil, err
 	}
 	return cloneDraft(d), nil
 }
@@ -2411,6 +2425,9 @@ func (s *Store) ListEndpoints(actorID, projectID, serviceID, versionID, pathQuer
 	if !s.versionInProjectLocked(projectID, serviceID, versionID) {
 		return nil, ErrNotFound
 	}
+	if err := s.ensureVersionEndpointFactsLocked(versionID); err != nil {
+		return nil, err
+	}
 	out := []*Endpoint{}
 	for _, e := range s.endpoints {
 		if e.ContractVersionID == versionID && (pathQuery == "" || strings.Contains(e.Path, pathQuery)) {
@@ -2434,6 +2451,9 @@ func (s *Store) Endpoint(actorID, projectID, serviceID, versionID, endpointID st
 	}
 	if !s.versionInProjectLocked(projectID, serviceID, versionID) {
 		return nil, ErrNotFound
+	}
+	if err := s.ensureVersionEndpointFactsLocked(versionID); err != nil {
+		return nil, err
 	}
 	e, ok := s.endpoints[endpointID]
 	if !ok || e.ContractVersionID != versionID {
@@ -2465,7 +2485,15 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 	if !ok || to.ProjectID != projectID || to.ServiceID != serviceID {
 		return nil, ErrNotFound
 	}
+	for _, versionID := range []string{fromID, toID} {
+		if err := s.ensureVersionEndpointFactsLocked(versionID); err != nil {
+			return nil, err
+		}
+	}
 	if existing := s.diffForVersionsLocked(serviceID, fromID, toID); existing != nil {
+		if err := s.ensureDiffFactsLocked(existing); err != nil {
+			return nil, err
+		}
 		s.auditLocked(ctx, AuditActorUser, actorID, "api_version_diff.compare", "api_version_diff", existing.ID, projectID, serviceID, auditMetadata("result", "success", "from_version_id", fromID, "to_version_id", toID))
 		if err := s.persistLocked(); err != nil {
 			return nil, err
@@ -2524,6 +2552,9 @@ func (s *Store) Diff(actorID, projectID, serviceID, diffID string) (*Diff, error
 	}
 	if d.ToVersionID != "" && !s.versionInProjectLocked(projectID, serviceID, d.ToVersionID) {
 		return nil, ErrNotFound
+	}
+	if err := s.ensureDiffFactsLocked(d); err != nil {
+		return nil, err
 	}
 	return cloneDiff(d), nil
 }
@@ -2845,6 +2876,11 @@ func (s *Store) createDraftLocked(actorID, projectID, serviceID string, input Dr
 		return nil, err
 	}
 	latest := s.latestVersionLocked(serviceID, input.BranchID)
+	if latest != nil {
+		if err := s.ensureVersionEndpointFactsLocked(latest.ID); err != nil {
+			return nil, err
+		}
+	}
 	latestHash := ""
 	if latest != nil {
 		latestHash = latest.NormalizedSchemaHash
@@ -2959,6 +2995,11 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 		return nil, err
 	}
 	latest := s.latestVersionLocked(d.ServiceID, d.BranchID)
+	if latest != nil {
+		if err := s.ensureVersionEndpointFactsLocked(latest.ID); err != nil {
+			return nil, err
+		}
+	}
 	latestHash := ""
 	if latest != nil {
 		latestHash = latest.NormalizedSchemaHash
@@ -3377,7 +3418,7 @@ func (s *Store) endpointsForVersionLocked(versionID string) []Endpoint {
 }
 func (s *Store) diffEndpointSetsLocked(serviceID, fromID, toID string, from, to []Endpoint) *Diff {
 	now := time.Now()
-	d := &Diff{ID: id.GenerateID(), DocumentID: serviceID, ServiceID: serviceID, FromVersionID: fromID, ToVersionID: toID, DiffStatus: DiffStatusSucceeded, Summary: DiffSummary{DocumentFormat: DocumentFormatOpenAPI30}, CreatedAt: now, UpdatedAt: now}
+	d := &Diff{ID: id.GenerateID(), DocumentID: serviceID, ServiceID: serviceID, FromVersionID: fromID, ToVersionID: toID, DiffStatus: DiffStatusSucceeded, Summary: DiffSummary{DocumentFormat: DocumentFormatOpenAPI30, ParserVersion: openAPIParserVersion}, CreatedAt: now, UpdatedAt: now}
 	fm := map[string]Endpoint{}
 	tm := map[string]Endpoint{}
 	for _, e := range from {
@@ -3841,7 +3882,10 @@ func cloneDiff(v *Diff) *Diff {
 		return nil
 	}
 	c := *v
-	c.Items = make([]DiffItem, len(v.Items))
+	// 保留 nil 与空数组的区别，避免持久化快照把未改变的摘要误判为更新。
+	if v.Items != nil {
+		c.Items = make([]DiffItem, len(v.Items))
+	}
 	for index, item := range v.Items {
 		c.Items[index] = item
 		c.Items[index].OldValue = cloneStructuredValue(item.OldValue)

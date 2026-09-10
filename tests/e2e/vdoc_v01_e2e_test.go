@@ -70,6 +70,12 @@ func TestVdocV01EndToEndLivePersistence(t *testing.T) {
 	evidence := runVdocV01HappyPath(t, fixture)
 	restartLiveDefaultStore(t)
 	assertLiveDataSurvivesStoreRestart(t, fixture, evidence)
+	t.Run("legacy OpenAPI semantic facts", func(t *testing.T) {
+		if err := app.CloseDefaultStore(); err != nil {
+			t.Fatal(err)
+		}
+		assertOpenAPISemanticFacts(t, newE2EFixture(t, e2eFixtureOptions{LivePersistence: true}), true)
+	})
 	evidence.Statuses["store_restart"] = "passed"
 	writeJSONEvidence(t, "task-17-e2e-live-persistence.json", evidence)
 }

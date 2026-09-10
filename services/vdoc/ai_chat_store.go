@@ -177,9 +177,11 @@ func (s *Store) buildAIChatRequestLocked(actorID, projectID, sessionID, content,
 	messages := s.chatMessagesLocked(sessionID)
 	now := time.Now()
 	userMessage := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleUser, Content: content, CreatedAt: now}
-	userPrompt := strings.ReplaceAll(prompt.UserPromptTemplate, "{{context}}", contextText)
-	userPrompt = strings.ReplaceAll(userPrompt, "{{history}}", "")
-	userPrompt = strings.ReplaceAll(userPrompt, "{{message}}", content)
+	userPrompt := strings.NewReplacer(
+		"{{context}}", contextText,
+		"{{history}}", "",
+		"{{message}}", content,
+	).Replace(prompt.UserPromptTemplate)
 	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt, History: limitedAIChatHistory(messages)}
 	return aiChatRequest{
 		UserMessage:     cloneAIChatMessage(userMessage),

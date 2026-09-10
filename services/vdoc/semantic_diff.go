@@ -23,6 +23,9 @@ func (b *semanticDiffBuilder) compareEndpoint(from, to Endpoint) {
 	if !valuesEqual(from.Security, to.Security) {
 		b.add(ChangeSecurityChanged, SeverityWarning, to, "security", "Security requirements changed", false, from.Security, to.Security)
 	}
+	if !valuesEqual(endpointSecuritySchemes(from), endpointSecuritySchemes(to)) {
+		b.add(ChangeSecurityChanged, SeverityWarning, to, "securitySchemes", "Security scheme definitions changed", false, endpointSecuritySchemes(from), endpointSecuritySchemes(to))
+	}
 	if from.Deprecated != to.Deprecated {
 		b.add(ChangeDeprecatedChanged, SeverityInfo, to, "deprecated", "Deprecated status changed", false, from.Deprecated, to.Deprecated)
 	}
@@ -502,6 +505,11 @@ func schemaType(schema any) string {
 	if value, ok := m["type"].(string); ok {
 		return value
 	}
+	for _, fragment := range schemaFragments(m)[1:] {
+		if value, ok := fragment["type"].(string); ok {
+			return value
+		}
+	}
 	return ""
 }
 
@@ -510,13 +518,29 @@ func enumValues(schema any) []string {
 	if !ok {
 		return nil
 	}
-	items, ok := m["enum"].([]any)
-	if !ok {
-		return nil
+	var allowed map[string]bool
+	for _, fragment := range schemaFragments(m) {
+		items, constrained := fragment["enum"].([]any)
+		if !constrained {
+			continue
+		}
+		next := map[string]bool{}
+		for _, item := range items {
+			next[fmt.Sprint(item)] = true
+		}
+		if allowed == nil {
+			allowed = next
+			continue
+		}
+		for value := range allowed {
+			if !next[value] {
+				delete(allowed, value)
+			}
+		}
 	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		out = append(out, fmt.Sprint(item))
+	out := make([]string, 0, len(allowed))
+	for value := range allowed {
+		out = append(out, value)
 	}
 	sort.Strings(out)
 	return out

@@ -391,6 +391,9 @@ func (s *Store) aiTargetContextLocked(target AISummaryTarget) (string, string, e
 		if err := s.hydrateDraftContentLocked(context.Background(), draft, "normalized"); err != nil {
 			return "", "", err
 		}
+		if err := s.ensureDraftPreviewFactsLocked(draft); err != nil {
+			return "", "", err
+		}
 		return draftAIContext(draft), domainai.PromptDraftReviewSummary, nil
 	case domainai.SummaryOwnerVersion:
 		version := s.versions[target.OwnerID]
@@ -405,6 +408,9 @@ func (s *Store) aiTargetContextLocked(target AISummaryTarget) (string, string, e
 		diff := s.diffs[target.OwnerID]
 		if diff == nil || diff.ServiceID != target.DocumentID || !s.serviceInProjectLocked(target.DocumentID, target.ProjectID) {
 			return "", "", ErrNotFound
+		}
+		if err := s.ensureDiffFactsLocked(diff); err != nil {
+			return "", "", err
 		}
 		return diffAIContext(diff), domainai.PromptDiffChangeSummary, nil
 	default:

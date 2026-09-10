@@ -599,6 +599,10 @@ func (r *Repository) UpsertDocumentDiff(ctx context.Context, diff *domainvdoc.Di
 		if err := writer.upsertDocumentDiff(ctx, diff, fromVersion, toVersion); err != nil {
 			return err
 		}
+		// 派生差异升级时完整替换条目，避免旧条目或并发重算结果叠加。
+		if err := tx.WithContext(ctx).Where("diff_id = ?", diff.ID).Delete(&DocumentDiffItem{}).Error; err != nil {
+			return err
+		}
 		for _, item := range sortedDiffItems(diff.Items) {
 			if err := writer.upsertDocumentDiffItem(ctx, diff, item); err != nil {
 				return err

@@ -133,6 +133,10 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 	if security, ok := effectiveValue(root, pathItem, op, "security"); ok {
 		endpoint.Security = normalizeValue(security)
 	}
+	securitySchemes, err := resolveSecuritySchemes(root, endpoint.Security)
+	if err != nil {
+		return Endpoint{}, err
+	}
 	if servers, ok := effectiveValue(root, pathItem, op, "servers"); ok {
 		endpoint.Servers = normalizeValue(servers)
 	}
@@ -140,18 +144,19 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 		endpoint.SchemaRefs = refsList(refs)
 	}
 	normalizedOperation := map[string]any{
-		"method":      endpoint.Method,
-		"path":        endpoint.Path,
-		"operationId": endpoint.OperationID,
-		"summary":     endpoint.Summary,
-		"tags":        endpoint.Tags,
-		"deprecated":  endpoint.Deprecated,
-		"parameters":  endpoint.Parameters,
-		"requestBody": endpoint.RequestBody,
-		"responses":   endpoint.Responses,
-		"security":    endpoint.Security,
-		"servers":     endpoint.Servers,
-		"schemaRefs":  endpoint.SchemaRefs,
+		"method":          endpoint.Method,
+		"path":            endpoint.Path,
+		"operationId":     endpoint.OperationID,
+		"summary":         endpoint.Summary,
+		"tags":            endpoint.Tags,
+		"deprecated":      endpoint.Deprecated,
+		"parameters":      endpoint.Parameters,
+		"requestBody":     endpoint.RequestBody,
+		"responses":       endpoint.Responses,
+		"security":        endpoint.Security,
+		"securitySchemes": securitySchemes,
+		"servers":         endpoint.Servers,
+		"schemaRefs":      endpoint.SchemaRefs,
 	}
 	endpoint.NormalizedOperation = dropNil(normalizedOperation)
 	hashBytes, _ := json.Marshal(endpoint.NormalizedOperation)
@@ -161,17 +166,38 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 
 func resolveParameters(root map[string]any, pathParameters, operationParameters any, refs map[string]bool) ([]any, error) {
 	merged := []any{}
+	positions := map[string]int{}
 	for _, source := range []any{pathParameters, operationParameters} {
 		items, ok := source.([]any)
 		if !ok {
 			continue
 		}
+		identities := map[string]bool{}
 		for _, item := range items {
 			resolved, err := resolveRefs(root, item, refs, map[string]bool{})
 			if err != nil {
 				return nil, err
 			}
-			merged = append(merged, resolved)
+			parameter, ok := asMap(resolved)
+			if !ok {
+				return nil, fmt.Errorf("%w: parameter must be an object", ErrInvalidArgument)
+			}
+			name, _ := parameter["name"].(string)
+			location, _ := parameter["in"].(string)
+			if name == "" || location == "" {
+				return nil, fmt.Errorf("%w: parameter name and in are required", ErrInvalidArgument)
+			}
+			identity := parameterIdentity(location, name)
+			if identities[identity] {
+				return nil, fmt.Errorf("%w: duplicate parameter %s in %s", ErrInvalidArgument, name, location)
+			}
+			identities[identity] = true
+			if position, exists := positions[identity]; exists {
+				merged[position] = resolved
+			} else {
+				positions[identity] = len(merged)
+				merged = append(merged, resolved)
+			}
 		}
 	}
 	return merged, nil
@@ -189,9 +215,27 @@ func resolveOptional(root map[string]any, value any, refs map[string]bool) (any,
 }
 
 func resolveRefs(root map[string]any, value any, refs, seen map[string]bool) (any, error) {
+	return resolveOpenAPIValue(root, value, refs, seen, refObject)
+}
+
+type refValueKind int
+
+const (
+	refObject refValueKind = iota
+	refSchema
+	refSchemaMap
+	refSchemaArray
+	refObjectMap
+	refLiteral
+)
+
+func resolveOpenAPIValue(root map[string]any, value any, refs, seen map[string]bool, kind refValueKind) (any, error) {
+	if kind == refLiteral {
+		return normalizeValue(value), nil
+	}
 	switch typed := value.(type) {
 	case map[string]any:
-		if ref, ok := typed["$ref"].(string); ok {
+		if ref, ok := typed["$ref"].(string); ok && kind != refSchemaMap && kind != refObjectMap {
 			if !strings.HasPrefix(ref, "#/") {
 				return nil, fmt.Errorf("%w: only local OpenAPI $ref values are supported", ErrInvalidArgument)
 			}
@@ -205,11 +249,42 @@ func resolveRefs(root map[string]any, value any, refs, seen map[string]bool) (an
 			refs[ref] = true
 			nextSeen := mapsClone(seen)
 			nextSeen[ref] = true
-			return resolveRefs(root, resolved, refs, nextSeen)
+			target, err := resolveOpenAPIValue(root, resolved, refs, nextSeen, kind)
+			if err != nil {
+				return nil, err
+			}
+			version, _ := root["openapi"].(string)
+			if !strings.HasPrefix(version, "3.1.") {
+				return target, nil
+			}
+			siblings := maps.Clone(typed)
+			delete(siblings, "$ref")
+			if kind == refSchema && len(siblings) > 0 {
+				// 3.1 Schema 的同级关键字与引用共同生效，不能用覆盖合并削弱约束。
+				additional, err := resolveOpenAPIValue(root, siblings, refs, seen, refSchema)
+				if err != nil {
+					return nil, err
+				}
+				// 同级关键字保持原作用域，让 unevaluatedProperties 等仍能读取引用产生的注解。
+				object := additional.(map[string]any)
+				allOf, _ := object["allOf"].([]any)
+				object["allOf"] = append([]any{target}, allOf...)
+				return object, nil
+			}
+			if kind == refObject {
+				if object, ok := asMap(target); ok {
+					for _, key := range []string{"summary", "description"} {
+						if value, exists := siblings[key]; exists {
+							object[key] = normalizeValue(value)
+						}
+					}
+				}
+			}
+			return target, nil
 		}
 		out := make(map[string]any, len(typed))
 		for _, key := range keys(typed) {
-			resolved, err := resolveRefs(root, typed[key], refs, seen)
+			resolved, err := resolveOpenAPIValue(root, typed[key], refs, seen, childRefKind(kind, key))
 			if err != nil {
 				return nil, err
 			}
@@ -219,7 +294,11 @@ func resolveRefs(root map[string]any, value any, refs, seen map[string]bool) (an
 	case []any:
 		out := make([]any, 0, len(typed))
 		for _, item := range typed {
-			resolved, err := resolveRefs(root, item, refs, seen)
+			childKind := kind
+			if kind == refSchemaArray {
+				childKind = refSchema
+			}
+			resolved, err := resolveOpenAPIValue(root, item, refs, seen, childKind)
 			if err != nil {
 				return nil, err
 			}
@@ -229,6 +308,68 @@ func resolveRefs(root map[string]any, value any, refs, seen map[string]bool) (an
 	default:
 		return typed, nil
 	}
+}
+
+func childRefKind(parent refValueKind, key string) refValueKind {
+	if parent == refSchemaMap {
+		return refSchema
+	}
+	if parent == refObjectMap {
+		return refObject
+	}
+	if parent == refSchema {
+		switch key {
+		case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas":
+			return refSchemaMap
+		case "allOf", "anyOf", "oneOf", "prefixItems":
+			return refSchemaArray
+		case "items", "additionalItems", "additionalProperties", "unevaluatedProperties", "unevaluatedItems", "propertyNames", "contains", "not", "if", "then", "else":
+			return refSchema
+		default:
+			return refLiteral
+		}
+	}
+	switch key {
+	case "schema":
+		return refSchema
+	case "content", "headers", "examples", "responses":
+		return refObjectMap
+	case "example", "default", "enum", "const", "value":
+		return refLiteral
+	default:
+		return refObject
+	}
+}
+
+func resolveSecuritySchemes(root map[string]any, security any) (map[string]any, error) {
+	out := map[string]any{}
+	components, _ := asMap(root["components"])
+	schemes, _ := asMap(components["securitySchemes"])
+	requirements, _ := security.([]any)
+	for _, requirement := range requirements {
+		entry, _ := asMap(requirement)
+		for _, name := range keys(entry) {
+			definition, exists := schemes[name]
+			if !exists {
+				continue
+			}
+			resolved, err := resolveRefs(root, definition, map[string]bool{}, map[string]bool{})
+			if err != nil {
+				return nil, err
+			}
+			out[name] = resolved
+		}
+	}
+	return out, nil
+}
+
+func endpointSecuritySchemes(endpoint Endpoint) any {
+	operation, _ := asMap(endpoint.NormalizedOperation)
+	definitions, _ := asMap(operation["securitySchemes"])
+	if len(definitions) == 0 {
+		return nil
+	}
+	return definitions
 }
 
 func lookupJSONPointer(root map[string]any, ref string) (any, bool) {

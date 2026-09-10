@@ -39,6 +39,8 @@ type Diff struct {
 }
 
 type DiffSummary struct {
+	// ParserVersion 仅用于持久化派生差异的升级，不由公开 DTO 暴露。
+	ParserVersion     int `json:"parser_version,omitempty"`
 	AddedEndpoints    int `json:"added_endpoints"`
 	RemovedEndpoints  int `json:"removed_endpoints"`
 	ModifiedEndpoints int `json:"modified_endpoints"`
