@@ -440,6 +440,30 @@ paths:
             schema: { $ref: "#/components/schemas/PatchDocumentRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/documents/{document_id}/overview:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { $ref: "#/components/parameters/DocumentID" }
+    get:
+      tags: [Documents]
+      summary: Read document statistics without downloading bodies or full lists.
+      description: "Detail contains version_count, endpoint_count, latest_version (public version DTO or null), published_branch_ids (active published branches), has_reviewed_draft (submitted or published draft on an active branch), raw_size_bytes and nullable raw_line_count. Requires document read permission."
+      operationId: getDocumentOverview
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/documents/{document_id}/mcp-readiness:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { $ref: "#/components/parameters/DocumentID" }
+    get:
+      tags: [Documents]
+      summary: Read the latest successful Agent document read across all history.
+      description: "Detail contains nullable last_read_at. Only the current user's active unexpired tokens with the document's matching read scope count. Requires document read permission; archived parents return null."
+      operationId: getDocumentMCPReadiness
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}/archive:
     parameters:
       - { $ref: "#/components/parameters/ProjectID" }
@@ -711,6 +735,9 @@ paths:
       security: [{ JWTAuth: [] }]
       parameters:
         - { $ref: "#/components/parameters/BranchIDQuery" }
+        - { $ref: "#/components/parameters/PageSizeQuery" }
+        - { $ref: "#/components/parameters/OffsetQuery" }
+        - { $ref: "#/components/parameters/SearchQuery" }
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}:
@@ -748,6 +775,10 @@ paths:
       summary: List endpoints indexed from a document version.
       operationId: listDocumentVersionEndpoints
       security: [{ JWTAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/PageSizeQuery" }
+        - { $ref: "#/components/parameters/OffsetQuery" }
+        - { $ref: "#/components/parameters/SearchQuery" }
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/endpoints/{endpoint_id}:
@@ -816,7 +847,7 @@ paths:
     get:
       tags: [Audit Logs]
       summary: List authorized audit history.
-      description: Super administrators may query all projects. Project administrators must supply project_id and can query only projects they administer. Reader and writer roles are denied. Results are newest first and capped at 200.
+      description: Super administrators may query all projects. Project administrators must supply project_id and can query only projects they administer. Reader and writer roles are denied. Results are newest first with at most 200 rows per page. Follow next_cursor to continue; has_more indicates whether a next page exists. A global total is omitted.
       operationId: listAuditLogs
       security: [{ JWTAuth: [] }]
       parameters:
@@ -845,6 +876,9 @@ paths:
             required: false,
             schema: { type: integer, minimum: 1, maximum: 200, default: 100 },
           }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 512 }, description: Opaque next_cursor from the preceding page. Filters and authorization apply on every request. }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: Inclusive lower time bound. }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: Exclusive upper time bound. }
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
   /api/v1/private/ai/provider:
@@ -996,6 +1030,7 @@ paths:
     post:
       tags: [AI]
       summary: Regenerate an AI summary for a draft.
+      description: Queues a durable background generation and returns pending immediately (or skipped when no provider is configured). Poll the matching GET endpoint until succeeded, failed, or skipped. Repeated regeneration while pending reuses the existing job.
       operationId: regenerateDraftAISummary
       security: [{ JWTAuth: [] }]
       responses:
@@ -1020,6 +1055,7 @@ paths:
     post:
       tags: [AI]
       summary: Regenerate an AI summary for a version.
+      description: Queues a durable background generation and returns pending immediately (or skipped when no provider is configured). Poll the matching GET endpoint until succeeded, failed, or skipped. Repeated regeneration while pending reuses the existing job.
       operationId: regenerateVersionAISummary
       security: [{ JWTAuth: [] }]
       responses:
@@ -1044,6 +1080,7 @@ paths:
     post:
       tags: [AI]
       summary: Regenerate an AI summary for a diff.
+      description: Queues a durable background generation and returns pending immediately (or skipped when no provider is configured). Poll the matching GET endpoint until succeeded, failed, or skipped. Repeated regeneration while pending reuses the existing job.
       operationId: regenerateDiffAISummary
       security: [{ JWTAuth: [] }]
       responses:
@@ -1185,6 +1222,21 @@ components:
       name: Authorization
       description: VdocShare scheme carrying the fragment-derived document-share capability. Protected links also require X-Vdoc-Share-Unlock after password exchange.
   parameters:
+    PageSizeQuery:
+      name: page_size
+      in: query
+      description: Opt in to server pagination. Omit for the legacy full-list response.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    OffsetQuery:
+      name: offset
+      in: query
+      description: Number of matching rows to skip; requires page_size.
+      schema: { type: integer, minimum: 0, maximum: 1000000, default: 0 }
+    SearchQuery:
+      name: search
+      in: query
+      description: Case-insensitive literal search; requires page_size. Maximum 256 UTF-8 bytes.
+      schema: { type: string, maxLength: 256 }
     BranchIDQuery:
       name: branch_id
       in: query
@@ -1356,7 +1408,9 @@ components:
         - { $ref: "#/components/schemas/VdocEnvelope" }
         - type: object
           properties:
-            total: { type: integer }
+            total: { type: integer, description: Total matches for offset pagination; omitted for audit cursor pages. }
+            has_more: { type: boolean }
+            next_cursor: { type: string, description: Present when another cursor page is available. }
     AuthRequest:
       type: object
       additionalProperties: false

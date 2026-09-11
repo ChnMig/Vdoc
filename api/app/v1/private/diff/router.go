@@ -21,7 +21,7 @@ func listDiffs(c *gin.Context) {
 	if !ok {
 		return
 	}
-	diffs, err := shared.Store().ListDocumentDiffs(userID, c.Param("project_id"), c.Param("document_id"), c.Query("from_version_id"), c.Query("to_version_id"))
+	diffs, err := shared.Store(c).ListDocumentDiffs(userID, c.Param("project_id"), c.Param("document_id"), c.Query("from_version_id"), c.Query("to_version_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -51,9 +51,9 @@ func createDiff(c *gin.Context) {
 		err       error
 	)
 	if shared.IsMarkdownDocument(document) {
-		diffValue, err = shared.Store().CompareMarkdownVersions(userID, c.Param("project_id"), c.Param("document_id"), req.FromVersionID, req.ToVersionID, shared.AuditContextFromGin(c))
+		diffValue, err = shared.Store(c).CompareMarkdownVersions(userID, c.Param("project_id"), c.Param("document_id"), req.FromVersionID, req.ToVersionID, shared.AuditContextFromGin(c))
 	} else {
-		diffValue, err = shared.Store().CompareDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), req.FromVersionID, req.ToVersionID, shared.AuditContextFromGin(c))
+		diffValue, err = shared.Store(c).CompareDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), req.FromVersionID, req.ToVersionID, shared.AuditContextFromGin(c))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -67,7 +67,7 @@ func getDiff(c *gin.Context) {
 	if !ok {
 		return
 	}
-	diffValue, err := shared.Store().DocumentDiff(userID, c.Param("project_id"), c.Param("document_id"), c.Param("diff_id"))
+	diffValue, err := shared.Store(c).DocumentDiff(userID, c.Param("project_id"), c.Param("document_id"), c.Param("diff_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -80,7 +80,7 @@ func getDiffSummary(c *gin.Context) {
 	if !ok {
 		return
 	}
-	diffValue, err := shared.Store().DocumentDiff(userID, c.Param("project_id"), c.Param("document_id"), c.Param("diff_id"))
+	diffValue, err := shared.Store(c).DocumentDiff(userID, c.Param("project_id"), c.Param("document_id"), c.Param("diff_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

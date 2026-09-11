@@ -151,6 +151,9 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 		return fmt.Errorf("bootstrap access unavailable: configure an active initial_admin, or enable registration only for an empty trusted pilot deployment")
 	}
 	defaultStore = store
+	if _, ok := cfg.DatabaseRepository.(domainvdoc.SummaryJobRepository); ok {
+		store.StartSummaryWorker()
+	}
 	return nil
 }
 
@@ -171,6 +174,9 @@ func CheckDefaultObjectStorage(ctx context.Context) error {
 }
 
 func CloseDefaultStore() error {
+	if defaultStore != nil {
+		defaultStore.StopSummaryWorker()
+	}
 	if defaultStore == nil || defaultStore.persistence == nil {
 		return nil
 	}

@@ -1,6 +1,7 @@
 package documentshare
 
 import (
+	"context"
 	"mime"
 	"net/http"
 	"strings"
@@ -32,7 +33,7 @@ func metadata(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
-	value, err := app.DefaultStore().PublicDocumentShareMetadata(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
+	value, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareMetadata(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
 		return
@@ -56,7 +57,7 @@ func unlock(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
-	proof, expiresAt, err := app.DefaultStore().UnlockPublicDocumentShare(shareID, secret, req.Password, auditContext(c))
+	proof, expiresAt, err := app.DefaultStore().WithContext(c.Request.Context()).UnlockPublicDocumentShare(shareID, secret, req.Password, auditContext(c))
 	if err != nil {
 		returnUnavailable(c)
 		return
@@ -84,7 +85,7 @@ func versions(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
-	values, err := app.DefaultStore().PublicDocumentShareVersions(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
+	values, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareVersions(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
 		return
@@ -98,7 +99,7 @@ func content(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
-	value, err := app.DefaultStore().PublicDocumentShareContent(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
+	value, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareContent(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
 		return
@@ -112,7 +113,7 @@ func download(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
-	value, err := app.DefaultStore().PublicDocumentShareDownload(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
+	value, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareDownload(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
 		return
@@ -151,6 +152,14 @@ func returnUnavailable(c *gin.Context) {
 }
 
 func returnPublicShareError(c *gin.Context, err error) {
+	if app.Is(err, context.Canceled) {
+		response.ReturnError(c, response.CANCELLED, "Request cancelled")
+		return
+	}
+	if app.Is(err, context.DeadlineExceeded) {
+		response.ReturnError(c, response.DEADLINE_EXCEEDED, "Request deadline exceeded")
+		return
+	}
 	if app.Is(err, app.ErrPublicSharePasswordRequired) {
 		response.ReturnError(c, response.PASSWORD_REQUIRED, "Public share password required")
 		return

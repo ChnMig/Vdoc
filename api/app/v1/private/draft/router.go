@@ -77,9 +77,9 @@ func createDraft(c *gin.Context) {
 		err   error
 	)
 	if shared.IsMarkdownDocument(document) {
-		draft, err = shared.Store().CreateMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), req.input(), shared.AuditContextFromGin(c))
+		draft, err = shared.Store(c).CreateMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), req.input(), shared.AuditContextFromGin(c))
 	} else {
-		draft, err = shared.Store().CreateDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), req.input(), shared.AuditContextFromGin(c))
+		draft, err = shared.Store(c).CreateDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), req.input(), shared.AuditContextFromGin(c))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -93,7 +93,7 @@ func listDrafts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	drafts, err := shared.Store().ListDrafts(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
+	drafts, err := shared.Store(c).ListDrafts(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -106,7 +106,7 @@ func getDraft(c *gin.Context) {
 	if !ok {
 		return
 	}
-	draft, err := shared.Store().Draft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"))
+	draft, err := shared.Store(c).Draft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -128,9 +128,9 @@ func getDraftContent(c *gin.Context) {
 		err     error
 	)
 	if shared.IsMarkdownDocument(document) {
-		content, err = shared.Store().MarkdownDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
+		content, err = shared.Store(c).MarkdownDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
 	} else {
-		content, err = shared.Store().DocumentDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
+		content, err = shared.Store(c).DocumentDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -158,9 +158,9 @@ func updateDraft(c *gin.Context) {
 		err   error
 	)
 	if shared.IsMarkdownDocument(document) {
-		draft, err = shared.Store().UpdateMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), req.input(), shared.AuditContextFromGin(c))
+		draft, err = shared.Store(c).UpdateMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), req.input(), shared.AuditContextFromGin(c))
 	} else {
-		draft, err = shared.Store().UpdateDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), req.input(), shared.AuditContextFromGin(c))
+		draft, err = shared.Store(c).UpdateDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), req.input(), shared.AuditContextFromGin(c))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -183,9 +183,9 @@ func submitDraft(c *gin.Context) {
 		err   error
 	)
 	if shared.IsMarkdownDocument(document) {
-		draft, err = shared.Store().SubmitMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), shared.AuditContextFromGin(c))
+		draft, err = shared.Store(c).SubmitMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), shared.AuditContextFromGin(c))
 	} else {
-		draft, err = shared.Store().SubmitDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), shared.AuditContextFromGin(c))
+		draft, err = shared.Store(c).SubmitDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), shared.AuditContextFromGin(c))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -216,9 +216,9 @@ func reviewDraft(c *gin.Context, action string) {
 		err    error
 	)
 	if shared.IsMarkdownDocument(document) {
-		result, err = shared.Store().ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
+		result, err = shared.Store(c).ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
 	} else {
-		result, err = shared.Store().ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
+		result, err = shared.Store(c).ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -249,7 +249,7 @@ func promoteDraft(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	draft, err := shared.Store().PromoteDraft(userID, c.Param("project_id"), c.Param("document_id"), app.PromoteInput{SourceBranchID: req.SourceBranchID, TargetBranchID: req.TargetBranchID, VersionName: req.VersionName, Changelog: req.Changelog}, shared.AuditContextFromGin(c))
+	draft, err := shared.Store(c).PromoteDraft(userID, c.Param("project_id"), c.Param("document_id"), app.PromoteInput{SourceBranchID: req.SourceBranchID, TargetBranchID: req.TargetBranchID, VersionName: req.VersionName, Changelog: req.Changelog}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

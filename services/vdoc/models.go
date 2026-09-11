@@ -1,6 +1,7 @@
 package vdoc
 
 import (
+	"time"
 	domainshare "vdoc/domain/documentshare"
 	domainvdoc "vdoc/domain/vdoc"
 )
@@ -120,6 +121,8 @@ type AuditLogQuery struct {
 	ResourceType string
 	ResourceID   string
 	Limit        int
+	Cursor       string
+	From, To     *time.Time
 }
 
 type MCPUsageQuery struct {

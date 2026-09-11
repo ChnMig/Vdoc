@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	app "vdoc/appstore"
 )
@@ -366,6 +367,17 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 	// When
 	summaryPath := "/api/v1/private/projects/" + project.ID + "/documents/" + document.ID + "/diffs/" + diff.ID + "/ai-summary/regenerate"
 	summary := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, summaryPath, superToken, ""))
+	if summary.Code != 200 || !strings.Contains(string(summary.Detail), `"status":"pending"`) {
+		t.Fatalf("expected queued summary: %s", summary.Detail)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		summary = decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, strings.TrimSuffix(summaryPath, "/regenerate"), superToken, ""))
+		if !strings.Contains(string(summary.Detail), `"status":"pending"`) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	chatCreateBody := `{"document_id":"` + document.ID + `","context_type":"diff","context_id":"` + diff.ID + `","title":"Diff chat"}`
 	chatSession := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions", readerToken, chatCreateBody))
 	var session app.AIChatSession

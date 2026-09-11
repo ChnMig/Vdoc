@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -319,7 +320,7 @@ func callJSONRPC(c *gin.Context, body []byte) {
 			returnRPCError(c, id, -32602, "invalid tool", gin.H{"status": "INVALID_ARGUMENT", "tool": params.Name})
 			return
 		}
-		result, err := execute(user.ID, mcpToken.Scopes, params.Name, params.Arguments)
+		result, err := executeContext(c.Request.Context(), user.ID, mcpToken.Scopes, params.Name, params.Arguments)
 		if err != nil {
 			_ = recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, nil, "failure", auditErrorStatus(err))
 			returnRPCAppError(c, id, err)
@@ -352,7 +353,7 @@ func callLegacyBridge(c *gin.Context, body []byte) {
 		response.ReturnError(c, response.INVALID_ARGUMENT, "tool is required")
 		return
 	}
-	result, err := execute(user.ID, mcpToken.Scopes, req.Tool, req.Arguments)
+	result, err := executeContext(c.Request.Context(), user.ID, mcpToken.Scopes, req.Tool, req.Arguments)
 	if err != nil {
 		_ = recordMCPToolCall(c, mcpToken, user, req.Tool, req.Arguments, nil, "failure", auditErrorStatus(err))
 		returnAppError(c, err)
@@ -366,7 +367,11 @@ func callLegacyBridge(c *gin.Context, body []byte) {
 }
 
 func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
-	store := app.DefaultStore()
+	return executeContext(context.Background(), userID, scopes, tool, raw)
+}
+
+func executeContext(ctx context.Context, userID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
+	store := app.DefaultStore().WithContext(ctx)
 	switch tool {
 	case "list_projects":
 		if !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
@@ -894,7 +899,7 @@ func authenticateMCPToken(c *gin.Context) (*app.MCPToken, *app.User, error) {
 	if token == "" {
 		return nil, nil, app.ErrUnauthenticated
 	}
-	return app.DefaultStore().AuthenticateMCPToken(token, auditContextFromGin(c))
+	return app.DefaultStore().WithContext(c.Request.Context()).AuthenticateMCPToken(token, auditContextFromGin(c))
 }
 
 func recordMCPToolCall(c *gin.Context, mcpToken *app.MCPToken, user *app.User, tool string, raw json.RawMessage, output any, outcome, reason string) error {
@@ -926,7 +931,7 @@ func recordMCPToolCall(c *gin.Context, mcpToken *app.MCPToken, user *app.User, t
 	documentID := metadata["document_id"]
 	audit := app.MCPToolAudit(actorUserID, ctx.ActorTokenID, projectID, documentID, metadata, ctx)
 	audit.ResourceID = mcpAuditPrimaryResourceID(metadata)
-	return app.DefaultStore().RecordAudit(audit)
+	return app.DefaultStore().WithContext(c.Request.Context()).RecordAudit(audit)
 }
 
 func mcpAuditToolName(tool string) string {
@@ -1336,17 +1341,32 @@ func mcpDiffItem(value app.DiffItem) mcpDiffItemDTO {
 }
 
 func returnRPCResult(c *gin.Context, id json.RawMessage, result any) {
+	response.SetOutcome(c, 200, "OK")
 	c.JSON(http.StatusOK, rpcSuccessResponse{JSONRPC: "2.0", ID: id, Result: result})
 	c.Abort()
 }
 
 func returnRPCError(c *gin.Context, id json.RawMessage, code int, message string, data any) {
+	response.SetOutcome(c, code, "RPC_ERROR")
+	if details, ok := data.(gin.H); ok {
+		if status, ok := details["status"].(string); ok {
+			appCode, ok := details["code"].(int)
+			if !ok {
+				appCode = code
+			}
+			response.SetOutcome(c, appCode, status)
+		}
+	}
 	c.JSON(http.StatusOK, rpcErrorResponse{JSONRPC: "2.0", ID: id, Error: rpcError{Code: code, Message: message, Data: data}})
 	c.Abort()
 }
 
 func returnRPCAppError(c *gin.Context, id json.RawMessage, err error) {
 	switch {
+	case app.Is(err, context.Canceled):
+		returnRPCError(c, id, -32000, "request cancelled", appErrorData("CANCELLED", 499, nil))
+	case app.Is(err, context.DeadlineExceeded):
+		returnRPCError(c, id, -32000, "request deadline exceeded", appErrorData("DEADLINE_EXCEEDED", 504, nil))
 	case app.Is(err, app.ErrInvalidArgument):
 		returnRPCError(c, id, -32602, "invalid params", appErrorData("INVALID_ARGUMENT", 400, err))
 	case app.Is(err, app.ErrUnauthenticated):
@@ -1418,6 +1438,10 @@ func ensureMCPDocumentType(store *app.Store, userID, projectID, documentID strin
 
 func returnAppError(c *gin.Context, err error) {
 	switch {
+	case app.Is(err, context.Canceled):
+		response.ReturnError(c, response.CANCELLED, "请求已取消")
+	case app.Is(err, context.DeadlineExceeded):
+		response.ReturnError(c, response.DEADLINE_EXCEEDED, "请求超时")
 	case app.Is(err, app.ErrInvalidArgument):
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 	case app.Is(err, app.ErrUnauthenticated):

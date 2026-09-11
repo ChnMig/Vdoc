@@ -10,6 +10,8 @@ type responseData struct {
 	Timestamp   int64  `json:"timestamp"`
 	Detail      any    `json:"detail,omitempty"`
 	Total       *int   `json:"total,omitempty"`
+	NextCursor  string `json:"next_cursor,omitempty"`
+	HasMore     *bool  `json:"has_more,omitempty"`
 }
 
 // Common error messages

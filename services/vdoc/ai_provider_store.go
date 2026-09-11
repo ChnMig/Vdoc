@@ -1,7 +1,6 @@
 package vdoc
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -148,7 +147,7 @@ func (s *Store) testAIProvider(actorID, projectID string, input *AIProviderInput
 	if err != nil {
 		return "", err
 	}
-	result, callErr := s.completeAI(context.Background(), aiCompletionRequest{Provider: provider, APIKey: apiKey, System: immutableAIGuard(), User: "Reply with a short provider connectivity check."})
+	result, callErr := s.completeAI(s.requestContext(), aiCompletionRequest{Provider: provider, APIKey: apiKey, System: immutableAIGuard(), User: "Reply with a short provider connectivity check."})
 	if auditErr := s.auditAIProviderTest(actorID, projectID, provider, result.Usage, callErr, auditCtx...); auditErr != nil {
 		return "", auditErr
 	}

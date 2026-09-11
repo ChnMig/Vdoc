@@ -29,7 +29,7 @@ func getSummary(c *gin.Context, ownerType, ownerID string) {
 	if !ok {
 		return
 	}
-	summary, err := shared.Store().AISummary(userID, summaryTarget(c, ownerType, ownerID))
+	summary, err := shared.Store(c).AISummary(userID, summaryTarget(c, ownerType, ownerID))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -42,7 +42,7 @@ func regenerateSummary(c *gin.Context, ownerType, ownerID string) {
 	if !ok {
 		return
 	}
-	summary, err := shared.Store().RegenerateAISummary(userID, summaryTarget(c, ownerType, ownerID), shared.AuditContextFromGin(c))
+	summary, err := shared.Store(c).QueueAISummary(userID, summaryTarget(c, ownerType, ownerID), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

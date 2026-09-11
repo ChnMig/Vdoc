@@ -24,7 +24,13 @@ func (p *postgresPersistence) load(ctx context.Context, store *Store) (bool, err
 		if p.revision != "" && revision == p.revision {
 			return false, nil
 		}
-		state, loadedRevision, err := repo.LoadStateWithRevision(ctx)
+		load := repo.LoadStateWithRevision
+		if working, ok := p.repo.(interface {
+			LoadWorkingStateWithRevision(context.Context) (*domainvdoc.State, string, error)
+		}); ok {
+			load = working.LoadWorkingStateWithRevision
+		}
+		state, loadedRevision, err := load(ctx)
 		if err != nil {
 			return false, err
 		}
@@ -164,6 +170,17 @@ func (p *postgresPersistence) saveLockedWithObjectRefs(ctx context.Context, stor
 }
 
 func (p *postgresPersistence) saveLockedWithRepository(ctx context.Context, store *Store, repository domainvdoc.Repository) error {
+	if repo, ok := repository.(domainvdoc.SummaryJobRepository); ok {
+		var previous map[string]*domainvdoc.AISummaryJob
+		if store.persisted != nil {
+			previous = store.persisted.AISummaryJobs
+		}
+		for _, job := range changedStoreValues(store.summaryJobs, previous, func(job *domainvdoc.AISummaryJob) string { return job.ID }) {
+			if err := repo.EnqueueSummaryJob(ctx, job); err != nil {
+				return err
+			}
+		}
+	}
 	if repo, ok := repository.(collaborationMutationRepository); ok {
 		if err := p.saveCollaborationLocked(ctx, store, repo); err != nil {
 			return err
@@ -453,33 +470,39 @@ func (s *Store) applyStateLocked(loaded *domainvdoc.State) {
 	s.aiChats = loaded.AIChats
 	s.aiMessages = loaded.AIMessages
 	s.audits = loaded.AuditLogs
+	s.summaryJobs = loaded.AISummaryJobs
 }
 
 func (s *Store) stateLocked() *domainvdoc.State {
 	return &domainvdoc.State{
-		Users:       s.users,
-		Teams:       s.teams,
-		Projects:    s.projects,
-		Members:     s.members,
-		APIServices: s.apiServices,
-		Branches:    s.branches,
-		Drafts:      s.drafts,
-		Versions:    s.versions,
-		Endpoints:   s.endpoints,
-		Diffs:       s.diffs,
-		Tokens:      s.tokens,
-		Shares:      s.shares,
-		AIProviders: s.aiProviders,
-		AIPrompts:   s.aiPrompts,
-		AISummaries: s.aiSummaries,
-		AIChats:     s.aiChats,
-		AIMessages:  s.aiMessages,
-		AuditLogs:   s.audits,
+		Users:         s.users,
+		Teams:         s.teams,
+		Projects:      s.projects,
+		Members:       s.members,
+		APIServices:   s.apiServices,
+		Branches:      s.branches,
+		Drafts:        s.drafts,
+		Versions:      s.versions,
+		Endpoints:     s.endpoints,
+		Diffs:         s.diffs,
+		Tokens:        s.tokens,
+		Shares:        s.shares,
+		AIProviders:   s.aiProviders,
+		AIPrompts:     s.aiPrompts,
+		AISummaries:   s.aiSummaries,
+		AIChats:       s.aiChats,
+		AIMessages:    s.aiMessages,
+		AuditLogs:     s.audits,
+		AISummaryJobs: s.summaryJobs,
 	}
 }
 
 func (s *Store) cloneStateLocked() *domainvdoc.State {
 	state := domainvdoc.NewState()
+	for key, value := range s.summaryJobs {
+		copied := *value
+		state.AISummaryJobs[key] = &copied
+	}
 	for key, value := range s.users {
 		copied := *value
 		state.Users[key] = &copied

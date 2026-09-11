@@ -24,7 +24,7 @@ func createChatSession(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	session, err := shared.Store().CreateAIChatSession(userID, app.AIChatSessionInput{ProjectID: c.Param("project_id"), DocumentID: req.DocumentID, ContextType: req.ContextType, ContextID: req.ContextID, Title: req.Title}, shared.AuditContextFromGin(c))
+	session, err := shared.Store(c).CreateAIChatSession(userID, app.AIChatSessionInput{ProjectID: c.Param("project_id"), DocumentID: req.DocumentID, ContextType: req.ContextType, ContextID: req.ContextID, Title: req.Title}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -43,7 +43,7 @@ func listChatSessions(c *gin.Context) {
 		OwnerType:  c.Query("context_type"),
 		OwnerID:    c.Query("context_id"),
 	}
-	sessions, err := shared.Store().ListAIChatSessions(userID, target)
+	sessions, err := shared.Store(c).ListAIChatSessions(userID, target)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -56,7 +56,7 @@ func getChatSession(c *gin.Context) {
 	if !ok {
 		return
 	}
-	session, messages, err := shared.Store().AIChatSession(userID, c.Param("project_id"), c.Param("session_id"))
+	session, messages, err := shared.Store(c).AIChatSession(userID, c.Param("project_id"), c.Param("session_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -76,7 +76,7 @@ func sendChatMessage(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	message, err := shared.Store().SendAIChatMessage(userID, c.Param("project_id"), c.Param("session_id"), req.Content, shared.AuditContextFromGin(c))
+	message, err := shared.Store(c).SendAIChatMessage(userID, c.Param("project_id"), c.Param("session_id"), req.Content, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

@@ -35,7 +35,7 @@ func listMCPUsage(c *gin.Context) {
 		}
 		limit = parsed
 	}
-	logs, err := shared.Store().QueryMCPUsage(userID, app.MCPUsageQuery{
+	logs, err := shared.Store(c).QueryMCPUsage(userID, app.MCPUsageQuery{
 		TokenID: c.Query("token_id"),
 		Limit:   limit,
 	})
@@ -60,7 +60,7 @@ func createMCPToken(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	token, err := shared.Store().CreateMCPToken(userID, req.Name, req.Scopes, req.ExpiresAt, shared.AuditContextFromGin(c))
+	token, err := shared.Store(c).CreateMCPToken(userID, req.Name, req.Scopes, req.ExpiresAt, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -73,7 +73,7 @@ func listMCPTokens(c *gin.Context) {
 	if !ok {
 		return
 	}
-	tokens, err := shared.Store().ListMCPTokens(userID)
+	tokens, err := shared.Store(c).ListMCPTokens(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -86,7 +86,7 @@ func getMCPToken(c *gin.Context) {
 	if !ok {
 		return
 	}
-	token, err := shared.Store().MCPToken(userID, c.Param("token_id"), shared.AuditContextFromGin(c))
+	token, err := shared.Store(c).MCPToken(userID, c.Param("token_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -99,7 +99,7 @@ func revokeMCPToken(c *gin.Context) {
 	if !ok {
 		return
 	}
-	token, err := shared.Store().RevokeMCPToken(userID, c.Param("token_id"), shared.AuditContextFromGin(c))
+	token, err := shared.Store(c).RevokeMCPToken(userID, c.Param("token_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

@@ -19,7 +19,22 @@ func listVersions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	versions, err := shared.Store().ListDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
+	if _, paged := c.GetQuery("page_size"); paged {
+		query, err := shared.PageQuery(c)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		values, total, err := shared.Store(c).QueryDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"), query)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		response.ReturnPage(c, shared.Versions(values), &total, query.Offset+len(values) < total, "")
+		return
+	}
+
+	versions, err := shared.Store(c).ListDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -32,7 +47,7 @@ func getVersion(c *gin.Context) {
 	if !ok {
 		return
 	}
-	version, err := shared.Store().DocumentVersion(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"))
+	version, err := shared.Store(c).DocumentVersion(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -54,9 +69,9 @@ func getVersionContent(c *gin.Context) {
 		err     error
 	)
 	if shared.IsMarkdownDocument(document) {
-		content, err = shared.Store().MarkdownVersionContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("content_kind"))
+		content, err = shared.Store(c).MarkdownVersionContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("content_kind"))
 	} else {
-		content, err = shared.Store().DocumentVersionSchema(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("content_kind"))
+		content, err = shared.Store(c).DocumentVersionSchema(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("content_kind"))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)

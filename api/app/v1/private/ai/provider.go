@@ -43,7 +43,7 @@ func getSystemProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	provider, err := shared.Store().SystemAIProvider(userID)
+	provider, err := shared.Store(c).SystemAIProvider(userID)
 	returnProvider(c, provider, err)
 }
 
@@ -56,7 +56,7 @@ func putSystemProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	provider, err := shared.Store().UpsertSystemAIProvider(userID, input, shared.AuditContextFromGin(c))
+	provider, err := shared.Store(c).UpsertSystemAIProvider(userID, input, shared.AuditContextFromGin(c))
 	returnProvider(c, provider, err)
 }
 
@@ -69,7 +69,7 @@ func testSystemProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	content, err := shared.Store().TestSystemAIProvider(userID, input, shared.AuditContextFromGin(c))
+	content, err := shared.Store(c).TestSystemAIProvider(userID, input, shared.AuditContextFromGin(c))
 	returnTestResult(c, content, err)
 }
 
@@ -78,7 +78,7 @@ func getProjectProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	provider, err := shared.Store().ProjectAIProvider(userID, c.Param("project_id"))
+	provider, err := shared.Store(c).ProjectAIProvider(userID, c.Param("project_id"))
 	returnProvider(c, provider, err)
 }
 
@@ -91,7 +91,7 @@ func putProjectProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	provider, err := shared.Store().UpsertProjectAIProvider(userID, c.Param("project_id"), input, shared.AuditContextFromGin(c))
+	provider, err := shared.Store(c).UpsertProjectAIProvider(userID, c.Param("project_id"), input, shared.AuditContextFromGin(c))
 	returnProvider(c, provider, err)
 }
 
@@ -104,7 +104,7 @@ func testProjectProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
-	content, err := shared.Store().TestProjectAIProvider(userID, c.Param("project_id"), input, shared.AuditContextFromGin(c))
+	content, err := shared.Store(c).TestProjectAIProvider(userID, c.Param("project_id"), input, shared.AuditContextFromGin(c))
 	returnTestResult(c, content, err)
 }
 

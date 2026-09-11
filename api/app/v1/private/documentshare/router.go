@@ -44,7 +44,7 @@ func listShares(c *gin.Context) {
 	if !ok {
 		return
 	}
-	shares, err := shared.Store().ListDocumentShares(userID, c.Param("project_id"), c.Param("document_id"))
+	shares, err := shared.Store(c).ListDocumentShares(userID, c.Param("project_id"), c.Param("document_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -71,7 +71,7 @@ func createShare(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	created, err := shared.Store().CreateDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), app.DocumentShareInput{
+	created, err := shared.Store(c).CreateDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), app.DocumentShareInput{
 		BranchID: req.BranchID, VersionScope: req.VersionScope, ExpiryPreset: app.DocumentShareExpiryPreset(req.ExpiryPreset), Password: req.Password,
 	}, shared.AuditContextFromGin(c))
 	if err != nil {
@@ -86,7 +86,7 @@ func revealShare(c *gin.Context) {
 	if !ok {
 		return
 	}
-	revealed, err := shared.Store().RevealDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), c.Param("share_id"), shared.AuditContextFromGin(c))
+	revealed, err := shared.Store(c).RevealDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), c.Param("share_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -99,7 +99,7 @@ func revokeShare(c *gin.Context) {
 	if !ok {
 		return
 	}
-	revoked, err := shared.Store().RevokeDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), c.Param("share_id"), shared.AuditContextFromGin(c))
+	revoked, err := shared.Store(c).RevokeDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), c.Param("share_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

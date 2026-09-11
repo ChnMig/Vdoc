@@ -68,6 +68,15 @@ func (r *Repository) StateRevision(ctx context.Context) (string, error) {
 // returns the marker captured by that same snapshot. Object bodies are kept in
 // object storage and are intentionally not loaded here.
 func (r *Repository) LoadStateWithRevision(ctx context.Context) (*domainvdoc.State, string, error) {
+	return r.loadStateWithRevision(ctx, false)
+}
+
+// LoadWorkingStateWithRevision 不把只追加的审计历史与独立任务队列装入写操作快照。
+func (r *Repository) LoadWorkingStateWithRevision(ctx context.Context) (*domainvdoc.State, string, error) {
+	return r.loadStateWithRevision(ctx, true)
+}
+
+func (r *Repository) loadStateWithRevision(ctx context.Context, working bool) (*domainvdoc.State, string, error) {
 	if r == nil || r.database == nil {
 		return nil, "", fmt.Errorf("postgres repository is not initialized")
 	}
@@ -80,7 +89,7 @@ func (r *Repository) LoadStateWithRevision(ctx context.Context) (*domainvdoc.Sta
 		if err != nil {
 			return err
 		}
-		state, err = reader.loadState(ctx)
+		state, err = reader.loadState(ctx, working)
 		return err
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
@@ -100,7 +109,7 @@ func (r *Repository) stateRevision(ctx context.Context) (string, error) {
 	return revision, nil
 }
 
-func (r *Repository) loadState(ctx context.Context) (*domainvdoc.State, error) {
+func (r *Repository) loadState(ctx context.Context, working ...bool) (*domainvdoc.State, error) {
 	state := domainvdoc.NewState()
 	if err := r.loadUsers(ctx, state); err != nil {
 		return nil, err
@@ -151,6 +160,12 @@ func (r *Repository) loadState(ctx context.Context) (*domainvdoc.State, error) {
 		return nil, err
 	}
 	if err := r.loadAIMessages(ctx, state); err != nil {
+		return nil, err
+	}
+	if len(working) > 0 && working[0] {
+		return state, nil
+	}
+	if err := r.loadSummaryJobs(ctx, state); err != nil {
 		return nil, err
 	}
 	if err := r.loadAudits(ctx, state); err != nil {
@@ -742,6 +757,27 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 		if err := writer.markDraftPublished(ctx, input, draft.UpdatedAt); err != nil {
 			return err
 		}
+		for _, job := range input.State.AISummaryJobs {
+			if job.OwnerType != "version" || job.OwnerID != version.ID {
+				continue
+			}
+			if err := writer.EnqueueSummaryJob(ctx, job); err != nil {
+				return err
+			}
+		}
+		summaryKey := version.ProjectID + ":" + version.ServiceID + ":version:" + version.ID
+		if summary := input.State.AISummaries[summaryKey]; summary != nil {
+			if err := writer.UpsertAISummary(ctx, summary); err != nil {
+				return err
+			}
+			for _, audit := range input.State.AuditLogs {
+				if audit.Action == "ai.summary.regenerate" && audit.ResourceID == summary.ID {
+					if err := writer.RecordAudit(ctx, audit); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		return writer.insertPublishAudit(ctx, input)
 	}))
 }
@@ -943,7 +979,7 @@ func documentVersionModelFromDomain(version *domainvdoc.ContractVersion, version
 	if version == nil {
 		return nil
 	}
-	return &DocumentVersion{Base: pgdb.Base{ID: version.ID, CreatedAt: nonZeroTime(version.CreatedAt), UpdatedAt: nonZeroTime(version.UpdatedAt)}, ProjectID: version.ProjectID, DocumentID: domainDocumentID(version.DocumentID, version.ServiceID), BranchID: version.BranchID, VersionName: version.VersionName, VersionNo: versionNo, RelativePath: version.RelativePath, Status: version.Status, SourceDraftID: version.DraftID, SourceType: version.SourceType, SourceBranchID: stringPtr(version.SourceBranchID), SourceVersionID: stringPtr(version.SourceVersionID), BaseVersionID: stringPtr(version.BaseVersionID), DocumentFormat: version.SchemaFormat, RawSchemaObjectKey: version.RawSchemaObjectKey, NormalizedSchemaObjectKey: version.NormalizedObjectKey, RawSchemaHash: version.RawSchemaHash, NormalizedSchemaHash: version.NormalizedSchemaHash, SchemaSizeBytes: int64(len(version.RawSchema)), SchemaMetadata: pgdb.JSONB(`{}`), Changelog: stringPtr(version.Changelog), SourceGitCommitID: stringPtr(version.SourceGitCommitID), EndpointCount: endpoints, PublishedBy: version.PublishedBy, PublishedAt: nonZeroTime(version.PublishedAt)}
+	return &DocumentVersion{Base: pgdb.Base{ID: version.ID, CreatedAt: nonZeroTime(version.CreatedAt), UpdatedAt: nonZeroTime(version.UpdatedAt)}, ProjectID: version.ProjectID, DocumentID: domainDocumentID(version.DocumentID, version.ServiceID), BranchID: version.BranchID, VersionName: version.VersionName, VersionNo: versionNo, RelativePath: version.RelativePath, Status: version.Status, SourceDraftID: version.DraftID, SourceType: version.SourceType, SourceBranchID: stringPtr(version.SourceBranchID), SourceVersionID: stringPtr(version.SourceVersionID), BaseVersionID: stringPtr(version.BaseVersionID), DocumentFormat: version.SchemaFormat, RawSchemaObjectKey: version.RawSchemaObjectKey, NormalizedSchemaObjectKey: version.NormalizedObjectKey, RawSchemaHash: version.RawSchemaHash, NormalizedSchemaHash: version.NormalizedSchemaHash, SchemaSizeBytes: int64(len(version.RawSchema)), SchemaMetadata: versionContentMetadata(version), Changelog: stringPtr(version.Changelog), SourceGitCommitID: stringPtr(version.SourceGitCommitID), EndpointCount: endpoints, PublishedBy: version.PublishedBy, PublishedAt: nonZeroTime(version.PublishedAt)}
 }
 
 func (r *Repository) insertPublishedEndpoints(ctx context.Context, endpoints map[string]*domainvdoc.Endpoint, versions map[string]*domainvdoc.ContractVersion, versionID string) error {
@@ -1223,8 +1259,14 @@ func domainDocumentVersionFromModel(model DocumentVersion) *domainvdoc.ContractV
 	return &domainvdoc.ContractVersion{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), DraftID: domainID(model.SourceDraftID), VersionName: model.VersionName, RelativePath: model.RelativePath, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: domainID(model.PublishedBy), PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
-func (r *Repository) loadEndpoints(ctx context.Context, loaded *domainvdoc.State) error {
-	rows, err := r.database.WithContext(ctx).Raw(`SELECT e.id::text,e.document_version_id::text,e.method,e.path,COALESCE(e.operation_id,''),COALESCE(e.summary,''),array_to_json(e.tags)::text,e.deprecated,e.endpoint_hash,e.created_at,e.updated_at,d.parameters_json,d.request_body_json,d.responses_json,d.security_json,d.servers_json,d.normalized_operation_json,d.schema_refs_json FROM api_endpoints e LEFT JOIN api_endpoint_details d ON d.endpoint_id=e.id`).Rows()
+func (r *Repository) loadEndpoints(ctx context.Context, loaded *domainvdoc.State, versionID ...string) error {
+	query := `SELECT e.id::text,e.document_version_id::text,e.method,e.path,COALESCE(e.operation_id,''),COALESCE(e.summary,''),array_to_json(e.tags)::text,e.deprecated,e.endpoint_hash,e.created_at,e.updated_at,d.parameters_json,d.request_body_json,d.responses_json,d.security_json,d.servers_json,d.normalized_operation_json,d.schema_refs_json FROM api_endpoints e LEFT JOIN api_endpoint_details d ON d.endpoint_id=e.id`
+	var args []any
+	if len(versionID) > 0 {
+		query += " WHERE e.document_version_id = ?"
+		args = append(args, versionID[0])
+	}
+	rows, err := r.database.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return err
 	}

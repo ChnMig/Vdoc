@@ -22,7 +22,7 @@ func listBranches(c *gin.Context) {
 	if !ok {
 		return
 	}
-	branches, err := shared.Store().ListBranches(userID, c.Param("project_id"), c.Param("document_id"))
+	branches, err := shared.Store(c).ListBranches(userID, c.Param("project_id"), c.Param("document_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -40,7 +40,7 @@ func createBranch(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	branch, err := shared.Store().CreateBranch(userID, c.Param("project_id"), c.Param("document_id"), req.Name, req.Description, shared.AuditContextFromGin(c))
+	branch, err := shared.Store(c).CreateBranch(userID, c.Param("project_id"), c.Param("document_id"), req.Name, req.Description, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -53,7 +53,7 @@ func getBranch(c *gin.Context) {
 	if !ok {
 		return
 	}
-	branch, err := shared.Store().Branch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"))
+	branch, err := shared.Store(c).Branch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -76,7 +76,7 @@ func updateBranch(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	branch, err := shared.Store().UpdateBranch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"), app.BranchPatchInput{Name: req.Name, Description: req.Description, IsDefault: req.IsDefault, IsProtected: req.IsProtected}, shared.AuditContextFromGin(c))
+	branch, err := shared.Store(c).UpdateBranch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"), app.BranchPatchInput{Name: req.Name, Description: req.Description, IsDefault: req.IsDefault, IsProtected: req.IsProtected}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -89,7 +89,7 @@ func archiveBranch(c *gin.Context) {
 	if !ok {
 		return
 	}
-	branch, err := shared.Store().ArchiveBranch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"), shared.AuditContextFromGin(c))
+	branch, err := shared.Store(c).ArchiveBranch(userID, c.Param("project_id"), c.Param("document_id"), c.Param("branch_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

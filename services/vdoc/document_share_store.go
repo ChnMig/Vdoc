@@ -1,7 +1,6 @@
 package vdoc
 
 import (
-	"context"
 	"fmt"
 	"path"
 	"sort"
@@ -456,7 +455,7 @@ func (s *Store) loadPersistentPublicShareSnapshot(shareID string) (*domainvdoc.P
 	if s.persistence == nil {
 		return nil, false, nil
 	}
-	return s.persistence.loadPublicDocumentShareSnapshot(context.Background(), shareID)
+	return s.persistence.loadPublicDocumentShareSnapshot(s.requestContext(), shareID)
 }
 
 func unlockPersistentPublicShare(share *DocumentShare, password string) (string, time.Time, error) {
@@ -519,7 +518,7 @@ func allowedSnapshotVersion(snapshot *domainvdoc.PublicDocumentShareSnapshot, sh
 func (s *Store) recordPersistentPublicShareAudit(ctx AuditContext, share *DocumentShare, action, versionID string) error {
 	audits := make(map[string]*AuditLog, 1)
 	audit := appendAuditToState(audits, ctx, AuditActorAnonymous, "", action, "document_share", share.ID, share.ProjectID, share.DocumentID, documentShareAuditMetadata(share, "success", versionID))
-	return s.persistence.recordPublicDocumentShareAccess(context.Background(), share.ID, audit)
+	return s.persistence.recordPublicDocumentShareAccess(s.requestContext(), share.ID, audit)
 }
 
 func (s *Store) publicShareMetadataFromSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapshot, secret, unlockProof string, ctx AuditContext) (*PublicShareMetadata, error) {
@@ -566,7 +565,7 @@ func (s *Store) loadPersistentPublishedContent(version *ContractVersion) (string
 	if s.objects == nil || strings.TrimSpace(version.RawSchemaObjectKey) == "" {
 		return "", publicShareUnavailable()
 	}
-	body, err := s.readVerifiedObject(context.Background(), version.RawSchemaObjectKey, version.RawSchemaHash)
+	body, err := s.readVerifiedObject(s.requestContext(), version.RawSchemaObjectKey, version.RawSchemaHash)
 	if err != nil {
 		return "", publicShareUnavailable()
 	}

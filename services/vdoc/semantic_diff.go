@@ -169,6 +169,7 @@ func (b *semanticDiffBuilder) compareResponses(from, to Endpoint) {
 
 func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
 	b.compareSchemaRootType(change, endpoint, prefix, oldSchema, newSchema, response)
+	b.compareEnumValues(change, endpoint, prefix, oldSchema, newSchema, "Enum value removed")
 	oldFields := schemaFields(oldSchema)
 	newFields := schemaFields(newSchema)
 	for _, path := range sortedStringKeys(newFields) {
@@ -442,7 +443,10 @@ func collectSchemaFields(out map[string]schemaField, prefix string, schema any) 
 			collectSchemaFields(out, path, property)
 		}
 		if items := fragment["items"]; items != nil {
-			collectSchemaFields(out, schemaPath(prefix, "items"), items)
+			path := schemaPath(prefix, "items")
+			// items 本身也有类型和枚举，不能只收集其下的对象属性。
+			mergeSchemaField(out, path, schemaField{Type: schemaType(items), Enum: enumValues(items)})
+			collectSchemaFields(out, path, items)
 		}
 	}
 }

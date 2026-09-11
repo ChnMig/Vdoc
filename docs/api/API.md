@@ -2,6 +2,14 @@
 
 This guide is the human-readable companion to [openapi.yaml](openapi.yaml). The examples use raw `Authorization` header values. Do not prefix JWTs or MCP tokens with `Bearer`.
 
+## Document overview and readiness
+
+`GET /api/v1/private/projects/{project_id}/documents/{document_id}/overview` returns `version_count`, `endpoint_count`, `latest_version` (the existing public version DTO or null), `published_branch_ids`, `has_reviewed_draft`, `raw_size_bytes`, and nullable `raw_line_count`. Counts and latest-version selection cover the whole document; published branch IDs and reviewed-draft evidence only include active branches. The response contains no document body or storage keys. Markdown statistics are stored at publication; older versions populate the derived metadata once on first overview access.
+
+`GET /api/v1/private/projects/{project_id}/documents/{document_id}/mcp-readiness` returns nullable `last_read_at`. It searches successful published-content reads for the selected document across all history, using only the current user's active, unexpired tokens with a matching read scope. Archived parents or absence of matching evidence return null. Both endpoints require document read permission and keep the HTTP 200 envelope contract.
+
+Summary polling reads only the target and its permission context. On startup and every minute, the worker marks a pending summary as failed if it has no matching durable job and has remained pending for at least five minutes. The grace period protects an older instance's in-flight generation; existing queued or leased jobs are preserved. Manual regeneration performs the same recovery check before reusing pending state.
+
 ## Base URLs
 
 | Surface | Base |
@@ -207,9 +215,9 @@ curl -sS "$API_BASE/api/v1/private/ai/provider" \
   -d '{"name":"docs-ai","base_url":"https://api.openai.example","model":"gpt-4.1-mini","api_mode":"chat_completions","api_key":"sk-change-me","enabled":true,"temperature":0.2,"timeout_ms":30000,"max_output_tokens":1000}'
 ```
 
-Submitting a draft automatically attempts a draft AI summary after the draft is saved as submitted. Approving a draft automatically attempts a version AI summary after the version is published. OpenAPI and Markdown draft submit and approve paths both follow this rule. The summary attempt is helper work, not part of the approval decision.
+Submitting a draft atomically saves its submitted state, pending AI summary, and background job. Approving a draft atomically publishes the version and its summary job. Provider calls run after the transaction in a background worker, so submit and approve responses do not wait for AI. OpenAPI and Markdown draft submit and approve paths both follow this rule. The summary attempt is helper work, not part of the approval decision.
 
-The latest in-flight generation is visible as `pending`. Skipped and failed automatic summaries are saved as non-blocking `skipped` or `failed` records. Missing providers and disabled prompts are stored as `skipped`; provider call errors are stored as `failed`. A completion is rejected if its target, permissions, provider, or prompt changed while the provider call was running. These records are visible through the same `ai-summary` read endpoints and do not roll back submit or publish.
+Manual `ai-summary/regenerate` also queues work and returns `pending`; repeating it while pending reuses that generation. Poll the matching GET endpoint every two seconds until a terminal status, and stop polling on navigation or read errors. The latest in-flight generation is visible as `pending`. Skipped and failed automatic summaries are saved as non-blocking `skipped` or `failed` records. Missing providers and disabled prompts are stored as `skipped`; provider call errors are stored as `failed`. A completion is rejected if its target, permissions, provider, or prompt changed while the provider call was running. These records are visible through the same `ai-summary` read endpoints and do not roll back submit or publish.
 
 AI chat sends a bounded window of the current session history. Each session uses a persisted generation token so an older provider response cannot overwrite a newer request, including when requests are handled by different Vdoc instances. The chat-session collection supports `GET` with required `document_id`, `context_type`, and `context_id` query parameters so clients can recover all sessions for the current page context, newest-updated first.
 
@@ -356,3 +364,12 @@ Send the proof as `X-Vdoc-Share-Unlock`. Invalid capabilities, passwords, proofs
 | MCP Tokens | `GET` | `/api/v1/private/mcp-usage` | JWT; owner-scoped unless SuperAdmin supplies `token_id` |
 | MCP Tokens | `GET` | `/api/v1/private/mcp-tokens/{token_id}` | JWT |
 | MCP Tokens | `POST` | `/api/v1/private/mcp-tokens/{token_id}/revoke` | JWT |
+
+## Bounded queries and request lifetime
+
+- Version and endpoint lists accept `page_size=1..200`, `offset=0..1000000`, and `search` (up to 256 UTF-8 bytes). Version search matches the version name. Endpoint search matches method, path, summary, operation ID and tags. Responses include `total` and `has_more`. Omitting `page_size` preserves the legacy list contract.
+- Audit queries accept `limit` (default 100, maximum 200), `cursor`, and RFC3339 `from` (inclusive) / `to` (exclusive). The response includes `has_more` and, when available, `next_cursor`. Repeat the same filters with that cursor to continue beyond 200 records. Cursor pages omit a global total; project authorization is checked for every page.
+- Example: `GET /api/v1/private/projects/{project_id}/documents/{document_id}/versions?page_size=50&offset=50&search=v1`.
+- Client cancellation propagates to database queries, object storage, and interactive AI requests. The API context deadline is 30 seconds for regular requests and 150 seconds for AI/MCP routes, bounded further by any earlier caller deadline. Errors retain HTTP 200 and use envelope statuses `CANCELLED` (499) or `DEADLINE_EXCEEDED` (504). Database rollback/object cleanup has a separate bounded cleanup context.
+- Background summary jobs survive request cancellation and process restarts. One worker per instance claims jobs with a 180-second lease; each attempt is bounded to 150 seconds. Transient preparation/persistence errors retry up to three attempts with a five-second delay. Graceful shutdown releases durable work for retry; expired leases recover after crashes. Provider response failures are stored as `failed` for explicit retry. Targets, permissions, and generation tokens are rechecked before saving completion. No provider configuration stores `skipped` immediately without enqueueing work.
+- Access logs include `route` (the Gin route template), `app_code`, and `app_status` alongside the transport status, latency and trace ID. Business errors therefore remain distinguishable when transport HTTP status is 200. Request/response bodies and credential values are excluded.

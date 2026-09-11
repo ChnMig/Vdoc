@@ -33,6 +33,7 @@ func ReturnErrorWithData(c *gin.Context, data responseData, result any) {
 	data.Timestamp = time.Now().Unix()
 	data.TraceID = requestTraceID(c)
 	data.Detail = result
+	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
 	logErrorResponse(l, "Returning error response with data", responseForLog(data))
 	// Return directly
@@ -46,6 +47,7 @@ func ReturnOk(c *gin.Context, result any) {
 	data.Timestamp = time.Now().Unix()
 	data.TraceID = requestTraceID(c)
 	data.Detail = result
+	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
 	l.Debug("Returning OK response", zap.Any("response", responseForLog(data)))
 	// Return directly
@@ -60,6 +62,7 @@ func ReturnOkWithTotal(c *gin.Context, total int, result any) {
 	data.TraceID = requestTraceID(c)
 	data.Detail = result
 	data.Total = &total
+	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
 	l.Debug("Returning OK response with total", zap.Any("response", responseForLog(data)))
 	// Return directly
@@ -74,6 +77,7 @@ func ReturnError(c *gin.Context, data responseData, message string) {
 	if message != "" {
 		data.Message = message
 	}
+	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
 	logErrorResponse(l, "Returning error response", responseForLog(data))
 	// Return directly
@@ -86,6 +90,7 @@ func ReturnSuccess(c *gin.Context) {
 	data := OK
 	data.Timestamp = time.Now().Unix()
 	data.TraceID = requestTraceID(c)
+	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
 	l.Debug("Returning success response", zap.Any("response", data))
 	// Return directly
@@ -110,4 +115,21 @@ func logErrorResponse(logger *zap.Logger, message string, data responseData) {
 func responseForLog(data responseData) responseData {
 	data.Detail = nil
 	return data
+}
+
+// SetOutcome 记录统一业务结果，供访问日志统计，不读取或记录响应正文。
+func SetOutcome(c *gin.Context, code int, status string) {
+	c.Set(contextkey.AppCode, code)
+	c.Set(contextkey.AppStatus, status)
+}
+
+// ReturnPage 保持数组 detail 契约，额外返回分页元数据。
+func ReturnPage(c *gin.Context, result any, total *int, hasMore bool, nextCursor string) {
+	data := OK
+	data.Timestamp, data.TraceID = time.Now().Unix(), requestTraceID(c)
+	data.Detail, data.Total = result, total
+	data.HasMore, data.NextCursor = &hasMore, nextCursor
+	SetOutcome(c, data.Code, data.Status)
+	c.JSON(http.StatusOK, data)
+	c.Abort()
 }

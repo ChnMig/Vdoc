@@ -30,7 +30,7 @@ func createTeam(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	team, err := shared.Store().CreateTeam(userID, req.Name, req.Description, shared.AuditContextFromGin(c))
+	team, err := shared.Store(c).CreateTeam(userID, req.Name, req.Description, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -43,7 +43,7 @@ func listTeams(c *gin.Context) {
 	if !ok {
 		return
 	}
-	teams, err := shared.Store().ListTeams(userID)
+	teams, err := shared.Store(c).ListTeams(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -56,7 +56,7 @@ func getTeam(c *gin.Context) {
 	if !ok {
 		return
 	}
-	team, err := shared.Store().Team(userID, c.Param("team_id"))
+	team, err := shared.Store(c).Team(userID, c.Param("team_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -77,7 +77,7 @@ func updateTeam(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	team, err := shared.Store().UpdateTeam(userID, c.Param("team_id"), app.NameDescriptionPatch{Name: req.Name, Description: req.Description}, shared.AuditContextFromGin(c))
+	team, err := shared.Store(c).UpdateTeam(userID, c.Param("team_id"), app.NameDescriptionPatch{Name: req.Name, Description: req.Description}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -90,7 +90,7 @@ func archiveTeam(c *gin.Context) {
 	if !ok {
 		return
 	}
-	team, err := shared.Store().ArchiveTeam(userID, c.Param("team_id"), shared.AuditContextFromGin(c))
+	team, err := shared.Store(c).ArchiveTeam(userID, c.Param("team_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

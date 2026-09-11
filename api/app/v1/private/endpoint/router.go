@@ -17,7 +17,23 @@ func listEndpoints(c *gin.Context) {
 	if !ok {
 		return
 	}
-	endpoints, err := shared.Store().ListDocumentEndpoints(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Query("path"))
+	if _, paged := c.GetQuery("page_size"); paged {
+		query, err := shared.PageQuery(c)
+		query.Path = c.Query("path")
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		values, total, err := shared.Store(c).QueryDocumentEndpoints(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), query)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		response.ReturnPage(c, shared.EndpointSummaries(values), &total, query.Offset+len(values) < total, "")
+		return
+	}
+
+	endpoints, err := shared.Store(c).ListDocumentEndpoints(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Query("path"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -30,7 +46,7 @@ func getEndpoint(c *gin.Context) {
 	if !ok {
 		return
 	}
-	endpoint, err := shared.Store().DocumentEndpoint(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("endpoint_id"))
+	endpoint, err := shared.Store(c).DocumentEndpoint(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("endpoint_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

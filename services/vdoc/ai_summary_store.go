@@ -9,6 +9,7 @@ import (
 	"time"
 
 	domainai "vdoc/domain/ai"
+	domain "vdoc/domain/vdoc"
 	"vdoc/utils/id"
 )
 
@@ -20,6 +21,13 @@ type AISummaryTarget struct {
 }
 
 func (s *Store) AISummary(actorID string, target AISummaryTarget) (*AISummary, error) {
+	local, _, err := s.readScope(domain.ReadScope{ActorID: actorID, ProjectID: target.ProjectID, DocumentID: target.DocumentID, SummaryOwnerType: target.OwnerType, SummaryOwnerID: target.OwnerID})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.AISummary(actorID, target)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -36,6 +44,48 @@ func (s *Store) RegenerateAISummary(actorID string, target AISummaryTarget, audi
 	return s.runAISummary(run)
 }
 
+// QueueAISummary 在同一事务中保存 pending 状态与任务；HTTP 重试期间不重复排队。
+func (s *Store) QueueAISummary(actorID string, target AISummaryTarget, auditCtx ...AuditContext) (*AISummary, error) {
+	s.mu.Lock()
+	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if !s.canManageProjectLocked(actorID, target.ProjectID) {
+		s.mu.Unlock()
+		return nil, ErrPermissionDenied
+	}
+	if err := s.ensureActiveAITargetLocked(target); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if current := s.aiSummaries[aiSummaryKey(target)]; current != nil && current.Status == domainai.SummaryStatusPending {
+		if err := s.recoverOrphanSummariesLocked(); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		if err := s.refreshLocked(); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+	}
+	if current := s.aiSummaries[aiSummaryKey(target)]; current != nil && current.Status == domainai.SummaryStatusPending {
+		summary := cloneAISummary(current)
+		s.mu.Unlock()
+		s.StartSummaryWorker()
+		return summary, nil
+	}
+	s.stageSummaryLocked(aiSummaryRun{ActorID: actorID, Target: target, Trigger: aiSummaryTriggerManual, RequireManage: true, Audit: auditContext(auditCtx)})
+	err := s.persistLocked()
+	summary := cloneAISummary(s.aiSummaries[aiSummaryKey(target)])
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	s.StartSummaryWorker()
+	return summary, nil
+}
+
 type aiSummaryTrigger string
 
 const (
@@ -45,6 +95,7 @@ const (
 )
 
 type aiSummaryRun struct {
+	JobID         string
 	ActorID       string
 	Target        AISummaryTarget
 	Trigger       aiSummaryTrigger
@@ -53,7 +104,7 @@ type aiSummaryRun struct {
 }
 
 func (s *Store) regenerateAISummaryForWorkflow(run aiSummaryRun) {
-	_, _ = s.runAISummary(run)
+	s.StartSummaryWorker()
 }
 
 func (s *Store) runAISummary(run aiSummaryRun) (*AISummary, error) {
@@ -64,7 +115,16 @@ func (s *Store) runAISummary(run aiSummaryRun) (*AISummary, error) {
 	if skipped != nil {
 		return skipped, nil
 	}
-	result, callErr := s.completeAI(context.Background(), request.Completion)
+	result, callErr := s.completeAI(s.requestContext(), request.Completion)
+	if err := s.requestContext().Err(); err != nil {
+		if run.JobID != "" {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
+		defer cancel()
+		_, _ = s.WithContext(ctx).finishAISummary(run, aiSummaryCompletion{Request: request, Err: err})
+		return nil, err
+	}
 	return s.finishAISummary(run, aiSummaryCompletion{Request: request, Result: result, Err: callErr})
 }
 
@@ -104,6 +164,12 @@ func (s *Store) prepareAISummaryRequest(run aiSummaryRun) (aiSummaryRequest, *AI
 	if err := s.refreshLocked(); err != nil {
 		return aiSummaryRequest{}, nil, err
 	}
+	if run.JobID != "" {
+		current := s.aiSummaries[aiSummaryKey(run.Target)]
+		if current == nil || current.GenerationToken != run.JobID {
+			return aiSummaryRequest{}, nil, staleAISummaryRequestError()
+		}
+	}
 	if !s.canRunAISummaryLocked(run) {
 		return aiSummaryRequest{}, nil, ErrPermissionDenied
 	}
@@ -128,9 +194,14 @@ func (s *Store) prepareAISummaryRequest(run aiSummaryRun) (aiSummaryRequest, *AI
 		return aiSummaryRequest{}, cloneAISummary(skipped), s.persistAISummaryLocked(skipped, audit)
 	}
 	generationToken := id.GenerateID()
+	if run.JobID != "" {
+		generationToken = run.JobID
+	}
 	pending := s.storePendingAISummaryLocked(run.ActorID, run.Target, promptKey, provider.ID, generationToken)
-	if err := s.reserveAISummaryLocked(pending); err != nil {
-		return aiSummaryRequest{}, nil, err
+	if run.JobID == "" {
+		if err := s.reserveAISummaryLocked(pending); err != nil {
+			return aiSummaryRequest{}, nil, err
+		}
 	}
 	userPrompt := strings.ReplaceAll(prompt.UserPromptTemplate, "{{context}}", contextText)
 	completion := aiCompletionRequest{Provider: cloneAIProvider(provider), APIKey: apiKey, System: prompt.SystemPrompt, User: userPrompt}
@@ -183,7 +254,7 @@ func (s *Store) persistAISummaryLocked(summary *AISummary, audit *AuditLog) erro
 	if s.persistence == nil {
 		return nil
 	}
-	persisted, err := s.persistence.saveAISummaryLocked(context.Background(), summary, s.persistedAISummaryLocked(summary), audit)
+	persisted, err := s.persistence.saveAISummaryLocked(s.requestContext(), summary, s.persistedAISummaryLocked(summary), audit)
 	if err != nil {
 		if s.persisted != nil {
 			s.applyStateLocked(s.persisted)
@@ -201,7 +272,7 @@ func (s *Store) reserveAISummaryLocked(summary *AISummary) error {
 	if s.persistence == nil {
 		return nil
 	}
-	reserved, handled, err := s.persistence.reserveAISummaryGenerationLocked(context.Background(), summary)
+	reserved, handled, err := s.persistence.reserveAISummaryGenerationLocked(s.requestContext(), summary)
 	if err != nil {
 		s.restorePersistedStateLocked()
 		return err
@@ -213,7 +284,7 @@ func (s *Store) reserveAISummaryLocked(summary *AISummary) error {
 		}
 		s.aiSummaries[aiSummaryKey(AISummaryTarget{ProjectID: reserved.ProjectID, DocumentID: reserved.DocumentID, OwnerType: reserved.OwnerType, OwnerID: reserved.OwnerID})] = reserved
 	} else {
-		persisted, saveErr := s.persistence.saveAISummaryLocked(context.Background(), summary, s.persistedAISummaryLocked(summary), nil)
+		persisted, saveErr := s.persistence.saveAISummaryLocked(s.requestContext(), summary, s.persistedAISummaryLocked(summary), nil)
 		if saveErr != nil {
 			s.restorePersistedStateLocked()
 			return saveErr
@@ -230,13 +301,13 @@ func (s *Store) persistAISummaryCompletionLocked(summary *AISummary, audit *Audi
 	if s.persistence == nil {
 		return nil
 	}
-	handled, err := s.persistence.completeAISummaryGenerationLocked(context.Background(), summary, expectedToken, audit)
+	handled, err := s.persistence.completeAISummaryGenerationLocked(s.requestContext(), summary, expectedToken, audit)
 	if err != nil {
 		s.restorePersistedStateLocked()
 		return err
 	}
 	if !handled {
-		persisted, saveErr := s.persistence.saveAISummaryLocked(context.Background(), summary, s.persistedAISummaryLocked(summary), audit)
+		persisted, saveErr := s.persistence.saveAISummaryLocked(s.requestContext(), summary, s.persistedAISummaryLocked(summary), audit)
 		if saveErr != nil {
 			s.restorePersistedStateLocked()
 			return saveErr
@@ -388,7 +459,8 @@ func (s *Store) aiTargetContextLocked(target AISummaryTarget) (string, string, e
 		if !ok {
 			return "", "", ErrNotFound
 		}
-		if err := s.hydrateDraftContentLocked(context.Background(), draft, "normalized"); err != nil {
+		draft = cloneDraft(draft)
+		if err := s.hydrateDraftContentLocked(s.requestContext(), draft, "normalized"); err != nil {
 			return "", "", err
 		}
 		if err := s.ensureDraftPreviewFactsLocked(draft); err != nil {
@@ -400,7 +472,8 @@ func (s *Store) aiTargetContextLocked(target AISummaryTarget) (string, string, e
 		if version == nil || version.ProjectID != target.ProjectID || version.ServiceID != target.DocumentID {
 			return "", "", ErrNotFound
 		}
-		if err := s.hydrateVersionContentLocked(context.Background(), version, "normalized"); err != nil {
+		version = cloneVersion(version)
+		if err := s.hydrateVersionContentLocked(s.requestContext(), version, "normalized"); err != nil {
 			return "", "", err
 		}
 		return versionAIContext(version), domainai.PromptVersionChangeSummary, nil

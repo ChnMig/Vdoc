@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
@@ -54,7 +55,7 @@ func Register(c *gin.Context) {
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 		return
 	}
-	user, err := app.DefaultStore().Register(req.Email, req.Name, req.Password, auditContextFromGin(c))
+	user, err := app.DefaultStore().WithContext(c.Request.Context()).Register(req.Email, req.Name, req.Password, auditContextFromGin(c))
 	if err != nil {
 		returnAppError(c, err)
 		return
@@ -73,7 +74,7 @@ func Login(c *gin.Context) {
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 		return
 	}
-	user, err := app.DefaultStore().Login(req.Email, req.Password, auditContextFromGin(c))
+	user, err := app.DefaultStore().WithContext(c.Request.Context()).Login(req.Email, req.Password, auditContextFromGin(c))
 	if err != nil {
 		returnAppError(c, err)
 		return
@@ -105,6 +106,10 @@ func auditContextFromGin(c *gin.Context) app.AuditContext {
 
 func returnAppError(c *gin.Context, err error) {
 	switch {
+	case app.Is(err, context.Canceled):
+		response.ReturnError(c, response.CANCELLED, "请求已取消")
+	case app.Is(err, context.DeadlineExceeded):
+		response.ReturnError(c, response.DEADLINE_EXCEEDED, "请求超时")
 	case app.Is(err, app.ErrInvalidArgument):
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 	case app.Is(err, app.ErrUnauthenticated):

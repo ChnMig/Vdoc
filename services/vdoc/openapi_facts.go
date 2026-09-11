@@ -1,11 +1,10 @@
 package vdoc
 
 import (
-	"context"
 	"fmt"
 )
 
-const openAPIParserVersion = 2
+const openAPIParserVersion = 3
 
 // 草稿预览也是缓存；保留创建预览时的对比基线，不更改草稿内容和更新时间。
 func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
@@ -19,7 +18,7 @@ func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
 	if err := s.ensureVersionEndpointFactsLocked(previous.FromVersionID); err != nil {
 		return err
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), draft, "raw"); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), draft, "raw"); err != nil {
 		return err
 	}
 	parsed, err := ParseOpenAPI(draft.RawSchema)
@@ -52,7 +51,7 @@ func (s *Store) ensureVersionEndpointFactsLocked(versionID string) error {
 	if !legacy {
 		return nil
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), version, "raw"); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), version, "raw"); err != nil {
 		return err
 	}
 	parsed, err := ParseOpenAPI(version.RawSchema)

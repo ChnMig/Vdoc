@@ -63,7 +63,7 @@ func InitApi() *gin.Engine {
 	}
 
 	// /api 分组，业务路由由 app 层递归注册
-	apiGroup := router.Group("/api")
+	apiGroup := router.Group("/api", middleware.RequestDeadline())
 	app.RegisterRoutes(apiGroup)
 	return router
 }

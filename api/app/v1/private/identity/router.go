@@ -16,12 +16,12 @@ func me(c *gin.Context) {
 	if !ok {
 		return
 	}
-	user, err := shared.Store().User(userID)
+	user, err := shared.Store(c).User(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	canAccessAudit, err := shared.Store().CanAccessAudit(userID)
+	canAccessAudit, err := shared.Store(c).CanAccessAudit(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

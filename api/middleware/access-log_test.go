@@ -48,6 +48,12 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 	}
 	t.Cleanup(restore)
 
+	type capturedOutput struct {
+		body []byte
+		err  error
+	}
+	captured := make(chan capturedOutput, 1)
+	go func() { body, err := io.ReadAll(readPipe); captured <- capturedOutput{body, err} }()
 	os.Stdout = writePipe
 	config.RunModel = config.RunModelDevValue
 	config.LogLevel = "info"
@@ -55,20 +61,25 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 	httplog.SetLogger()
 
 	router := gin.New()
-	router.Use(TraceID(), AccessLog())
+	router.Use(TraceID(), AccessLog(), Recovery())
 	router.POST("/ok", func(c *gin.Context) {
 		response.ReturnSuccess(c)
 	})
 
+	router.GET("/denied/:resource", func(c *gin.Context) { response.ReturnError(c, response.PERMISSION_DENIED, "denied") })
+	router.GET("/panic", func(c *gin.Context) { panic("test panic") })
 	req := httptest.NewRequest(http.MethodPost, "/ok?foo=bar&token=secret-query", bytes.NewBufferString("secret-body"))
 	req.Header.Set("User-Agent", "access-log-test")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/denied/resource-1", nil))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/panic", nil))
 
 	_ = httplog.GetGinLogger().Sync()
 	restoreGlobals()
 	_ = writePipe.Close()
-	outBytes, readErr := io.ReadAll(readPipe)
+	outputResult := <-captured
+	outBytes, readErr := outputResult.body, outputResult.err
 	if readErr != nil {
 		t.Fatalf("read access log output: %v", readErr)
 	}
@@ -79,6 +90,14 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 	for _, want := range []string{
 		`"method": "POST"`,
 		`"path": "/ok"`,
+		`"route": "/ok"`,
+		`"app_code": 200`,
+		`"app_status": "OK"`,
+		`"route": "/denied/:resource"`,
+		`"app_code": 403`,
+		`"app_status": "PERMISSION_DENIED"`,
+		`"app_code": 500`,
+		`"app_status": "INTERNAL"`,
 		`"query_keys": [`,
 		`"foo"`,
 		`"token"`,

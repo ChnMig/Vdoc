@@ -14,7 +14,7 @@ func listSystemPrompts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	prompts, err := shared.Store().SystemAIPrompts(userID)
+	prompts, err := shared.Store(c).SystemAIPrompts(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -31,7 +31,7 @@ func listProjectPrompts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	prompts, err := shared.Store().ProjectAIPrompts(userID, c.Param("project_id"))
+	prompts, err := shared.Store(c).ProjectAIPrompts(userID, c.Param("project_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -58,9 +58,9 @@ func putPrompt(c *gin.Context, projectID string) {
 		err    error
 	)
 	if projectID == "" {
-		prompt, err = shared.Store().UpsertSystemAIPrompt(userID, c.Param("prompt_key"), req, shared.AuditContextFromGin(c))
+		prompt, err = shared.Store(c).UpsertSystemAIPrompt(userID, c.Param("prompt_key"), req, shared.AuditContextFromGin(c))
 	} else {
-		prompt, err = shared.Store().UpsertProjectAIPrompt(userID, projectID, c.Param("prompt_key"), req, shared.AuditContextFromGin(c))
+		prompt, err = shared.Store(c).UpsertProjectAIPrompt(userID, projectID, c.Param("prompt_key"), req, shared.AuditContextFromGin(c))
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)

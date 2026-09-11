@@ -16,6 +16,8 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	private.POST("/projects/:project_id/documents", createDocument)
 	private.GET("/projects/:project_id/documents", listDocuments)
 	private.GET("/projects/:project_id/documents/:document_id", getDocument)
+	private.GET("/projects/:project_id/documents/:document_id/overview", getOverview)
+	private.GET("/projects/:project_id/documents/:document_id/mcp-readiness", getMCPReadiness)
 	private.PATCH("/projects/:project_id/documents/:document_id", updateDocument)
 	private.POST("/projects/:project_id/documents/:document_id/archive", archiveDocument)
 }
@@ -43,7 +45,7 @@ func createDocument(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	document, err := shared.Store().CreateDocument(userID, c.Param("project_id"), req.Name, req.DocumentType, req.RelativePath, req.Description, shared.AuditContextFromGin(c))
+	document, err := shared.Store(c).CreateDocument(userID, c.Param("project_id"), req.Name, req.DocumentType, req.RelativePath, req.Description, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -65,7 +67,7 @@ func listDocuments(c *gin.Context) {
 		}
 		documentType = parsed
 	}
-	documents, err := shared.Store().ListDocuments(userID, c.Param("project_id"), documentType)
+	documents, err := shared.Store(c).ListDocuments(userID, c.Param("project_id"), documentType)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -78,7 +80,7 @@ func getDocument(c *gin.Context) {
 	if !ok {
 		return
 	}
-	document, err := shared.Store().Document(userID, c.Param("project_id"), c.Param("document_id"))
+	document, err := shared.Store(c).Document(userID, c.Param("project_id"), c.Param("document_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -96,7 +98,7 @@ func updateDocument(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	document, err := shared.Store().UpdateDocument(userID, c.Param("project_id"), c.Param("document_id"), app.DocumentPatchInput{Name: req.Name, RelativePath: req.RelativePath, Description: req.Description}, shared.AuditContextFromGin(c))
+	document, err := shared.Store(c).UpdateDocument(userID, c.Param("project_id"), c.Param("document_id"), app.DocumentPatchInput{Name: req.Name, RelativePath: req.RelativePath, Description: req.Description}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -109,7 +111,7 @@ func archiveDocument(c *gin.Context) {
 	if !ok {
 		return
 	}
-	document, err := shared.Store().ArchiveDocument(userID, c.Param("project_id"), c.Param("document_id"), shared.AuditContextFromGin(c))
+	document, err := shared.Store(c).ArchiveDocument(userID, c.Param("project_id"), c.Param("document_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

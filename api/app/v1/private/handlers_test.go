@@ -973,7 +973,7 @@ func TestAuditLogRoutesEnforceRoleScopeAndFilters(t *testing.T) {
 		t.Fatalf("admin missing project response = code %d body %s", missingProject.Code, missingProject.Detail)
 	}
 	adminEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs?project_id="+projectA.ID+"&action=document.create&limit=200", adminToken, ""))
-	if adminEnvelope.Code != 200 || adminEnvelope.Total == nil || *adminEnvelope.Total != 1 {
+	if adminEnvelope.Code != 200 || adminEnvelope.Total != nil {
 		t.Fatalf("admin audit response = code %d total %v body %s", adminEnvelope.Code, adminEnvelope.Total, adminEnvelope.Detail)
 	}
 	var adminLogs []app.AuditLog
@@ -981,7 +981,7 @@ func TestAuditLogRoutesEnforceRoleScopeAndFilters(t *testing.T) {
 		t.Fatalf("admin audit logs = %+v error=%v", adminLogs, err)
 	}
 	superEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs?action=document.create", superToken, ""))
-	if superEnvelope.Code != 200 || superEnvelope.Total == nil || *superEnvelope.Total != 2 {
+	if superEnvelope.Code != 200 || superEnvelope.Total != nil {
 		t.Fatalf("super audit response = code %d total %v body %s", superEnvelope.Code, superEnvelope.Total, superEnvelope.Detail)
 	}
 }

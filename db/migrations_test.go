@@ -21,6 +21,8 @@ func TestHistoricalMigrationChecksumsAreFrozen(t *testing.T) {
 		t.Fatalf("load migrations: %v", err)
 	}
 	expected := map[string]string{
+		"006": "8478f981413d05cb1d69922f3bf682f8e28c8ea1eb2721dd649a533da786841a",
+		"005": "a5935c01466434f97920e1464b284e874f41b724d8b57c12bbff89ed1a04d8ed",
 		"000": "60890cbc782984e7e5e4256511b71adb0b4491b88c82dbd23434c6e3d4ab21fd",
 		"001": "6938bb3c042e38bd38d4c19719b6a3329fae07fac972f6681191cc1509d6c8ce",
 		"002": "8d19b71da40adc59959d1c2c6cd9f9d3d7811d0fe248fdd9d39379d8afbf967b",

@@ -32,7 +32,7 @@ func createProject(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	project, err := shared.Store().CreateProject(userID, req.TeamID, req.Name, req.Description, req.AdminUserID, shared.AuditContextFromGin(c))
+	project, err := shared.Store(c).CreateProject(userID, req.TeamID, req.Name, req.Description, req.AdminUserID, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -45,7 +45,7 @@ func listProjects(c *gin.Context) {
 	if !ok {
 		return
 	}
-	projects, err := shared.Store().ListProjects(userID)
+	projects, err := shared.Store(c).ListProjects(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -58,7 +58,7 @@ func getProject(c *gin.Context) {
 	if !ok {
 		return
 	}
-	project, err := shared.Store().Project(userID, c.Param("project_id"))
+	project, err := shared.Store(c).Project(userID, c.Param("project_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -79,7 +79,7 @@ func updateProject(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	project, err := shared.Store().UpdateProject(userID, c.Param("project_id"), app.NameDescriptionPatch{Name: req.Name, Description: req.Description}, shared.AuditContextFromGin(c))
+	project, err := shared.Store(c).UpdateProject(userID, c.Param("project_id"), app.NameDescriptionPatch{Name: req.Name, Description: req.Description}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -92,7 +92,7 @@ func archiveProject(c *gin.Context) {
 	if !ok {
 		return
 	}
-	project, err := shared.Store().ArchiveProject(userID, c.Param("project_id"), shared.AuditContextFromGin(c))
+	project, err := shared.Store(c).ArchiveProject(userID, c.Param("project_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

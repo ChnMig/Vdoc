@@ -111,6 +111,7 @@ type DiffItem = app.DiffItem
 type MCPToken = app.MCPToken
 type AuditLog = app.AuditLog
 type AuditLogQuery = app.AuditLogQuery
+type PageQuery = app.PageQuery
 type MCPUsageQuery = app.MCPUsageQuery
 type AIProviderConfig = app.AIProviderConfig
 type AIProviderInput = app.AIProviderInput

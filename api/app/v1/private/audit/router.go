@@ -29,16 +29,27 @@ func listAuditLogs(c *gin.Context) {
 		}
 		limit = parsed
 	}
-	logs, err := shared.Store().QueryAuditLogs(userID, app.AuditLogQuery{
+	from, err := shared.QueryTime(c, "from")
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	to, err := shared.QueryTime(c, "to")
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	page, err := shared.Store(c).QueryAuditLogPage(userID, app.AuditLogQuery{
 		ProjectID:    c.Query("project_id"),
 		Action:       c.Query("action"),
 		ResourceType: c.Query("resource_type"),
 		ResourceID:   c.Query("resource_id"),
 		Limit:        limit,
+		Cursor:       c.Query("cursor"), From: from, To: to,
 	})
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	response.ReturnOkWithTotal(c, len(logs), shared.AuditLogs(logs))
+	response.ReturnPage(c, shared.AuditLogs(page.Items), nil, page.NextCursor != "", page.NextCursor)
 }

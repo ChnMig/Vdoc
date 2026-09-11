@@ -96,7 +96,13 @@ func (s *Store) SendAIChatMessage(actorID, projectID, sessionID, content string,
 	if err != nil {
 		return nil, err
 	}
-	result, callErr := s.completeAI(context.Background(), request.Completion)
+	result, callErr := s.completeAI(s.requestContext(), request.Completion)
+	if err := s.requestContext().Err(); err != nil {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
+		defer cancel()
+		_, _ = s.WithContext(ctx).finishAIChatMessage(actorID, projectID, sessionID, request, aiCompletionResult{}, err, auditCtx...)
+		return nil, err
+	}
 	return s.finishAIChatMessage(actorID, projectID, sessionID, request, result, callErr, auditCtx...)
 }
 
@@ -272,7 +278,7 @@ func (s *Store) reserveAIChatRequestLocked(sessionID, generationToken string, st
 	if s.persistence == nil {
 		return nil
 	}
-	handled, err := s.persistence.reserveAIChatGenerationLocked(context.Background(), sessionID, generationToken, startedAt)
+	handled, err := s.persistence.reserveAIChatGenerationLocked(s.requestContext(), sessionID, generationToken, startedAt)
 	if err != nil {
 		s.restorePersistedStateLocked()
 		return err
@@ -314,7 +320,7 @@ func (s *Store) completeAIChatRequestLocked(sessionID, generationToken string, u
 	if s.persistence == nil {
 		return nil
 	}
-	handled, err := s.persistence.completeAIChatGenerationLocked(context.Background(), sessionID, generationToken, updatedAt, userMessage, assistantMessage, audit)
+	handled, err := s.persistence.completeAIChatGenerationLocked(s.requestContext(), sessionID, generationToken, updatedAt, userMessage, assistantMessage, audit)
 	if err != nil {
 		s.restorePersistedStateLocked()
 		return err

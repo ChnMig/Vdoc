@@ -21,7 +21,7 @@ func listUsers(c *gin.Context) {
 	if !ok {
 		return
 	}
-	users, err := shared.Store().ListUsers(userID)
+	users, err := shared.Store(c).ListUsers(userID)
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -44,7 +44,7 @@ func createUser(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	created, err := shared.Store().CreateUser(userID, req.Email, req.Name, req.Password, req.IsSuperAdmin, shared.AuditContextFromGin(c))
+	created, err := shared.Store(c).CreateUser(userID, req.Email, req.Name, req.Password, req.IsSuperAdmin, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -65,7 +65,7 @@ func patchUser(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	updated, err := shared.Store().PatchUser(userID, c.Param("user_id"), req.Status, req.IsSuperAdmin, shared.AuditContextFromGin(c))
+	updated, err := shared.Store(c).PatchUser(userID, c.Param("user_id"), req.Status, req.IsSuperAdmin, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -78,7 +78,7 @@ func listUserMCPTokens(c *gin.Context) {
 	if !ok {
 		return
 	}
-	tokens, err := shared.Store().ListUserMCPTokens(userID, c.Param("user_id"))
+	tokens, err := shared.Store(c).ListUserMCPTokens(userID, c.Param("user_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -91,7 +91,7 @@ func revokeUserMCPToken(c *gin.Context) {
 	if !ok {
 		return
 	}
-	token, err := shared.Store().RevokeUserMCPToken(userID, c.Param("user_id"), c.Param("token_id"), shared.AuditContextFromGin(c))
+	token, err := shared.Store(c).RevokeUserMCPToken(userID, c.Param("user_id"), c.Param("token_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

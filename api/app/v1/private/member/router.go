@@ -21,7 +21,7 @@ func listMemberCandidates(c *gin.Context) {
 	if !ok {
 		return
 	}
-	users, err := shared.Store().ListProjectMemberCandidates(userID, c.Param("project_id"))
+	users, err := shared.Store(c).ListProjectMemberCandidates(userID, c.Param("project_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -34,14 +34,14 @@ func listMembers(c *gin.Context) {
 	if !ok {
 		return
 	}
-	members, err := shared.Store().ListProjectMembers(userID, c.Param("project_id"))
+	members, err := shared.Store(c).ListProjectMembers(userID, c.Param("project_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
 	}
 	details := shared.ProjectMembers(members)
 	for index, member := range members {
-		user, userErr := shared.Store().User(member.UserID)
+		user, userErr := shared.Store(c).User(member.UserID)
 		if userErr != nil {
 			shared.ReturnAppError(c, userErr)
 			return
@@ -66,7 +66,7 @@ func addMember(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	member, err := shared.Store().AddProjectMember(userID, c.Param("project_id"), req.UserID, req.Role, shared.AuditContextFromGin(c))
+	member, err := shared.Store(c).AddProjectMember(userID, c.Param("project_id"), req.UserID, req.Role, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -86,7 +86,7 @@ func patchMemberRole(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	member, err := shared.Store().PatchProjectMemberRole(userID, c.Param("project_id"), c.Param("user_id"), req.Role, shared.AuditContextFromGin(c))
+	member, err := shared.Store(c).PatchProjectMemberRole(userID, c.Param("project_id"), c.Param("user_id"), req.Role, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
@@ -99,7 +99,7 @@ func removeMember(c *gin.Context) {
 	if !ok {
 		return
 	}
-	member, err := shared.Store().RemoveProjectMember(userID, c.Param("project_id"), c.Param("user_id"), shared.AuditContextFromGin(c))
+	member, err := shared.Store(c).RemoveProjectMember(userID, c.Param("project_id"), c.Param("user_id"), shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

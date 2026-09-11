@@ -1,6 +1,8 @@
 package shared
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	"vdoc/api/response"
@@ -10,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Store() *app.Store { return app.DefaultStore() }
+func Store(c *gin.Context) *app.Store { return app.DefaultStore().WithContext(c.Request.Context()) }
 
 func CurrentUserID(c *gin.Context) (string, bool) {
 	data, ok := c.Get(contextkey.JWTData)
@@ -28,7 +30,7 @@ func CurrentUserID(c *gin.Context) (string, bool) {
 		response.ReturnError(c, response.UNAUTHENTICATED, "invalid user identity")
 		return "", false
 	}
-	if _, err := Store().ActiveUser(userID); err != nil {
+	if _, err := Store(c).ActiveUser(userID); err != nil {
 		ReturnAppError(c, err)
 		return "", false
 	}
@@ -58,6 +60,10 @@ func ReturnBindError(c *gin.Context, err error) {
 
 func ReturnAppError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, context.Canceled):
+		response.ReturnError(c, response.CANCELLED, "请求已取消")
+	case errors.Is(err, context.DeadlineExceeded):
+		response.ReturnError(c, response.DEADLINE_EXCEEDED, "请求超时，请重试")
 	case app.Is(err, app.ErrInvalidArgument):
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
 	case app.Is(err, app.ErrUnauthenticated):
@@ -76,7 +82,7 @@ func ReturnAppError(c *gin.Context, err error) {
 }
 
 func LoadDocument(c *gin.Context, userID string) (*app.APIService, bool) {
-	document, err := Store().Document(userID, c.Param("project_id"), c.Param("document_id"))
+	document, err := Store(c).Document(userID, c.Param("project_id"), c.Param("document_id"))
 	if err != nil {
 		ReturnAppError(c, err)
 		return nil, false

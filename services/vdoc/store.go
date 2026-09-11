@@ -50,6 +50,12 @@ const (
 func Is(err, target error) bool { return domainvdoc.Is(err, target) }
 
 type Store struct {
+	*storeState
+	ctx context.Context
+}
+
+// storeState 在请求之间共享；请求 context 只保存在轻量 Store 视图中。
+type storeState struct {
 	mu                  sync.RWMutex
 	verifyLoginPassword func(password, hash string) bool
 	users               map[string]*User
@@ -71,6 +77,10 @@ type Store struct {
 	aiMessages          map[string]*AIChatMessage
 	aiHTTP              *http.Client
 	audits              map[string]*AuditLog
+	summaryJobs         map[string]*domainvdoc.AISummaryJob
+	backgroundRunning   bool
+	backgroundCancel    context.CancelFunc
+	backgroundDone      chan struct{}
 	persistence         *postgresPersistence
 	persisted           *domainvdoc.State
 	objects             ObjectStorage
@@ -86,7 +96,7 @@ func NewStore() *Store {
 	if err != nil {
 		panic(err)
 	}
-	return &Store{
+	return &Store{storeState: &storeState{
 		verifyLoginPassword: encryption.VerifyBcryptPassword,
 		users:               map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
 		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
@@ -94,16 +104,31 @@ func NewStore() *Store {
 		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
 		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: newAIHTTPClient(), audits: map[string]*AuditLog{},
 		cipherKeyring: defaultKeyring,
-	}
+		summaryJobs:   map[string]*domainvdoc.AISummaryJob{},
+	}}
 }
 
-func ResetDefaultStoreForTest() { defaultStore = NewStore() }
+func (s *Store) WithContext(ctx context.Context) *Store {
+	return &Store{storeState: s.storeState, ctx: ctx}
+}
+
+func (s *Store) requestContext() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+
+func ResetDefaultStoreForTest() { defaultStore.StopSummaryWorker(); defaultStore = NewStore() }
 
 func (s *Store) refreshLocked() error {
+	if err := s.requestContext().Err(); err != nil {
+		return err
+	}
 	if s.persistence == nil {
 		return nil
 	}
-	loaded, err := s.persistence.load(context.Background(), s)
+	loaded, err := s.persistence.load(s.requestContext(), s)
 	if err != nil {
 		return err
 	}
@@ -121,7 +146,7 @@ func (s *Store) persistWithObjectRefsLocked(refs ...domainvdoc.ObjectRef) error 
 	if s.persistence == nil {
 		return nil
 	}
-	if err := s.persistence.saveLockedWithObjectRefs(context.Background(), s, refs); err != nil {
+	if err := s.persistence.saveLockedWithObjectRefs(s.requestContext(), s, refs); err != nil {
 		if s.persisted != nil {
 			s.applyStateLocked(s.persisted)
 			s.persisted = s.cloneStateLocked()
@@ -150,7 +175,7 @@ func (s *Store) persistSchemaObjectLocked(projectID, documentID, branchID, owner
 	info := ObjectInfo{SizeBytes: int64(len(content)), Metadata: metadata}
 	if s.objects != nil {
 		var err error
-		info, err = s.objects.PutObject(context.Background(), ObjectWrite{Key: key, ContentType: contentType, Body: []byte(content), Metadata: metadata})
+		info, err = s.objects.PutObject(s.requestContext(), ObjectWrite{Key: key, ContentType: contentType, Body: []byte(content), Metadata: metadata})
 		if err != nil {
 			return "", domainvdoc.ObjectRef{}, err
 		}
@@ -186,7 +211,7 @@ func (s *Store) persistMarkdownObjectLocked(projectID, documentID, branchID, own
 	info := ObjectInfo{SizeBytes: int64(len(content)), Metadata: metadata}
 	if s.objects != nil {
 		var err error
-		info, err = s.objects.PutObject(context.Background(), ObjectWrite{Key: key, ContentType: contentType, Body: []byte(content), Metadata: metadata})
+		info, err = s.objects.PutObject(s.requestContext(), ObjectWrite{Key: key, ContentType: contentType, Body: []byte(content), Metadata: metadata})
 		if err != nil {
 			return "", domainvdoc.ObjectRef{}, err
 		}
@@ -240,7 +265,7 @@ func (s *Store) persistDiffSnapshotLocked(projectID, documentID, branchID string
 	contentType := "application/json"
 	info := ObjectInfo{SizeBytes: int64(len(body)), Metadata: metadata}
 	if s.objects != nil {
-		info, err = s.objects.PutObject(context.Background(), ObjectWrite{Key: key, ContentType: contentType, Body: body, Metadata: metadata})
+		info, err = s.objects.PutObject(s.requestContext(), ObjectWrite{Key: key, ContentType: contentType, Body: body, Metadata: metadata})
 		if err != nil {
 			return domainvdoc.ObjectRef{}, err
 		}
@@ -264,11 +289,13 @@ func (s *Store) cleanupNewObjectRefs(operationErr error, refs ...domainvdoc.Obje
 		return operationErr
 	}
 	var cleanupErr error
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
+	defer cancel()
 	for index := len(refs) - 1; index >= 0; index-- {
 		if refs[index].Key == "" {
 			continue
 		}
-		if err := s.objects.DeleteObject(context.Background(), refs[index].Key); err != nil {
+		if err := s.objects.DeleteObject(ctx, refs[index].Key); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete uncommitted object %q: %w", refs[index].Key, err))
 		}
 	}
@@ -279,6 +306,11 @@ func (s *Store) cleanupNewObjectRefs(operationErr error, refs ...domainvdoc.Obje
 }
 
 func (s *Store) RecordAudit(audit AuditLog) error {
+	if s.persistence != nil {
+		local := &Store{storeState: &storeState{audits: map[string]*AuditLog{}}}
+		local.appendAuditLocked(&audit)
+		return s.persistence.recordAudit(s.requestContext(), local.audits[audit.ID])
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -289,6 +321,23 @@ func (s *Store) RecordAudit(audit AuditLog) error {
 }
 
 func (s *Store) ListAuditLogs() ([]*AuditLog, error) {
+	if s.persistence != nil {
+		if repo, ok := s.persistence.repo.(domainvdoc.ReadRepository); ok {
+			logs := make([]*AuditLog, 0)
+			query := domainvdoc.AuditQuery{Limit: 200}
+			for {
+				page, err := repo.ReadAudits(s.requestContext(), query)
+				if err != nil {
+					return nil, err
+				}
+				logs = append(logs, page.Items...)
+				if page.NextCursor == "" {
+					return logs, nil
+				}
+				query.Cursor = page.NextCursor
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -297,7 +346,7 @@ func (s *Store) ListAuditLogs() ([]*AuditLog, error) {
 	return s.sortedAuditLogsLocked(), nil
 }
 
-func (s *Store) QueryAuditLogs(actorID string, query AuditLogQuery) ([]*AuditLog, error) {
+func (s *Store) queryAuditLogsMemory(actorID string, query AuditLogQuery) ([]*AuditLog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -317,8 +366,8 @@ func (s *Store) QueryAuditLogs(actorID string, query AuditLogQuery) ([]*AuditLog
 	if query.Limit == 0 {
 		query.Limit = 100
 	}
-	if query.Limit > 200 {
-		query.Limit = 200
+	if query.Limit > 201 {
+		query.Limit = 201
 	}
 	if !actor.IsSuperAdmin {
 		if query.ProjectID == "" {
@@ -330,7 +379,17 @@ func (s *Store) QueryAuditLogs(actorID string, query AuditLogQuery) ([]*AuditLog
 	}
 
 	logs := make([]*AuditLog, 0, min(query.Limit, len(s.audits)))
+	cursor, _ := domainvdoc.DecodeAuditCursor(query.Cursor)
 	for _, audit := range s.audits {
+		if query.Cursor != "" && (audit.CreatedAt.After(cursor.Time) || (audit.CreatedAt.Equal(cursor.Time) && audit.ID >= cursor.ID)) {
+			continue
+		}
+		if query.From != nil && audit.CreatedAt.Before(*query.From) {
+			continue
+		}
+		if query.To != nil && !audit.CreatedAt.Before(*query.To) {
+			continue
+		}
 		if query.ProjectID != "" && audit.ProjectID != query.ProjectID {
 			continue
 		}
@@ -381,7 +440,7 @@ func (s *Store) CanAccessAudit(actorID string) (bool, error) {
 	return false, nil
 }
 
-func (s *Store) QueryMCPUsage(actorID string, query MCPUsageQuery) ([]*AuditLog, error) {
+func (s *Store) queryMCPUsageMemory(actorID string, query MCPUsageQuery) ([]*AuditLog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -703,7 +762,7 @@ func (s *Store) User(id string) (*User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.persistence != nil {
-		u, err := s.persistence.loadUser(context.Background(), id)
+		u, err := s.persistence.loadUser(s.requestContext(), id)
 		if err != nil {
 			return nil, err
 		}
@@ -720,10 +779,8 @@ func (s *Store) User(id string) (*User, error) {
 }
 
 func (s *Store) ActiveUser(id string) (*User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.persistence != nil {
-		u, err := s.persistence.loadUser(context.Background(), id)
+		u, err := s.persistence.loadUser(s.requestContext(), id)
 		if err != nil {
 			if Is(err, ErrNotFound) {
 				return nil, ErrUnauthenticated
@@ -735,6 +792,8 @@ func (s *Store) ActiveUser(id string) (*User, error) {
 		}
 		return cloneUser(u), nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
@@ -987,7 +1046,7 @@ func (s *Store) ArchiveTeam(actorID, teamID string, auditCtx ...AuditContext) (*
 	pendingAudits := make(map[string]*AuditLog, 1)
 	audit := appendAuditToState(pendingAudits, ctx, AuditActorUser, actorID, "team.archive", "team", teamID, "", "", auditMetadata("result", "success", "name", archived.Name))
 	if s.persistence != nil {
-		if err := s.persistence.archiveTeam(context.Background(), teamID, audit); err != nil {
+		if err := s.persistence.archiveTeam(s.requestContext(), teamID, audit); err != nil {
 			return nil, err
 		}
 	}
@@ -1378,6 +1437,14 @@ func (s *Store) ListDocuments(actorID, projectID string, documentType ...int) ([
 }
 
 func (s *Store) Document(actorID, projectID, documentID string) (*APIService, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: documentID})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.Document(actorID, projectID, documentID)
+	}
+
 	return s.Service(actorID, projectID, documentID)
 }
 
@@ -1648,7 +1715,7 @@ func (s *Store) SubmitMarkdownDraft(actorID, projectID, documentID, draftID stri
 		s.mu.Unlock()
 		return nil, err
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -1657,6 +1724,7 @@ func (s *Store) SubmitMarkdownDraft(actorID, projectID, documentID, draftID stri
 	d.SubmittedAt = &now
 	d.UpdatedAt = now
 	s.auditLocked(ctx, AuditActorUser, actorID, "markdown_draft.submit", "document_draft", draftID, projectID, documentID, auditMetadata("result", "success", "branch_id", d.BranchID, "version_name", d.VersionName))
+	s.stageSummaryLocked(aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: projectID, DocumentID: documentID, OwnerType: domainai.SummaryOwnerDraft, OwnerID: draftID}, Trigger: aiSummaryTriggerDraftSubmit, Audit: ctx})
 	if err := s.persistLocked(); err != nil {
 		s.mu.Unlock()
 		return nil, err
@@ -1691,7 +1759,7 @@ func (s *Store) ReviewMarkdownDraft(actorID, projectID, documentID, draftID, act
 		s.mu.Unlock()
 		return nil, err
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -1722,6 +1790,14 @@ func (s *Store) ReviewMarkdownDraft(actorID, projectID, documentID, draftID, act
 }
 
 func (s *Store) MarkdownVersionContent(actorID, projectID, documentID, versionID, kind string) (*SchemaDocument, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: documentID, VersionID: versionID})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.MarkdownVersionContent(actorID, projectID, documentID, versionID, kind)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -1737,7 +1813,7 @@ func (s *Store) MarkdownVersionContent(actorID, projectID, documentID, versionID
 	if !ok || v.ProjectID != projectID || v.ServiceID != documentID || v.SchemaFormat != DocumentFormatMarkdown {
 		return nil, ErrNotFound
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), v, kind); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), v, kind); err != nil {
 		return nil, err
 	}
 	return markdownContentDocument("version", v.ID, kind, v.RawSchema, v.NormalizedSchema, v.RawSchemaObjectKey, v.NormalizedObjectKey, v.RawSchemaHash, v.NormalizedSchemaHash)
@@ -1759,7 +1835,7 @@ func (s *Store) MarkdownDraftContent(actorID, projectID, documentID, draftID, ki
 	if !ok || draft.SchemaFormat != DocumentFormatMarkdown {
 		return nil, ErrNotFound
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), draft, kind); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), draft, kind); err != nil {
 		return nil, err
 	}
 	return markdownContentDocument("draft", draft.ID, kind, draft.RawSchema, draft.NormalizedSchema, draft.RawSchemaObjectKey, draft.NormalizedObjectKey, draft.RawSchemaHash, draft.NormalizedSchemaHash)
@@ -1799,10 +1875,10 @@ func (s *Store) CompareMarkdownVersions(actorID, projectID, documentID, fromID, 
 		}
 		return cloneDiff(existing), nil
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), from, "stable"); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), from, "stable"); err != nil {
 		return nil, err
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), to, "stable"); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), to, "stable"); err != nil {
 		return nil, err
 	}
 	diff := markdownDiff(documentID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
@@ -1925,6 +2001,14 @@ func (s *Store) archiveDocument(actorID, projectID, serviceID, action, resourceT
 	return cloneService(svc), nil
 }
 func (s *Store) ListBranches(actorID, projectID, serviceID string) ([]*ContractBranch, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: serviceID})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.ListBranches(actorID, projectID, serviceID)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -2175,7 +2259,7 @@ func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, audit
 		s.mu.Unlock()
 		return nil, err
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -2184,6 +2268,7 @@ func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, audit
 	d.SubmittedAt = &now
 	d.UpdatedAt = now
 	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.submit", "contract_draft", draftID, projectID, serviceID, auditMetadata("result", "success", "branch_id", d.BranchID, "version_name", d.VersionName))
+	s.stageSummaryLocked(aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: projectID, DocumentID: serviceID, OwnerType: domainai.SummaryOwnerDraft, OwnerID: draftID}, Trigger: aiSummaryTriggerDraftSubmit, Audit: ctx})
 	if err := s.persistLocked(); err != nil {
 		s.mu.Unlock()
 		return nil, err
@@ -2217,7 +2302,7 @@ func (s *Store) ReviewDraft(actorID, projectID, serviceID, draftID, action strin
 		s.mu.Unlock()
 		return nil, err
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), d, "raw"); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), d, "raw"); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -2306,7 +2391,7 @@ func (s *Store) DraftSchema(actorID, projectID, serviceID, draftID, kind string)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if err := s.hydrateDraftContentLocked(context.Background(), d, kind); err != nil {
+	if err := s.hydrateDraftContentLocked(s.requestContext(), d, kind); err != nil {
 		return nil, err
 	}
 	return schemaDocument("draft", d.ID, kind, d.RawSchema, d.NormalizedSchema, d.RawSchemaObjectKey, d.NormalizedObjectKey, d.RawSchemaHash, d.NormalizedSchemaHash)
@@ -2331,7 +2416,7 @@ func (s *Store) PromoteDraft(actorID, projectID, serviceID string, input Promote
 	if v == nil {
 		return nil, ErrNotFound
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), v, "raw"); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), v, "raw"); err != nil {
 		return nil, err
 	}
 	promote, err := domainversion.BuildPromoteDraft(domainversion.PromoteInput{SourceBranchID: input.SourceBranchID, TargetBranchID: input.TargetBranchID, VersionName: input.VersionName, Changelog: input.Changelog}, domainversion.PromoteSource{SourceVersionID: v.ID, SourceRawSchema: v.RawSchema, SourceGitCommitID: v.SourceGitCommitID, BaseVersionID: latestID(s.latestVersionLocked(serviceID, input.TargetBranchID)), TargetBranchExists: s.branchActiveInServiceLocked(input.TargetBranchID, serviceID)})
@@ -2347,6 +2432,14 @@ func (s *Store) PromoteDraft(actorID, projectID, serviceID string, input Promote
 }
 
 func (s *Store) ListVersions(actorID, projectID, serviceID string, branchID ...string) ([]*ContractVersion, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: serviceID, Versions: true})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.ListVersions(actorID, projectID, serviceID, branchID...)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -2377,6 +2470,14 @@ func (s *Store) ListVersions(actorID, projectID, serviceID string, branchID ...s
 	return out, nil
 }
 func (s *Store) Version(actorID, projectID, serviceID, versionID string) (*ContractVersion, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: serviceID, VersionID: versionID})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.Version(actorID, projectID, serviceID, versionID)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -2393,6 +2494,14 @@ func (s *Store) Version(actorID, projectID, serviceID, versionID string) (*Contr
 }
 
 func (s *Store) VersionSchema(actorID, projectID, serviceID, versionID, kind string) (*SchemaDocument, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: serviceID, VersionID: versionID})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.VersionSchema(actorID, projectID, serviceID, versionID, kind)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -2405,12 +2514,20 @@ func (s *Store) VersionSchema(actorID, projectID, serviceID, versionID, kind str
 	if !ok || v.ProjectID != projectID || v.ServiceID != serviceID {
 		return nil, ErrNotFound
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), v, kind); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), v, kind); err != nil {
 		return nil, err
 	}
 	return schemaDocument("version", v.ID, kind, v.RawSchema, v.NormalizedSchema, v.RawSchemaObjectKey, v.NormalizedObjectKey, v.RawSchemaHash, v.NormalizedSchemaHash)
 }
 func (s *Store) ListEndpoints(actorID, projectID, serviceID, versionID, pathQuery string) ([]*Endpoint, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: serviceID, VersionID: versionID, Endpoints: true})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.ListEndpoints(actorID, projectID, serviceID, versionID, pathQuery)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -2438,6 +2555,14 @@ func (s *Store) ListEndpoints(actorID, projectID, serviceID, versionID, pathQuer
 	return out, nil
 }
 func (s *Store) Endpoint(actorID, projectID, serviceID, versionID, endpointID string) (*Endpoint, error) {
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: serviceID, VersionID: versionID, Endpoints: true})
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		return local.Endpoint(actorID, projectID, serviceID, versionID, endpointID)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -2501,10 +2626,10 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 		return cloneDiff(existing), nil
 	}
 	if from.SchemaFormat == DocumentFormatMarkdown || to.SchemaFormat == DocumentFormatMarkdown {
-		if err := s.hydrateVersionContentLocked(context.Background(), from, "stable"); err != nil {
+		if err := s.hydrateVersionContentLocked(s.requestContext(), from, "stable"); err != nil {
 			return nil, err
 		}
-		if err := s.hydrateVersionContentLocked(context.Background(), to, "stable"); err != nil {
+		if err := s.hydrateVersionContentLocked(s.requestContext(), to, "stable"); err != nil {
 			return nil, err
 		}
 	}
@@ -2974,7 +3099,7 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 	if err := s.ensureActiveDraftContextLocked(d.ProjectID, d.ServiceID, d.BranchID); err != nil {
 		return nil, err
 	}
-	if err := s.hydrateDraftSchemaLocked(context.Background(), d); err != nil {
+	if err := s.hydrateDraftSchemaLocked(s.requestContext(), d); err != nil {
 		return nil, err
 	}
 	if _, err := domaindraft.Review(d, "approve", time.Now()); err != nil {
@@ -3060,11 +3185,13 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 	}
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "contract_draft.review", "contract_draft", d.ID, d.ProjectID, d.ServiceID, reviewAuditMetadata(reviewAuditMetadataInput{Context: auditCtx, Draft: d, Action: "approve", VersionID: v.ID}))
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "document_version.publish", "document_version", v.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "draft_id", d.ID, "branch_id", d.BranchID, "version_name", d.VersionName))
+	stageSummaryJob(pending, aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: v.ProjectID, DocumentID: v.ServiceID, OwnerType: domainai.SummaryOwnerVersion, OwnerID: v.ID}, Trigger: aiSummaryTriggerVersionPublish, Audit: auditCtx})
 	if s.persistence != nil {
-		ctx := context.Background()
+		ctx := s.requestContext()
 		if err := s.persistence.publishLocked(ctx, domainvdoc.PublishStateInput{State: pending, ObjectRefs: objectRefs, ProjectID: d.ProjectID, ServiceID: d.ServiceID, BranchID: d.BranchID, DraftID: d.ID, VersionID: v.ID, VersionName: d.VersionName, ActorID: actorID}); err != nil {
 			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
 		}
+		v.RawSchema, v.NormalizedSchema = "", ""
 		s.applyStateLocked(pending)
 		s.persisted = s.cloneStateLocked()
 		return cloneVersion(v), nil
@@ -3111,7 +3238,7 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 	previous := s.previousVersionLocked(v)
 	var diff *Diff
 	if previous != nil {
-		if err := s.hydrateVersionContentLocked(context.Background(), previous, "stable"); err != nil {
+		if err := s.hydrateVersionContentLocked(s.requestContext(), previous, "stable"); err != nil {
 			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
 		}
 		diff = markdownDiff(d.ServiceID, previous.ID, v.ID, previous.NormalizedSchema, v.NormalizedSchema)
@@ -3131,11 +3258,13 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 	}
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "markdown_draft.review", "document_draft", d.ID, d.ProjectID, d.ServiceID, reviewAuditMetadata(reviewAuditMetadataInput{Context: auditCtx, Draft: d, Action: "approve", VersionID: v.ID}))
 	appendAuditToState(pending.AuditLogs, auditCtx, AuditActorUser, actorID, "document_version.publish", "document_version", v.ID, d.ProjectID, d.ServiceID, auditMetadata("result", "success", "draft_id", d.ID, "branch_id", d.BranchID, "version_name", d.VersionName))
+	stageSummaryJob(pending, aiSummaryRun{ActorID: actorID, Target: AISummaryTarget{ProjectID: v.ProjectID, DocumentID: v.ServiceID, OwnerType: domainai.SummaryOwnerVersion, OwnerID: v.ID}, Trigger: aiSummaryTriggerVersionPublish, Audit: auditCtx})
 	if s.persistence != nil {
-		ctx := context.Background()
+		ctx := s.requestContext()
 		if err := s.persistence.publishLocked(ctx, domainvdoc.PublishStateInput{State: pending, ObjectRefs: objectRefs, ProjectID: d.ProjectID, ServiceID: d.ServiceID, BranchID: d.BranchID, DraftID: d.ID, VersionID: v.ID, VersionName: d.VersionName, ActorID: actorID}); err != nil {
 			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
 		}
+		v.RawSchema, v.NormalizedSchema = "", ""
 		s.applyStateLocked(pending)
 		s.persisted = s.cloneStateLocked()
 		return cloneVersion(v), nil
@@ -3183,7 +3312,7 @@ func (s *Store) previewMarkdownDiffLocked(documentID, branchID, content string) 
 	if latest == nil {
 		return nil, nil
 	}
-	if err := s.hydrateVersionContentLocked(context.Background(), latest, "stable"); err != nil {
+	if err := s.hydrateVersionContentLocked(s.requestContext(), latest, "stable"); err != nil {
 		return nil, err
 	}
 	return markdownDiff(documentID, latest.ID, "draft", latest.NormalizedSchema, content), nil

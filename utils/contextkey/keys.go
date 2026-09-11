@@ -13,6 +13,8 @@ const (
 	JWTData = "jwtData"
 	// BoundParams 是 Gin context 中存放已绑定业务参数的 key。
 	BoundParams = "__bound_params__"
+	AppCode     = "app_code"
+	AppStatus   = "app_status"
 )
 
 type traceIDKey struct{}

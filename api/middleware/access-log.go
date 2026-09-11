@@ -16,10 +16,17 @@ func AccessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		defer func() {
+			appCode, appStatus := c.GetInt(contextkey.AppCode), c.GetString(contextkey.AppStatus)
+			if appStatus == "" {
+				appCode, appStatus = c.Writer.Status(), "HTTP"
+			}
 			errText := c.Errors.ByType(gin.ErrorTypeAny).String()
 			fields := []zap.Field{
 				zap.String("method", c.Request.Method),
 				zap.String("path", c.Request.URL.Path),
+				zap.String("route", c.FullPath()),
+				zap.Int("app_code", appCode),
+				zap.String("app_status", appStatus),
 				zap.Strings("query_keys", httplog.QueryKeys(c.Request.URL.RawQuery)),
 				zap.Int("status", c.Writer.Status()),
 				zap.Duration("latency", time.Since(start)),

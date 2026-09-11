@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	domainai "vdoc/domain/ai"
 )
@@ -209,12 +210,19 @@ func TestReviewMarkdownDraftAutoSummaryPublishesVersion_whenProviderFails(t *tes
 
 func requireStoredAISummary(t *testing.T, store *Store, actorID string, target AISummaryTarget) *AISummary {
 	t.Helper()
-	summary, err := store.AISummary(actorID, target)
-	if err != nil {
-		t.Fatalf("AISummary() error = %v", err)
+	t.Cleanup(store.StopSummaryWorker)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		summary, err := store.AISummary(actorID, target)
+		if err != nil {
+			t.Fatalf("AISummary() error = %v", err)
+		}
+		if summary != nil && summary.Status != domainai.SummaryStatusPending {
+			return summary
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("AISummary did not finish for %+v: %+v", target, summary)
+		}
+		time.Sleep(time.Millisecond)
 	}
-	if summary == nil {
-		t.Fatalf("AISummary() = nil for target %+v", target)
-	}
-	return summary
 }
