@@ -1802,6 +1802,7 @@ components:
         - list_api_versions
         - list_doc_versions
         - get_latest_schema
+        - get_schema_version
         - get_endpoint_detail
         - compare_api_versions
         - get_change_summary
@@ -1810,6 +1811,7 @@ components:
         - submit_api_version_draft
         - get_api_version_draft
         - get_latest_doc
+        - get_doc_version
         - compare_doc_versions
         - create_doc_draft
         - update_doc_draft

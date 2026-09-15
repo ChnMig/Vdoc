@@ -41,3 +41,6 @@ vendor/
 .suco-auggie/
 *.txt
 PRD.md
+
+# Local release artifacts
+.artifacts/

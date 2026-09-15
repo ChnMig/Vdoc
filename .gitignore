@@ -62,3 +62,6 @@ AGENTS.md
 PRD.md
 
 data/
+
+# Local release artifacts
+.artifacts/

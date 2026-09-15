@@ -125,7 +125,7 @@ func TestMCPDocReadScopeReadsMarkdownTools(t *testing.T) {
 
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_projects", gin.H{}), "list_projects")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "list_documents", gin.H{"project_id": fixture.projectID}), "list_documents")
-	latest := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}), "get_latest_doc")
+	latest := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}), "get_latest_doc")
 	if !bytes.Contains(latest, []byte("Doc read changed")) {
 		t.Fatalf("get_latest_doc result %s does not contain Markdown content", string(latest))
 	}
@@ -156,7 +156,7 @@ func TestMCPReadScopesCannotCrossDocumentTypes(t *testing.T) {
 	}
 	for label, response := range map[string]mcpRPCResponse{
 		"list_api_versions":    callMCPToolRPC(t, fixture.router, apiToken.Token, "list_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}),
-		"get_latest_schema":    callMCPToolRPC(t, fixture.router, apiToken.Token, "get_latest_schema", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}),
+		"get_latest_schema":    callMCPToolRPC(t, fixture.router, apiToken.Token, "get_latest_schema", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}),
 		"compare_api_versions": callMCPToolRPC(t, fixture.router, apiToken.Token, "compare_api_versions", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "from_version_id": markdownFrom.ID, "to_version_id": markdownTo.ID}),
 		"get_change_summary":   callMCPToolRPC(t, fixture.router, apiToken.Token, "get_change_summary", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "diff_id": markdownDiff.ID}),
 		"get_api_draft":        callMCPToolRPC(t, fixture.router, apiToken.Token, "get_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": markdownDraft.ID}),
@@ -184,7 +184,7 @@ func TestMCPAPIReadScopeCannotReadMarkdownTools(t *testing.T) {
 		t.Fatalf("CreateMCPToken(api read) error = %v", err)
 	}
 
-	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}), -32003, "api read denied markdown content")
+	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}), -32003, "api read denied markdown content")
 }
 
 func TestMCPDocDraftScopeCanManageMarkdownDrafts(t *testing.T) {
@@ -199,7 +199,7 @@ func TestMCPDocDraftScopeCanManageMarkdownDrafts(t *testing.T) {
 	if err := json.Unmarshal(createResult, &draft); err != nil || draft.ID == "" {
 		t.Fatalf("decode doc draft: id=%q error=%v body %s", draft.ID, err, string(createResult))
 	}
-	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID, "expected_revision": draft.Revision, "branch_id": fixture.markdownBranchID, "version_name": "1.0.0", "markdown_content": mcpTestMarkdown("Doc draft updated")}), "update_doc_draft")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID, "expected_revision": draft.Revision, "version_name": "1.0.0", "markdown_content": mcpTestMarkdown("Doc draft updated")}), "update_doc_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID}), "get_doc_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID}), "submit_doc_draft")
 }
@@ -240,6 +240,8 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 	}
 
 	required := map[string]bool{
+		"get_schema_version":       false,
+		"get_doc_version":          false,
 		"list_projects":            false,
 		"list_documents":           false,
 		"list_document_branches":   false,
@@ -338,7 +340,7 @@ func TestMCPJSONRPCToolsCallExecutesV01Tools(t *testing.T) {
 		t.Fatalf("decode created draft: id=%q error=%v body %s", draft.ID, err, string(createResult))
 	}
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID}), "get_api_version_draft")
-	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID, "expected_revision": draft.Revision, "branch_id": fixture.branchID, "version_name": "1.2.0", "schema_content": mcpTestOpenAPIWithReport("draftUpdated")}), "update_api_version_draft")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID, "expected_revision": draft.Revision, "version_name": "1.2.0", "schema_content": mcpTestOpenAPIWithReport("draftUpdated")}), "update_api_version_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID}), "submit_api_version_draft")
 
 	latestDoc := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}), "get_latest_doc")
@@ -359,7 +361,7 @@ func TestMCPJSONRPCToolsCallExecutesV01Tools(t *testing.T) {
 	if !bytes.Contains(docDraftDetail, []byte("Draft create")) {
 		t.Fatalf("get_doc_draft result %s does not contain draft Markdown content", string(docDraftDetail))
 	}
-	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID, "expected_revision": docDraft.Revision, "branch_id": fixture.markdownBranchID, "version_name": "1.2.0", "markdown_content": mcpTestMarkdown("Draft updated")}), "update_doc_draft")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID, "expected_revision": docDraft.Revision, "version_name": "1.2.0", "markdown_content": mcpTestMarkdown("Draft updated")}), "update_doc_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID}), "submit_doc_draft")
 }
 
@@ -455,7 +457,7 @@ func TestMCPJSONRPCErrorsAreStructured(t *testing.T) {
 	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, directPublishTool, gin.H{}), -32602, "invalid tool")
 	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, removedDocumentListTool, gin.H{}), -32602, "removed tool")
 	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, "create_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "branch_id": fixture.branchID, "version_name": "blocked", "schema_content": mcpTestOpenAPI("blocked")}), -32003, "permission denied")
-	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID}), -32003, "api read denied markdown content")
+	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}), -32003, "api read denied markdown content")
 	assertRPCError(t, callMCPRPC(t, fixture.router, "", gin.H{"jsonrpc": "2.0", "id": "no-token", "method": "tools/list"}), -32001, "unauthenticated")
 	assertRPCError(t, callMCPRPC(t, fixture.router, token.Token, gin.H{"jsonrpc": "1.0", "id": "bad-request", "method": "tools/list"}), -32600, "invalid request")
 	assertRPCError(t, callMCPToolRPC(t, fixture.router, token.Token, "get_endpoint_detail", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "version_id": "missing", "endpoint_id": "missing"}), -32004, "not found")
@@ -496,17 +498,16 @@ func TestMCPListProjectsAuditsTokenUseAndToolCall(t *testing.T) {
 
 func TestMCPPublishedReadAuditCapturesExactSanitizedEntityEvidence(t *testing.T) {
 	fixture := newMCPFixture(t)
-	version := publishMCPFixtureVersion(t, fixture, "audit-1.0.0", mcpTestOpenAPI("auditedEndpoint"))
+	version := publishMCPFixtureVersion(t, fixture, "audit-1.0.0", mcpTestOpenAPI("mustNeverEnterAudit"))
 	token, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "published-read-audit", []int{app.ScopeAPIRead}, nil)
 	if err != nil {
 		t.Fatalf("CreateMCPToken(audit) error = %v", err)
 	}
 
 	response := callMCPToolRPC(t, fixture.router, token.Token, "get_latest_schema", gin.H{
-		"project_id":     fixture.projectID,
-		"document_id":    fixture.documentID,
-		"branch_id":      fixture.branchID,
-		"schema_content": "must-never-enter-audit",
+		"project_id":  fixture.projectID,
+		"document_id": fixture.documentID,
+		"branch_id":   fixture.branchID,
 	})
 	assertRPCResult(t, response, "published read audit")
 
@@ -530,7 +531,7 @@ func TestMCPPublishedReadAuditCapturesExactSanitizedEntityEvidence(t *testing.T)
 			t.Fatalf("published read audit metadata[%q] = %q, want %q; metadata=%+v", key, audit.Metadata[key], value, audit.Metadata)
 		}
 	}
-	if _, ok := audit.Metadata["schema_content"]; ok || mcpAuditContainsValue([]*app.AuditLog{audit}, "must-never-enter-audit") {
+	if _, ok := audit.Metadata["schema_content"]; ok || mcpAuditContainsValue([]*app.AuditLog{audit}, "mustNeverEnterAudit") {
 		t.Fatalf("published read audit leaked request content: %+v", audit.Metadata)
 	}
 }
