@@ -4,34 +4,82 @@ import (
 	"fmt"
 )
 
-const openAPIParserVersion = 3
+const openAPIParserVersion = 4
 
-// 草稿预览也是缓存；保留创建预览时的对比基线，不更改草稿内容和更新时间。
+// 待发布草稿始终对比当前分支 latest；已发布草稿保留当时审核基线。
 func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
-	if draft == nil || (draft.SchemaFormat != SchemaFormatOpenAPI30 && draft.SchemaFormat != SchemaFormatOpenAPI31) || draft.DiffPreview == nil || draft.DiffPreview.Summary.ParserVersion >= openAPIParserVersion {
+	if draft == nil {
+		return nil
+	}
+	markdown := draft.SchemaFormat == DocumentFormatMarkdown
+	if !markdown && draft.SchemaFormat != SchemaFormatOpenAPI30 && draft.SchemaFormat != SchemaFormatOpenAPI31 {
 		return nil
 	}
 	previous := draft.DiffPreview
-	if s.versions[previous.FromVersionID] == nil {
+	baseline := s.latestVersionLocked(draft.ServiceID, draft.BranchID)
+	if draft.Status == DraftStatusPublished {
+		if previous == nil {
+			return nil
+		}
+		baseline = s.versions[previous.FromVersionID]
+		if previous.FromVersionID == "" {
+			// 历史数据库仅保留统计；使用该次发布的前一版本恢复差异。
+			for _, version := range s.versions {
+				if version.DraftID == draft.ID {
+					baseline = s.previousVersionLocked(version)
+					break
+				}
+			}
+		}
+	}
+	if baseline == nil {
+		s.cacheDraftPreviewLocked(draft, nil)
 		return nil
 	}
-	if err := s.ensureVersionEndpointFactsLocked(previous.FromVersionID); err != nil {
-		return err
+	if previous != nil && previous.FromVersionID == baseline.ID && draftPreviewHasDetails(previous) && (markdown || previous.Summary.ParserVersion >= openAPIParserVersion) {
+		return nil
 	}
 	if err := s.hydrateDraftContentLocked(s.requestContext(), draft, "raw"); err != nil {
 		return err
 	}
-	parsed, err := ParseOpenAPI(draft.RawSchema)
-	if err != nil {
-		return err
+	var updated *Diff
+	if markdown {
+		if err := s.hydrateVersionContentLocked(s.requestContext(), baseline, "stable"); err != nil {
+			return err
+		}
+		updated = markdownDiff(draft.ServiceID, baseline.ID, "draft", baseline.NormalizedSchema, draft.RawSchema)
+	} else {
+		if err := s.ensureVersionEndpointFactsLocked(baseline.ID); err != nil {
+			return err
+		}
+		parsed, err := ParseOpenAPI(draft.RawSchema)
+		if err != nil {
+			return err
+		}
+		updated = s.diffEndpointSetsLocked(draft.ServiceID, baseline.ID, "draft", s.endpointsForVersionLocked(baseline.ID), parsed.Endpoints)
 	}
-	updated := s.diffEndpointSetsLocked(draft.ServiceID, previous.FromVersionID, previous.ToVersionID, s.endpointsForVersionLocked(previous.FromVersionID), parsed.Endpoints)
-	updated.ID, updated.CreatedAt, updated.UpdatedAt = previous.ID, previous.CreatedAt, previous.UpdatedAt
-	draft.DiffPreview = updated
-	if s.persisted != nil && s.persisted.Drafts[draft.ID] != nil {
-		s.persisted.Drafts[draft.ID].DiffPreview = cloneDiff(updated)
+	if previous != nil {
+		updated.ID, updated.CreatedAt, updated.UpdatedAt = previous.ID, previous.CreatedAt, previous.UpdatedAt
 	}
+	s.cacheDraftPreviewLocked(draft, updated)
 	return nil
+}
+
+func draftPreviewHasDetails(preview *Diff) bool {
+	summary := preview.Summary
+	return len(preview.Items) > 0 || (summary.AddedEndpoints == 0 && summary.RemovedEndpoints == 0 && summary.ModifiedEndpoints == 0 && summary.BreakingChanges == 0 && summary.AddedLines == 0 && summary.RemovedLines == 0 && summary.ModifiedLines == 0 && summary.ModifiedBlocks == 0)
+}
+
+func (s *Store) cacheDraftPreviewLocked(draft *ContractDraft, preview *Diff) {
+	draft.DiffPreview = preview
+	if current := s.drafts[draft.ID]; current != nil && current.Revision() == draft.Revision() {
+		current.DiffPreview = cloneDiff(preview)
+	}
+	if s.persisted != nil {
+		if persisted := s.persisted.Drafts[draft.ID]; persisted != nil && persisted.Revision() == draft.Revision() {
+			persisted.DiffPreview = cloneDiff(preview)
+		}
+	}
 }
 
 // 旧索引只缓存解析结果；升级时从不可变且校验哈希的原文恢复事实，保留接口 ID。

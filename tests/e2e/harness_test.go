@@ -580,7 +580,20 @@ func publishVersion(t *testing.T, f *e2eFixture, workspace e2eWorkspace, version
 		"schema_content":       schema,
 	}))
 	f.requireOK(t, http.MethodPost, draftItemPath(workspace, draft.ID)+"/submit", workspace.WriterToken, nil)
-	return decodeDetail[e2eResourceID](t, f.requireOK(t, http.MethodPost, draftItemPath(workspace, draft.ID)+"/approve", workspace.AdminToken, nil))
+	return decodeDetail[e2eResourceID](t, f.requireOK(t, http.MethodPost, draftItemPath(workspace, draft.ID)+"/approve", workspace.AdminToken, reviewPayload(t, f, workspace, draft.ID)))
+}
+
+func reviewPayload(t *testing.T, f *e2eFixture, workspace e2eWorkspace, draftID string) map[string]any {
+	t.Helper()
+	snapshot := decodeDetail[struct {
+		Draft struct {
+			ReviewRevision string `json:"review_revision"`
+		} `json:"draft"`
+	}](t, f.requireOK(t, http.MethodGet, draftItemPath(workspace, draftID)+"/content/raw", workspace.AdminToken, nil))
+	if snapshot.Draft.ReviewRevision == "" {
+		t.Fatal("missing review snapshot")
+	}
+	return map[string]any{"expected_review_revision": snapshot.Draft.ReviewRevision}
 }
 
 func draftCollectionPath(workspace e2eWorkspace) string {

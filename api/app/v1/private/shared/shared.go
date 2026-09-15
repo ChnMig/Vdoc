@@ -281,6 +281,8 @@ func Branches(values []*app.ContractBranch) []BranchDTO {
 
 type DraftDTO struct {
 	ID                    string     `json:"id"`
+	Revision              string     `json:"revision"`
+	ReviewRevision        string     `json:"review_revision"`
 	ProjectID             string     `json:"project_id"`
 	DocumentID            string     `json:"document_id"`
 	BranchID              string     `json:"branch_id"`
@@ -309,6 +311,8 @@ func Draft(v *app.ContractDraft) DraftDTO {
 		return DraftDTO{}
 	}
 	dto := DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	dto.Revision = v.Revision()
+	dto.ReviewRevision = v.ReviewRevision()
 	if v.SchemaFormat == app.DocumentFormatMarkdown {
 		dto.StableContentHash = v.NormalizedSchemaHash
 	} else {

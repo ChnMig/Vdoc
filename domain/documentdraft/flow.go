@@ -20,6 +20,11 @@ func Submit(draft *ContractDraft, now time.Time) error {
 	if err := EnsureWriterCanChange(draft.Status); err != nil {
 		return err
 	}
+	// PostgreSQL 持久化到微秒；同内容再次提交也必须产生新的审核轮次。
+	now = now.UTC().Truncate(time.Microsecond)
+	if draft.SubmittedAt != nil && !now.After(*draft.SubmittedAt) {
+		now = draft.SubmittedAt.UTC().Truncate(time.Microsecond).Add(time.Microsecond)
+	}
 	draft.Status = commonvdoc.DraftStatusSubmitted
 	draft.SubmittedAt = &now
 	draft.UpdatedAt = now

@@ -109,6 +109,7 @@ type mcpBranchDTO struct {
 
 type mcpDraftDTO struct {
 	ID                    string      `json:"id"`
+	Revision              string      `json:"revision"`
 	ProjectID             string      `json:"project_id"`
 	DocumentID            string      `json:"document_id"`
 	BranchID              string      `json:"branch_id"`
@@ -320,7 +321,7 @@ func callJSONRPC(c *gin.Context, body []byte) {
 			returnRPCError(c, id, -32602, "invalid tool", gin.H{"status": "INVALID_ARGUMENT", "tool": params.Name})
 			return
 		}
-		result, err := executeContext(c.Request.Context(), user.ID, mcpToken.Scopes, params.Name, params.Arguments)
+		result, err := executeAuthenticatedTool(c, mcpToken, user, params.Name, params.Arguments)
 		if err != nil {
 			_ = recordMCPToolCall(c, mcpToken, user, params.Name, params.Arguments, nil, "failure", auditErrorStatus(err))
 			returnRPCAppError(c, id, err)
@@ -353,7 +354,7 @@ func callLegacyBridge(c *gin.Context, body []byte) {
 		response.ReturnError(c, response.INVALID_ARGUMENT, "tool is required")
 		return
 	}
-	result, err := executeContext(c.Request.Context(), user.ID, mcpToken.Scopes, req.Tool, req.Arguments)
+	result, err := executeAuthenticatedTool(c, mcpToken, user, req.Tool, req.Arguments)
 	if err != nil {
 		_ = recordMCPToolCall(c, mcpToken, user, req.Tool, req.Arguments, nil, "failure", auditErrorStatus(err))
 		returnAppError(c, err)
@@ -366,11 +367,19 @@ func callLegacyBridge(c *gin.Context, body []byte) {
 	response.ReturnOk(c, gin.H{"tool": req.Tool, "result": result})
 }
 
+func executeAuthenticatedTool(c *gin.Context, token *app.MCPToken, user *app.User, tool string, raw json.RawMessage) (any, error) {
+	auditCtx := auditContextFromGin(c)
+	auditCtx.ActorType = app.AuditActorMCPToken
+	auditCtx.ActorTokenID = token.ID
+	ctx := app.WithMCPToken(c.Request.Context(), token.ID)
+	return executeContext(ctx, user.ID, token.Scopes, tool, raw, auditCtx)
+}
+
 func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
 	return executeContext(context.Background(), userID, scopes, tool, raw)
 }
 
-func executeContext(ctx context.Context, userID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
+func executeContext(ctx context.Context, userID string, scopes []int, tool string, raw json.RawMessage, auditCtx ...app.AuditContext) (any, error) {
 	store := app.DefaultStore().WithContext(ctx)
 	switch tool {
 	case "list_projects":
@@ -591,7 +600,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
 			return nil, err
 		}
-		diff, err := store.CompareDocumentVersions(userID, a.ProjectID, a.DocumentID, a.FromVersionID, a.ToVersionID)
+		diff, err := store.CompareDocumentVersions(userID, a.ProjectID, a.DocumentID, a.FromVersionID, a.ToVersionID, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -630,7 +639,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("branch_id", a.BranchID), field("version_name", a.VersionName), field("schema_content", a.SchemaContent)); err != nil {
 			return nil, err
 		}
-		draft, err := store.CreateMCPDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent})
+		draft, err := store.CreateMCPDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent}, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -646,7 +655,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("schema_content", a.SchemaContent)); err != nil {
 			return nil, err
 		}
-		draft, err := store.UpdateDocumentDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent})
+		draft, err := store.UpdateDocumentDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{ExpectedRevision: a.ExpectedRevision, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent}, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -666,7 +675,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID)); err != nil {
 			return nil, err
 		}
-		draft, err := store.SubmitDocumentDraft(userID, a.ProjectID, a.DocumentID, a.DraftID)
+		draft, err := store.SubmitDocumentDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -745,7 +754,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeMarkdown); err != nil {
 			return nil, err
 		}
-		diff, err := store.CompareMarkdownVersions(userID, a.ProjectID, a.DocumentID, a.FromVersionID, a.ToVersionID)
+		diff, err := store.CompareMarkdownVersions(userID, a.ProjectID, a.DocumentID, a.FromVersionID, a.ToVersionID, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -761,7 +770,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("branch_id", a.BranchID), field("version_name", a.VersionName), field("markdown_content", a.MarkdownContent)); err != nil {
 			return nil, err
 		}
-		draft, err := store.CreateMarkdownDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent})
+		draft, err := store.CreateMarkdownDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent}, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -777,7 +786,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("markdown_content", a.MarkdownContent)); err != nil {
 			return nil, err
 		}
-		draft, err := store.UpdateMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent})
+		draft, err := store.UpdateMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{ExpectedRevision: a.ExpectedRevision, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent}, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -797,7 +806,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID)); err != nil {
 			return nil, err
 		}
-		draft, err := store.SubmitMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID)
+		draft, err := store.SubmitMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -820,11 +829,7 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeMarkdown); err != nil {
 			return nil, err
 		}
-		draft, err := store.Draft(userID, a.ProjectID, a.DocumentID, a.DraftID)
-		if err != nil {
-			return nil, err
-		}
-		content, err := store.MarkdownDraftContent(userID, a.ProjectID, a.DocumentID, a.DraftID, "stable")
+		draft, content, err := store.ReadDraftContent(userID, a.ProjectID, a.DocumentID, a.DraftID, "stable")
 		if err != nil {
 			return nil, err
 		}
@@ -846,6 +851,7 @@ type draftArgs struct {
 }
 
 type draftUpdateArgs struct {
+	ExpectedRevision  string  `json:"expected_revision"`
 	ProjectID         string  `json:"project_id"`
 	DocumentID        string  `json:"document_id"`
 	DraftID           string  `json:"draft_id"`
@@ -867,6 +873,7 @@ type docDraftArgs struct {
 }
 
 type docDraftUpdateArgs struct {
+	ExpectedRevision  string  `json:"expected_revision"`
 	ProjectID         string  `json:"project_id"`
 	DocumentID        string  `json:"document_id"`
 	DraftID           string  `json:"draft_id"`
@@ -1158,9 +1165,10 @@ func draftInputSchema(includeDraftID bool) gin.H {
 		"schema_content":       stringProperty("Raw OpenAPI 3.0/3.1 JSON or YAML content."),
 	}
 	if includeDraftID {
-		required = []string{"project_id", "document_id", "draft_id", "schema_content"}
+		required = []string{"project_id", "document_id", "draft_id", "schema_content", "expected_revision"}
 		delete(properties, "branch_id")
 		properties["draft_id"] = stringProperty("Draft ID.")
+		properties["expected_revision"] = stringProperty("Revision returned when the draft was read. Reload and reconcile edits after FAILED_PRECONDITION; never retry with a newer revision blindly.")
 	}
 	return inputSchema(required, properties)
 }
@@ -1177,9 +1185,10 @@ func docDraftInputSchema(includeDraftID bool) gin.H {
 		"markdown_content":     stringProperty("Markdown document content."),
 	}
 	if includeDraftID {
-		required = []string{"project_id", "document_id", "draft_id", "markdown_content"}
+		required = []string{"project_id", "document_id", "draft_id", "markdown_content", "expected_revision"}
 		delete(properties, "branch_id")
 		properties["draft_id"] = stringProperty("Draft ID.")
+		properties["expected_revision"] = stringProperty("Revision returned when the draft was read. Reload and reconcile edits after FAILED_PRECONDITION; never retry with a newer revision blindly.")
 	}
 	return inputSchema(required, properties)
 }
@@ -1249,6 +1258,7 @@ func mcpDraft(value *app.ContractDraft) mcpDraftDTO {
 	}
 	dto := mcpDraftDTO{ID: value.ID, ProjectID: value.ProjectID, DocumentID: value.DocumentID, BranchID: value.BranchID, VersionName: value.VersionName, Changelog: value.Changelog, SourceGitCommitID: value.SourceGitCommitID, DocumentFormat: value.SchemaFormat, SourceType: value.SourceType, SourceBranchID: value.SourceBranchID, SourceVersionID: value.SourceVersionID, BaseVersionID: value.BaseVersionID, RawContentHash: value.RawSchemaHash, Status: value.Status, DiffPreview: mcpDiffPointer(value.DiffPreview), ReviewComment: value.ReviewComment, CreatedBy: value.CreatedBy, SubmittedAt: value.SubmittedAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 	setNormalizedOrStableDraftHash(&dto, value.SchemaFormat, value.NormalizedSchemaHash)
+	dto.Revision = value.Revision()
 	return dto
 }
 

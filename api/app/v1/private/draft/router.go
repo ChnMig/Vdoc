@@ -32,6 +32,7 @@ type draftRequest struct {
 }
 
 type draftPatchRequest struct {
+	ExpectedRevision  string  `json:"expected_revision"`
 	VersionName       *string `json:"version_name"`
 	Changelog         *string `json:"changelog"`
 	SourceGitCommitID *string `json:"source_git_commit_id"`
@@ -55,7 +56,7 @@ func (r draftPatchRequest) input() app.DraftPatchInput {
 	if content == "" && r.Content != nil {
 		content = *r.Content
 	}
-	return app.DraftPatchInput{VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
+	return app.DraftPatchInput{ExpectedRevision: r.ExpectedRevision, VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
 }
 
 func createDraft(c *gin.Context) {
@@ -119,24 +120,21 @@ func getDraftContent(c *gin.Context) {
 	if !ok {
 		return
 	}
-	document, ok := shared.LoadDocument(c, userID)
+	_, ok = shared.LoadDocument(c, userID)
 	if !ok {
 		return
 	}
-	var (
-		content *app.SchemaDocument
-		err     error
-	)
-	if shared.IsMarkdownDocument(document) {
-		content, err = shared.Store(c).MarkdownDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
-	} else {
-		content, err = shared.Store(c).DocumentDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
-	}
+	draft, content, err := shared.Store(c).ReadDraftContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), c.Param("content_kind"))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	response.ReturnOk(c, shared.Content(content))
+	response.ReturnOk(c, draftContentResponse{ContentDTO: shared.Content(content), Draft: shared.Draft(draft)})
+}
+
+type draftContentResponse struct {
+	shared.ContentDTO
+	Draft shared.DraftDTO `json:"draft"`
 }
 
 func updateDraft(c *gin.Context) {
@@ -207,7 +205,7 @@ func reviewDraft(c *gin.Context, action string) {
 	if !ok {
 		return
 	}
-	auditCtx, ok := reviewAuditContext(c)
+	input, auditCtx, ok := bindReviewRequest(c)
 	if !ok {
 		return
 	}
@@ -216,9 +214,9 @@ func reviewDraft(c *gin.Context, action string) {
 		err    error
 	)
 	if shared.IsMarkdownDocument(document) {
-		result, err = shared.Store(c).ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
+		result, err = shared.Store(c).ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, input, auditCtx)
 	} else {
-		result, err = shared.Store(c).ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, auditCtx)
+		result, err = shared.Store(c).ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, input, auditCtx)
 	}
 	if err != nil {
 		shared.ReturnAppError(c, err)

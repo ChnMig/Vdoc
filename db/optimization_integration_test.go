@@ -103,7 +103,7 @@ func TestPostgresBoundedReadsAndRecoverableSummaryJobs(t *testing.T) {
 	if _, err := store.SubmitDocumentDraft(user.ID, project.ID, document.ID, draft.ID); err != nil {
 		t.Fatal(err)
 	}
-	result, err := store.ReviewDocumentDraft(user.ID, project.ID, document.ID, draft.ID, "approve")
+	result, err := store.ReviewDocumentDraft(user.ID, project.ID, document.ID, draft.ID, "approve", reviewInputForTest(t, store, user.ID, project.ID, document.ID, draft.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestPostgresBoundedReadsAndRecoverableSummaryJobs(t *testing.T) {
 	if _, err := recovered.SubmitMarkdownDraft(user.ID, project.ID, markdown.ID, mdDraft.ID); err != nil {
 		t.Fatal(err)
 	}
-	mdPublished, err := recovered.ReviewMarkdownDraft(user.ID, project.ID, markdown.ID, mdDraft.ID, "approve")
+	mdPublished, err := recovered.ReviewMarkdownDraft(user.ID, project.ID, markdown.ID, mdDraft.ID, "approve", reviewInputForTest(t, recovered, user.ID, project.ID, markdown.ID, mdDraft.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestPostgresBoundedReadsAndRecoverableSummaryJobs(t *testing.T) {
 	if _, err := recovered.SubmitMarkdownDraft(user.ID, project.ID, markdown.ID, secondDraft.ID); err != nil {
 		t.Fatal(err)
 	}
-	secondPublished, err := recovered.ReviewMarkdownDraft(user.ID, project.ID, markdown.ID, secondDraft.ID, "approve")
+	secondPublished, err := recovered.ReviewMarkdownDraft(user.ID, project.ID, markdown.ID, secondDraft.ID, "approve", reviewInputForTest(t, recovered, user.ID, project.ID, markdown.ID, secondDraft.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -38,6 +38,11 @@ func (s *Store) CreateAIChatSession(actorID string, input AIChatSessionInput, au
 	if err := s.ensureActiveAITargetLocked(target); err != nil {
 		return nil, err
 	}
+	guarded, err := s.withAITargetMutationGuardLocked(actorID, target, MemberRoleReader)
+	if err != nil {
+		return nil, err
+	}
+	s = guarded
 	now := time.Now()
 	session := &AIChatSession{ID: id.GenerateID(), ProjectID: input.ProjectID, DocumentID: input.DocumentID, ContextType: input.ContextType, ContextID: input.ContextID, Title: firstNonEmpty(strings.TrimSpace(input.Title), input.ContextType+" chat"), CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
 	s.aiChats[session.ID] = session
@@ -115,6 +120,7 @@ type aiChatRequest struct {
 	HistoryRevision []string
 	GenerationToken string
 	Completion      aiCompletionRequest
+	Guard           *aiCompletionGuard
 }
 
 func (s *Store) prepareAIChatRequest(actorID, projectID, sessionID, content string) (aiChatRequest, error) {
@@ -130,11 +136,12 @@ func (s *Store) prepareAIChatRequest(actorID, projectID, sessionID, content stri
 	if len([]rune(trimmed)) > aiChatMessageMaxRunes {
 		return aiChatRequest{}, fmt.Errorf("%w: chat message exceeds %d characters", ErrInvalidArgument, aiChatMessageMaxRunes)
 	}
-	if _, err := s.buildAIChatRequestLocked(actorID, projectID, sessionID, trimmed, ""); err != nil {
+	initial, err := s.buildAIChatRequestLocked(actorID, projectID, sessionID, trimmed, "")
+	if err != nil {
 		return aiChatRequest{}, err
 	}
 	generationToken := id.GenerateID()
-	if err := s.reserveAIChatRequestLocked(sessionID, generationToken, time.Now()); err != nil {
+	if err := s.reserveAIChatRequestLocked(sessionID, generationToken, time.Now(), initial.Guard); err != nil {
 		return aiChatRequest{}, err
 	}
 	// The database reservation may have waited behind another completion. Reload
@@ -180,6 +187,10 @@ func (s *Store) buildAIChatRequestLocked(actorID, projectID, sessionID, content,
 	if !prompt.Enabled {
 		return aiChatRequest{}, ErrFailedPrecondition
 	}
+	guard, err := s.aiCompletionGuardLocked(actorID, target, MemberRoleReader, provider, prompt)
+	if err != nil {
+		return aiChatRequest{}, err
+	}
 	messages := s.chatMessagesLocked(sessionID)
 	now := time.Now()
 	userMessage := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleUser, Content: content, CreatedAt: now}
@@ -198,6 +209,7 @@ func (s *Store) buildAIChatRequestLocked(actorID, projectID, sessionID, content,
 		HistoryRevision: aiChatHistoryRevision(messages),
 		GenerationToken: generationToken,
 		Completion:      completion,
+		Guard:           guard,
 	}, nil
 }
 
@@ -206,6 +218,9 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
 	if err := s.refreshLocked(); err != nil {
+		if isAICancellation(err) {
+			return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, err)
+		}
 		return nil, err
 	}
 	session := s.aiChats[sessionID]
@@ -213,15 +228,17 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 		return nil, staleAIChatRequestError()
 	}
 	if err := s.validateAIChatCompletionLocked(actorID, projectID, sessionID, request); err != nil {
-		audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", err, aiTokenUsage{})
-		if persistErr := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit); persistErr != nil && !Is(persistErr, ErrFailedPrecondition) {
-			return nil, persistErr
-		}
-		return nil, err
+		return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, err)
 	}
 	if callErr != nil {
 		audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", callErr, aiTokenUsage{})
-		if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit); err != nil {
+		if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit, request.Guard); err != nil {
+			if isAICompletionContextError(err) {
+				return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, staleAIChatRequestError())
+			}
+			if isAICancellation(err) {
+				return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, err)
+			}
 			return nil, err
 		}
 		return nil, callErr
@@ -229,10 +246,28 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 	now := time.Now()
 	assistant := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleAssistant, Content: result.Content, ProviderID: request.Provider.ID, CreatedAt: now}
 	audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "success", nil, result.Usage)
-	if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, &now, request.UserMessage, assistant, audit); err != nil {
+	if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, &now, request.UserMessage, assistant, audit, request.Guard); err != nil {
+		if isAICompletionContextError(err) {
+			return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, staleAIChatRequestError())
+		}
+		if isAICancellation(err) {
+			return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, err)
+		}
 		return nil, err
 	}
 	return cloneAIChatMessage(assistant), nil
+}
+
+func (s *Store) failStaleAIChatMessageLocked(ctx AuditContext, actorID, projectID, sessionID string, request aiChatRequest, staleErr error) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
+	defer cancel()
+	s = s.WithContext(cleanupCtx)
+	audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", staleErr, aiTokenUsage{})
+	// 失效请求只能释放自己持有的生成令牌；清理不再要求已撤销的业务权限。
+	if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit, nil); err != nil && !Is(err, ErrFailedPrecondition) {
+		return err
+	}
+	return staleErr
 }
 
 func (s *Store) validateAIChatCompletionLocked(actorID, projectID, sessionID string, request aiChatRequest) error {
@@ -268,7 +303,7 @@ func (s *Store) validateAIChatCompletionLocked(actorID, projectID, sessionID str
 	return nil
 }
 
-func (s *Store) reserveAIChatRequestLocked(sessionID, generationToken string, startedAt time.Time) error {
+func (s *Store) reserveAIChatRequestLocked(sessionID, generationToken string, startedAt time.Time, guard *aiCompletionGuard) error {
 	session := s.aiChats[sessionID]
 	if session == nil {
 		return ErrNotFound
@@ -278,7 +313,7 @@ func (s *Store) reserveAIChatRequestLocked(sessionID, generationToken string, st
 	if s.persistence == nil {
 		return nil
 	}
-	handled, err := s.persistence.reserveAIChatGenerationLocked(s.requestContext(), sessionID, generationToken, startedAt)
+	handled, err := s.persistence.reserveAIChatGenerationLocked(s.requestContext(), sessionID, generationToken, startedAt, guard)
 	if err != nil {
 		s.restorePersistedStateLocked()
 		return err
@@ -298,10 +333,12 @@ func (s *Store) releaseAIChatRequestLocked(sessionID, generationToken string) er
 	if session == nil || session.GenerationToken != generationToken {
 		return staleAIChatRequestError()
 	}
-	return s.completeAIChatRequestLocked(sessionID, generationToken, nil, nil, nil, nil)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
+	defer cancel()
+	return s.WithContext(ctx).completeAIChatRequestLocked(sessionID, generationToken, nil, nil, nil, nil, nil)
 }
 
-func (s *Store) completeAIChatRequestLocked(sessionID, generationToken string, updatedAt *time.Time, userMessage, assistantMessage *AIChatMessage, audit *AuditLog) error {
+func (s *Store) completeAIChatRequestLocked(sessionID, generationToken string, updatedAt *time.Time, userMessage, assistantMessage *AIChatMessage, audit *AuditLog, guard *aiCompletionGuard) error {
 	session := s.aiChats[sessionID]
 	if session == nil || session.GenerationToken != generationToken {
 		return staleAIChatRequestError()
@@ -320,7 +357,7 @@ func (s *Store) completeAIChatRequestLocked(sessionID, generationToken string, u
 	if s.persistence == nil {
 		return nil
 	}
-	handled, err := s.persistence.completeAIChatGenerationLocked(s.requestContext(), sessionID, generationToken, updatedAt, userMessage, assistantMessage, audit)
+	handled, err := s.persistence.completeAIChatGenerationLocked(s.requestContext(), sessionID, generationToken, updatedAt, userMessage, assistantMessage, audit, guard)
 	if err != nil {
 		s.restorePersistedStateLocked()
 		return err

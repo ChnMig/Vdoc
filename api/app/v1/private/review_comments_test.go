@@ -29,7 +29,7 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	document, branchID := createReviewDocument(t, fixture, "review-body")
 
 	changesDraft := createSubmittedReviewDraft(t, reviewDraftInput{Fixture: fixture, Document: document, BranchID: branchID, Version: "1.0.0", Operation: "reviewBodyChanges"})
-	changesEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "request-changes"}), fixture.adminToken, `{"comment":"  please clarify the error response  "}`))
+	changesEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "request-changes"}), fixture.adminToken, `{"comment":"  please clarify the error response  "}`))
 	if changesEnvelope.Code != 200 || changesEnvelope.Status != "OK" {
 		t.Fatalf("request changes response = code %d status %q body %s", changesEnvelope.Code, changesEnvelope.Status, changesEnvelope.Message)
 	}
@@ -46,7 +46,7 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	if resubmitEnvelope.Code != 200 || resubmitEnvelope.Status != "OK" {
 		t.Fatalf("resubmit response = code %d status %q body %s", resubmitEnvelope.Code, resubmitEnvelope.Status, resubmitEnvelope.Message)
 	}
-	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "reject"}), fixture.adminToken, `{"comment":"  does not match the contract  "}`))
+	rejectEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: changesDraft, Action: "reject"}), fixture.adminToken, `{"comment":"  does not match the contract  "}`))
 	if rejectEnvelope.Code != 200 || rejectEnvelope.Status != "OK" {
 		t.Fatalf("reject response = code %d status %q body %s", rejectEnvelope.Code, rejectEnvelope.Status, rejectEnvelope.Message)
 	}
@@ -60,11 +60,11 @@ func TestDocumentDraftReviewBodyRecordsTrimmedAuditComment(t *testing.T) {
 	}
 
 	publishDraft := createSubmittedReviewDraft(t, reviewDraftInput{Fixture: fixture, Document: document, BranchID: branchID, Version: "1.0.1", Operation: "reviewBodyApprove"})
-	legacyAliasEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"reason":"obsolete alias"}`))
+	legacyAliasEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"reason":"obsolete alias"}`))
 	if legacyAliasEnvelope.Code != 400 || legacyAliasEnvelope.Status != "INVALID_ARGUMENT" {
 		t.Fatalf("legacy reason alias response = code %d status %q body %s", legacyAliasEnvelope.Code, legacyAliasEnvelope.Status, legacyAliasEnvelope.Message)
 	}
-	approveEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"comment":"  approved note wins  "}`))
+	approveEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: publishDraft, Action: "approve"}), fixture.adminToken, `{"comment":"  approved note wins  "}`))
 	if approveEnvelope.Code != 200 || approveEnvelope.Status != "OK" {
 		t.Fatalf("approve response = code %d status %q body %s", approveEnvelope.Code, approveEnvelope.Status, approveEnvelope.Message)
 	}
@@ -88,7 +88,7 @@ func TestDocumentDraftReviewBodyRejectsOverLimitComment(t *testing.T) {
 	draft := createSubmittedReviewDraft(t, reviewDraftInput{Fixture: fixture, Document: document, BranchID: branchID, Version: "1.0.0", Operation: "reviewLimit"})
 
 	body := `{"comment":"` + strings.Repeat("x", 1001) + `"}`
-	envelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: draft, Action: "approve"}), fixture.adminToken, body))
+	envelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, draftReviewPath(reviewDraftActionInput{Fixture: fixture, Document: document, Draft: draft, Action: "approve"}), fixture.adminToken, body))
 	if envelope.Code != 400 || envelope.Status != "INVALID_ARGUMENT" {
 		t.Fatalf("over-limit response = code %d status %q body %s", envelope.Code, envelope.Status, envelope.Message)
 	}

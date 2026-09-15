@@ -288,7 +288,7 @@ func TestAPIDocsExampleSmoke(t *testing.T) {
 	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/content/raw", jwtToken, nil), "raw")
 	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/content/normalized", jwtToken, nil), "normalized")
 	performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/submit", jwtToken, nil)
-	versionOne := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/approve", jwtToken, nil))
+	versionOne := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID+"/approve", jwtToken, docsReviewPayload(t, router, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftOne.ID, jwtToken)))
 	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/versions/"+versionOne.ID+"/content/raw", jwtToken, nil), "raw")
 	assertDocsSchema(t, performDocsJSON(t, router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/versions/"+versionOne.ID+"/content/normalized", jwtToken, nil), "normalized")
 
@@ -308,7 +308,7 @@ func TestAPIDocsExampleSmoke(t *testing.T) {
 		"schema_content": docsSmokeOpenAPI("1.1.0", true),
 	}))
 	performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftTwo.ID+"/submit", jwtToken, nil)
-	versionTwo := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftTwo.ID+"/approve", jwtToken, nil))
+	versionTwo := decodeDocsDetail[docsResourceID](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftTwo.ID+"/approve", jwtToken, docsReviewPayload(t, router, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draftTwo.ID, jwtToken)))
 	diff := decodeDocsDetail[docsDiff](t, performDocsJSON(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/diffs", jwtToken, map[string]any{
 		"from_version_id": versionOne.ID,
 		"to_version_id":   versionTwo.ID,
@@ -600,4 +600,17 @@ func asDocsMap(t *testing.T, value any, name string) map[string]any {
 
 func skipDocsLink(link string) bool {
 	return strings.HasPrefix(link, "#") || strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "mailto:")
+}
+
+func docsReviewPayload(t *testing.T, router *gin.Engine, path, token string) map[string]any {
+	t.Helper()
+	snapshot := decodeDocsDetail[struct {
+		Draft struct {
+			ReviewRevision string `json:"review_revision"`
+		} `json:"draft"`
+	}](t, performDocsJSON(t, router, http.MethodGet, path+"/content/raw", token, nil))
+	if snapshot.Draft.ReviewRevision == "" {
+		t.Fatal("missing review snapshot")
+	}
+	return map[string]any{"expected_review_revision": snapshot.Draft.ReviewRevision}
 }

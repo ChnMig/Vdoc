@@ -98,6 +98,7 @@ func (b *semanticDiffBuilder) compareParameterPair(endpoint Endpoint, oldParam, 
 		b.add(ChangeParameterChanged, severity, endpoint, parameterPath(location, name), "Parameter required flag changed", breaking, oldRequired, newRequired)
 	}
 	b.compareEnumValues(ChangeParameterChanged, endpoint, parameterPath(location, name), oldParam["schema"], newParam["schema"], "Parameter enum value removed")
+	b.compareSchemaChildren(ChangeParameterChanged, endpoint, parameterPath(location, name), oldParam["schema"], newParam["schema"], false)
 }
 
 func (b *semanticDiffBuilder) compareRequestBody(from, to Endpoint) {
@@ -170,6 +171,10 @@ func (b *semanticDiffBuilder) compareResponses(from, to Endpoint) {
 func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
 	b.compareSchemaRootType(change, endpoint, prefix, oldSchema, newSchema, response)
 	b.compareEnumValues(change, endpoint, prefix, oldSchema, newSchema, "Enum value removed")
+	b.compareSchemaChildren(change, endpoint, prefix, oldSchema, newSchema, response)
+}
+
+func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
 	oldFields := schemaFields(oldSchema)
 	newFields := schemaFields(newSchema)
 	for _, path := range sortedStringKeys(newFields) {
@@ -182,6 +187,9 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 			message := "Response field added"
 			if !response {
 				message = "Request body field added"
+				if change == ChangeParameterChanged {
+					message = "Parameter field added"
+				}
 				if breaking {
 					severity = SeverityBreaking
 				}
@@ -190,7 +198,11 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 			continue
 		}
 		if oldField.Type != newField.Type {
-			b.add(change, SeverityBreaking, endpoint, location, fieldTypeChangeMessage(response), true, oldField.Type, newField.Type)
+			message := fieldTypeChangeMessage(response)
+			if change == ChangeParameterChanged {
+				message = "Parameter field type changed"
+			}
+			b.add(change, SeverityBreaking, endpoint, location, message, true, oldField.Type, newField.Type)
 		}
 		if oldField.Required != newField.Required {
 			breaking := !response && newField.Required
@@ -198,7 +210,11 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 			if breaking {
 				severity = SeverityBreaking
 			}
-			b.add(change, severity, endpoint, location, fieldRequiredChangeMessage(response), breaking, oldField.Required, newField.Required)
+			message := fieldRequiredChangeMessage(response)
+			if change == ChangeParameterChanged {
+				message = "Parameter field required flag changed"
+			}
+			b.add(change, severity, endpoint, location, message, breaking, oldField.Required, newField.Required)
 		}
 		b.compareEnumValueLists(change, endpoint, location, oldField.Enum, newField.Enum, "Enum value removed")
 	}
@@ -207,6 +223,9 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 			breaking := response
 			severity := SeverityWarning
 			message := "Request body field removed"
+			if change == ChangeParameterChanged {
+				message = "Parameter field removed"
+			}
 			if response {
 				severity = SeverityBreaking
 				message = "Response field removed"
@@ -225,10 +244,33 @@ func (b *semanticDiffBuilder) compareSchemaRootType(change int, endpoint Endpoin
 }
 
 func (b *semanticDiffBuilder) compareEnumValues(change int, endpoint Endpoint, location string, oldSchema, newSchema any, message string) {
+	if oldSchema == nil || newSchema == nil {
+		return
+	}
 	b.compareEnumValueLists(change, endpoint, location, enumValues(oldSchema), enumValues(newSchema), message)
 }
 
 func (b *semanticDiffBuilder) compareEnumValueLists(change int, endpoint Endpoint, location string, oldValues, newValues []string, message string) {
+	// nil 表示没有枚举限制；空但非 nil 的集合表示不允许任何值。
+	if oldValues == nil && newValues == nil {
+		return
+	}
+	if oldValues == nil || newValues == nil {
+		breaking := newValues != nil
+		message := "Enum constraint added"
+		if newValues == nil {
+			message = "Enum constraint removed"
+		}
+		if change == ChangeResponseChanged {
+			breaking = !breaking
+		}
+		severity := SeverityInfo
+		if breaking {
+			severity = SeverityBreaking
+		}
+		b.add(change, severity, endpoint, location, message, breaking, oldValues, newValues)
+		return
+	}
 	newSet := map[string]bool{}
 	for _, value := range newValues {
 		newSet[value] = true
@@ -481,8 +523,20 @@ func mergeSchemaField(out map[string]schemaField, path string, next schemaField)
 		current.Type = next.Type
 	}
 	current.Required = current.Required || next.Required
-	if len(current.Enum) == 0 && len(next.Enum) > 0 {
+	if current.Enum == nil {
 		current.Enum = next.Enum
+	} else if next.Enum != nil {
+		allowed := map[string]bool{}
+		for _, value := range next.Enum {
+			allowed[value] = true
+		}
+		intersection := make([]string, 0)
+		for _, value := range current.Enum {
+			if allowed[value] {
+				intersection = append(intersection, value)
+			}
+		}
+		current.Enum = intersection
 	}
 	out[path] = current
 }
@@ -541,6 +595,9 @@ func enumValues(schema any) []string {
 				delete(allowed, value)
 			}
 		}
+	}
+	if allowed == nil {
+		return nil
 	}
 	out := make([]string, 0, len(allowed))
 	for value := range allowed {

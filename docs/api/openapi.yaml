@@ -641,6 +641,7 @@ paths:
     get:
       tags: [Drafts]
       summary: Get document draft content.
+      description: Returns content, hash, and a nested draft DTO from the same snapshot. Use detail.draft.revision as expected_revision when saving edits, and detail.draft.review_revision as expected_review_revision when reviewing this content and its diff. Unpublished draft previews use the current branch latest as their baseline.
       operationId: getDocumentDraftContent
       security: [{ JWTAuth: [] }]
       responses:
@@ -668,7 +669,7 @@ paths:
       operationId: approveDocumentDraft
       security: [{ JWTAuth: [] }]
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/ReviewRequest" }
@@ -685,7 +686,7 @@ paths:
       operationId: requestDocumentDraftChanges
       security: [{ JWTAuth: [] }]
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/ReviewRequest" }
@@ -702,7 +703,7 @@ paths:
       operationId: rejectDocumentDraft
       security: [{ JWTAuth: [] }]
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/ReviewRequest" }
@@ -1564,10 +1565,15 @@ components:
     PatchDraftRequest:
       type: object
       additionalProperties: false
+      required: [expected_revision]
       anyOf:
         - required: [schema_content]
         - required: [content]
       properties:
+        expected_revision:
+          type: string
+          minLength: 1
+          description: Opaque revision returned with the draft snapshot. Stale revisions fail with FAILED_PRECONDITION; reload and reconcile edits before retrying.
         version_name: { type: string, minLength: 1 }
         changelog: { type: string }
         source_git_commit_id: { type: string }
@@ -1580,7 +1586,12 @@ components:
     ReviewRequest:
       type: object
       additionalProperties: false
+      required: [expected_review_revision]
       properties:
+        expected_review_revision:
+          type: string
+          minLength: 1
+          description: Opaque detail.draft.review_revision from the content snapshot the reviewer inspected. Binds content, submission round, and latest branch diff baseline. Stale snapshots return FAILED_PRECONDITION; reload and review again before retrying.
         comment: { type: string, maxLength: 1000 }
     PromoteDraftRequest:
       type: object

@@ -32,7 +32,7 @@ func TestUpdateDraftNoChangeKeepsExistingDraftUntouched(t *testing.T) {
 	originalHash := draft.NormalizedSchemaHash
 	originalVersionName := draft.VersionName
 
-	_, err = store.UpdateDraft("writer", projectID, serviceID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.1-no-change"), SchemaContent: testOpenAPI("baseline")})
+	_, err = store.UpdateDraft("writer", projectID, serviceID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), VersionName: stringPtrValue("1.0.1-no-change"), SchemaContent: testOpenAPI("baseline")})
 	if !Is(err, ErrFailedPrecondition) {
 		t.Fatalf("no-change UpdateDraft() error = %v, want failed precondition", err)
 	}
@@ -95,7 +95,7 @@ func TestDraftReviewAndPromotePipelineRecordsMetadata(t *testing.T) {
 	} else if submitted.Status != DraftStatusSubmitted {
 		t.Fatalf("submitted status = %d, want submitted", submitted.Status)
 	}
-	changes, err := store.ReviewDraft("admin", projectID, serviceID, promoted.ID, "request-changes")
+	changes, err := store.ReviewDraft("admin", projectID, serviceID, promoted.ID, "request-changes", reviewInputForTest(t, store, "admin", projectID, serviceID, promoted.ID))
 	if err != nil {
 		t.Fatalf("request changes error = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestDraftReviewAndPromotePipelineRecordsMetadata(t *testing.T) {
 	if _, err := store.SubmitDraft("writer", projectID, serviceID, promoted.ID); err != nil {
 		t.Fatalf("resubmit promoted draft error = %v", err)
 	}
-	rejected, err := store.ReviewDraft("admin", projectID, serviceID, promoted.ID, "reject")
+	rejected, err := store.ReviewDraft("admin", projectID, serviceID, promoted.ID, "reject", reviewInputForTest(t, store, "admin", projectID, serviceID, promoted.ID))
 	if err != nil {
 		t.Fatalf("reject error = %v", err)
 	}
@@ -120,7 +120,7 @@ func TestDraftReviewAndPromotePipelineRecordsMetadata(t *testing.T) {
 	if _, err := store.SubmitDraft("writer", projectID, serviceID, publishCandidate.ID); err != nil {
 		t.Fatalf("SubmitDraft(publish candidate) error = %v", err)
 	}
-	publishedAny, err := store.ReviewDraft("admin", projectID, serviceID, publishCandidate.ID, "approve")
+	publishedAny, err := store.ReviewDraft("admin", projectID, serviceID, publishCandidate.ID, "approve", reviewInputForTest(t, store, "admin", projectID, serviceID, publishCandidate.ID))
 	if err != nil {
 		t.Fatalf("approve promoted draft error = %v", err)
 	}
@@ -161,7 +161,7 @@ func TestSchemaRetrievalChecksOwnershipAndKind(t *testing.T) {
 	if _, err := store.SubmitDraft("writer", projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
-	publishedAny, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve")
+	publishedAny, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, serviceID, draft.ID))
 	if err != nil {
 		t.Fatalf("approve draft error = %v", err)
 	}
@@ -202,7 +202,7 @@ func publishContractDraft(t *testing.T, store *Store, actorID, projectID, servic
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft(%s) error = %v", versionName, err)
 	}
-	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve")
+	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, serviceID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDraft approve(%s) error = %v", versionName, err)
 	}

@@ -117,10 +117,14 @@ func publishDraft(ctx context.Context, client apiClient, input draftInput) (reso
 	if err != nil {
 		return resourceID{}, fmt.Errorf("create draft %s: %w", input.VersionName, err)
 	}
-	if _, err := send[resourceID](ctx, client, request{Method: http.MethodPost, Path: path + "/" + draft.ID + "/submit", Token: input.WriterToken}); err != nil {
+	submitted, err := send[draftSubmission](ctx, client, request{Method: http.MethodPost, Path: path + "/" + draft.ID + "/submit", Token: input.WriterToken})
+	if err != nil {
 		return resourceID{}, fmt.Errorf("submit draft %s: %w", input.VersionName, err)
 	}
-	version, err := send[resourceID](ctx, client, request{Method: http.MethodPost, Path: path + "/" + draft.ID + "/approve", Token: input.AdminToken})
+	if submitted.ReviewRevision == "" {
+		return resourceID{}, fmt.Errorf("submitted draft %s is missing its review revision", input.VersionName)
+	}
+	version, err := send[resourceID](ctx, client, request{Method: http.MethodPost, Path: path + "/" + draft.ID + "/approve", Token: input.AdminToken, Body: map[string]string{"expected_review_revision": submitted.ReviewRevision}})
 	if err != nil {
 		return resourceID{}, fmt.Errorf("approve draft %s: %w", input.VersionName, err)
 	}

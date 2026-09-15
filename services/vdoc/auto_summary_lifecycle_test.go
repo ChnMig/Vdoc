@@ -157,7 +157,7 @@ func TestReviewDocumentDraftAutoSummaryStoresSucceededVersionSummary_whenProvide
 	}
 
 	// When
-	published, err := store.ReviewDocumentDraft("admin", projectID, documentID, draft.ID, "approve", AuditContext{RequestID: "trace-auto-version-success"})
+	published, err := store.ReviewDocumentDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID), AuditContext{RequestID: "trace-auto-version-success"})
 
 	// Then
 	if err != nil {
@@ -192,7 +192,7 @@ func TestReviewMarkdownDraftAutoSummaryPublishesVersion_whenProviderFails(t *tes
 	}
 
 	// When
-	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve")
+	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID))
 
 	// Then
 	if err != nil {

@@ -41,9 +41,9 @@ func (r *Repository) WithinTransaction(ctx context.Context, fn func(domainvdoc.R
 	if fn == nil {
 		return fmt.Errorf("%w: transaction callback is required", domainvdoc.ErrInvalidArgument)
 	}
-	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.transaction(ctx, func(tx *gorm.DB) error {
 		return fn(&Repository{database: tx})
-	}))
+	})
 }
 
 func (r *Repository) LoadState(ctx context.Context) (*domainvdoc.State, error) {
@@ -718,8 +718,19 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 	if domainDocumentID(version.DocumentID, version.ServiceID) != input.ServiceID || version.BranchID != input.BranchID || version.DraftID != input.DraftID || version.VersionName != input.VersionName || draft.Status != domainvdoc.DraftStatusPublished {
 		return fmt.Errorf("%w: inconsistent publish state", domainvdoc.ErrFailedPrecondition)
 	}
-	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.transaction(ctx, func(tx *gorm.DB) error {
 		writer := &Repository{database: tx}
+		guard := domainvdoc.MutationGuard{ActorID: input.ActorID, ProjectID: input.ProjectID, DocumentID: input.ServiceID, BranchIDs: []string{input.BranchID}, Permission: domainvdoc.MemberRoleAdmin}
+		if input.MutationGuard != nil {
+			guard = *input.MutationGuard
+		}
+		currentContext, err := writer.LockMutationContext(ctx, guard)
+		if err != nil {
+			return err
+		}
+		if err := domainvdoc.ValidateMutationContext(guard, currentContext, time.Now()); err != nil {
+			return err
+		}
 		currentDraft, err := writer.lockPublishScope(ctx, input)
 		if err != nil {
 			return err
@@ -727,7 +738,11 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 		if currentDraft.Status != domainvdoc.DraftStatusSubmitted {
 			return domainvdoc.ErrFailedPrecondition
 		}
-		if err := writer.ensureChangedFromLatest(ctx, input.ServiceID, input.BranchID, currentDraft.NormalizedSchemaHash); err != nil {
+		// 分支与草稿行已锁定，重新核对服务读取之后是否出现修改或其他发布。
+		if input.ExpectedDraftUpdatedAt.IsZero() || currentDraft.UpdatedAt.UnixMicro() != input.ExpectedDraftUpdatedAt.UnixMicro() {
+			return fmt.Errorf("%w: draft changed before publication; reload and review it again", domainvdoc.ErrFailedPrecondition)
+		}
+		if err := writer.ensureChangedFromLatest(ctx, input.ServiceID, input.BranchID, currentDraft.NormalizedSchemaHash, input.ExpectedBaseVersionID); err != nil {
 			return err
 		}
 		if err := writer.ensureVersionAvailable(ctx, input.ServiceID, input.BranchID, input.VersionName); err != nil {
@@ -779,7 +794,7 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 			}
 		}
 		return writer.insertPublishAudit(ctx, input)
-	}))
+	})
 }
 
 func (r *Repository) upsertByID(ctx context.Context, value any) error {
@@ -948,14 +963,20 @@ func (r *Repository) ensureVersionAvailable(ctx context.Context, serviceID, bran
 	return nil
 }
 
-func (r *Repository) ensureChangedFromLatest(ctx context.Context, serviceID, branchID, candidateHash string) error {
+func (r *Repository) ensureChangedFromLatest(ctx context.Context, serviceID, branchID, candidateHash, expectedBaseVersionID string) error {
 	var latest DocumentVersion
 	err := r.database.WithContext(ctx).Where("document_id = ? AND branch_id = ?", serviceID, branchID).Order("published_at DESC, id DESC").First(&latest).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if expectedBaseVersionID != "" {
+			return fmt.Errorf("%w: review baseline changed before publication", domainvdoc.ErrFailedPrecondition)
+		}
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if domainID(latest.ID) != expectedBaseVersionID {
+		return fmt.Errorf("%w: review baseline changed before publication; reload and review the latest diff", domainvdoc.ErrFailedPrecondition)
 	}
 	if latest.NormalizedSchemaHash == candidateHash {
 		return fmt.Errorf("%w: schema has no changes from latest version", domainvdoc.ErrFailedPrecondition)
@@ -1049,10 +1070,12 @@ func (r *Repository) upsertDocumentDiffItem(ctx context.Context, diff *domainvdo
 
 func (r *Repository) markDraftPublished(ctx context.Context, input domainvdoc.PublishStateInput, updatedAt time.Time) error {
 	reviewComment := ""
+	var preview *domainvdoc.Diff
 	if input.State != nil && input.State.Drafts[input.DraftID] != nil {
 		reviewComment = input.State.Drafts[input.DraftID].ReviewComment
+		preview = input.State.Drafts[input.DraftID].DiffPreview
 	}
-	result := r.database.WithContext(ctx).Model(&DocumentDraft{}).Where("id = ? AND status = ?", input.DraftID, domainvdoc.DraftStatusSubmitted).Updates(map[string]any{"status": domainvdoc.DraftStatusPublished, "review_comment": nullIfEmpty(reviewComment), "reviewed_by": input.ActorID, "reviewed_at": nonZeroTime(updatedAt), "published_version_id": input.VersionID, "updated_at": nonZeroTime(updatedAt)})
+	result := r.database.WithContext(ctx).Model(&DocumentDraft{}).Where("id = ? AND status = ?", input.DraftID, domainvdoc.DraftStatusSubmitted).Updates(map[string]any{"status": domainvdoc.DraftStatusPublished, "review_comment": nullIfEmpty(reviewComment), "diff_preview_json": diffPreviewJSON(preview), "reviewed_by": input.ActorID, "reviewed_at": nonZeroTime(updatedAt), "published_version_id": input.VersionID, "updated_at": nonZeroTime(updatedAt)})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -1631,13 +1654,29 @@ func diffPreviewJSON(diff *domainvdoc.Diff) pgdb.JSONB {
 	if diff == nil {
 		return nil
 	}
-	return pgdb.NewJSONB(diff.Summary, "{}")
+	// 保留审核基线和统计；明细按需从正文恢复，避免把大段 Diff 存进草稿行。
+	snapshot := *diff
+	snapshot.Items = nil
+	return pgdb.NewJSONB(snapshot, "{}")
 }
 
 func diffPreviewFromJSON(raw pgdb.JSONB) *domainvdoc.Diff {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	if _, ok := fields["summary"]; ok {
+		var preview domainvdoc.Diff
+		if err := json.Unmarshal(raw, &preview); err != nil {
+			return nil
+		}
+		preview.DiffStatus = domainvdoc.DiffStatusSucceeded
+		return &preview
+	}
+	// 兼容只存统计的历史记录；读取时从发布版本恢复基线。
 	var summary domainvdoc.DiffSummary
 	if err := json.Unmarshal(raw, &summary); err != nil {
 		return nil

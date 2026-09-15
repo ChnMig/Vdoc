@@ -7,6 +7,9 @@ func (s *Store) auditAIProviderTest(actorID, projectID string, provider *AIProvi
 	if err := s.refreshLocked(); err != nil {
 		return err
 	}
+	if projectID == "" && !s.isSuperAdminLocked(actorID) {
+		return ErrFailedPrecondition
+	}
 	if projectID != "" {
 		if !s.canManageProjectLocked(actorID, projectID) {
 			return ErrFailedPrecondition
@@ -15,6 +18,7 @@ func (s *Store) auditAIProviderTest(actorID, projectID string, provider *AIProvi
 			return ErrFailedPrecondition
 		}
 	}
+	s = s.withAIConfigurationMutationGuard(actorID, projectID)
 	metadata := auditMetadata("result", "success", "provider_id", provider.ID, "api_mode", provider.APIMode, "scope", provider.Scope)
 	if callErr != nil {
 		metadata["result"] = "failed"
@@ -22,5 +26,11 @@ func (s *Store) auditAIProviderTest(actorID, projectID string, provider *AIProvi
 	}
 	addTokenUsageMetadata(metadata, usage)
 	s.auditLocked(ctx, AuditActorUser, actorID, "ai.provider.test", "ai_provider", provider.ID, projectID, "", metadata)
-	return s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		if Is(err, ErrPermissionDenied) || Is(err, ErrFailedPrecondition) || Is(err, ErrNotFound) {
+			return ErrFailedPrecondition
+		}
+		return err
+	}
+	return nil
 }

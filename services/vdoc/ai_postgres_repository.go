@@ -38,7 +38,7 @@ type aiGenerationRepository interface {
 	CompleteAIChatGeneration(ctx context.Context, sessionID, expectedToken string, updatedAt *time.Time) (bool, error)
 }
 
-func (p *postgresPersistence) reserveAISummaryGenerationLocked(ctx context.Context, summary *domainvdoc.AISummary) (*domainvdoc.AISummary, bool, error) {
+func (p *postgresPersistence) reserveAISummaryGenerationLocked(ctx context.Context, summary *domainvdoc.AISummary, guard *aiCompletionGuard) (*domainvdoc.AISummary, bool, error) {
 	if _, ok := p.repo.(aiGenerationRepository); !ok {
 		return nil, false, nil
 	}
@@ -47,6 +47,9 @@ func (p *postgresPersistence) reserveAISummaryGenerationLocked(ctx context.Conte
 		repo, ok := repository.(aiGenerationRepository)
 		if !ok {
 			return domainvdoc.ErrFailedPrecondition
+		}
+		if err := validateAICompletionContext(ctx, repository, guard); err != nil {
+			return err
 		}
 		var err error
 		reserved, err = repo.ReserveAISummaryGeneration(ctx, summary)
@@ -60,7 +63,7 @@ func (p *postgresPersistence) reserveAISummaryGenerationLocked(ctx context.Conte
 	return reserved, true, err
 }
 
-func (p *postgresPersistence) completeAISummaryGenerationLocked(ctx context.Context, summary *domainvdoc.AISummary, expectedToken string, audit *domainvdoc.AuditLog) (bool, error) {
+func (p *postgresPersistence) completeAISummaryGenerationLocked(ctx context.Context, summary *domainvdoc.AISummary, expectedToken string, audit *domainvdoc.AuditLog, guard *aiCompletionGuard) (bool, error) {
 	if _, ok := p.repo.(aiGenerationRepository); !ok {
 		return false, nil
 	}
@@ -68,6 +71,9 @@ func (p *postgresPersistence) completeAISummaryGenerationLocked(ctx context.Cont
 		repo, ok := repository.(aiGenerationRepository)
 		if !ok {
 			return domainvdoc.ErrFailedPrecondition
+		}
+		if err := validateAICompletionContext(ctx, repository, guard); err != nil {
+			return err
 		}
 		updated, err := repo.CompleteAISummaryGeneration(ctx, summary, expectedToken)
 		if err != nil {
@@ -87,7 +93,7 @@ func (p *postgresPersistence) completeAISummaryGenerationLocked(ctx context.Cont
 	return true, save(p.repo)
 }
 
-func (p *postgresPersistence) reserveAIChatGenerationLocked(ctx context.Context, sessionID, token string, startedAt time.Time) (bool, error) {
+func (p *postgresPersistence) reserveAIChatGenerationLocked(ctx context.Context, sessionID, token string, startedAt time.Time, guard *aiCompletionGuard) (bool, error) {
 	if _, ok := p.repo.(aiGenerationRepository); !ok {
 		return false, nil
 	}
@@ -95,6 +101,9 @@ func (p *postgresPersistence) reserveAIChatGenerationLocked(ctx context.Context,
 		repo, ok := repository.(aiGenerationRepository)
 		if !ok {
 			return domainvdoc.ErrFailedPrecondition
+		}
+		if err := validateAICompletionContext(ctx, repository, guard); err != nil {
+			return err
 		}
 		updated, err := repo.ReserveAIChatGeneration(ctx, sessionID, token, startedAt)
 		if err != nil {
@@ -111,7 +120,7 @@ func (p *postgresPersistence) reserveAIChatGenerationLocked(ctx context.Context,
 	return true, save(p.repo)
 }
 
-func (p *postgresPersistence) completeAIChatGenerationLocked(ctx context.Context, sessionID, expectedToken string, updatedAt *time.Time, userMessage, assistantMessage *domainvdoc.AIChatMessage, audit *domainvdoc.AuditLog) (bool, error) {
+func (p *postgresPersistence) completeAIChatGenerationLocked(ctx context.Context, sessionID, expectedToken string, updatedAt *time.Time, userMessage, assistantMessage *domainvdoc.AIChatMessage, audit *domainvdoc.AuditLog, guard *aiCompletionGuard) (bool, error) {
 	if _, ok := p.repo.(aiGenerationRepository); !ok {
 		return false, nil
 	}
@@ -119,6 +128,9 @@ func (p *postgresPersistence) completeAIChatGenerationLocked(ctx context.Context
 		repo, ok := repository.(aiGenerationRepository)
 		if !ok {
 			return domainvdoc.ErrFailedPrecondition
+		}
+		if err := validateAICompletionContext(ctx, repository, guard); err != nil {
+			return err
 		}
 		updated, err := repo.CompleteAIChatGeneration(ctx, sessionID, expectedToken, updatedAt)
 		if err != nil {
@@ -161,7 +173,7 @@ func (p *postgresPersistence) completeAIChatGenerationLocked(ctx context.Context
 	return true, save(p.repo)
 }
 
-func (p *postgresPersistence) saveAISummaryLocked(ctx context.Context, summary, previous *domainvdoc.AISummary, audit *domainvdoc.AuditLog) (bool, error) {
+func (p *postgresPersistence) saveAISummaryLocked(ctx context.Context, summary, previous *domainvdoc.AISummary, audit *domainvdoc.AuditLog, guards ...*aiCompletionGuard) (bool, error) {
 	if _, ok := p.repo.(aiMutationRepository); !ok {
 		return false, nil
 	}
@@ -169,6 +181,11 @@ func (p *postgresPersistence) saveAISummaryLocked(ctx context.Context, summary, 
 		repo, ok := repository.(aiMutationRepository)
 		if !ok {
 			return domainvdoc.ErrFailedPrecondition
+		}
+		if len(guards) > 0 {
+			if err := validateAICompletionContext(ctx, repository, guards[0]); err != nil {
+				return err
+			}
 		}
 		var err error
 		if optimisticRepo, ok := repository.(optimisticAIMutationRepository); ok {

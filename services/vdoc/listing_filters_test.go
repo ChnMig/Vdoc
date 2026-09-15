@@ -45,11 +45,11 @@ func TestDocumentTypeAndBranchListingFilters(t *testing.T) {
 	if _, err := store.SubmitDocumentDraft("writer", "project-a", openapi.ID, secondDraft.ID); err != nil {
 		t.Fatalf("SubmitDocumentDraft(second) error = %v", err)
 	}
-	firstPublished, err := store.ReviewDocumentDraft("admin", "project-a", openapi.ID, firstDraft.ID, "approve")
+	firstPublished, err := store.ReviewDocumentDraft("admin", "project-a", openapi.ID, firstDraft.ID, "approve", reviewInputForTest(t, store, "admin", "project-a", openapi.ID, firstDraft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDocumentDraft(first) error = %v", err)
 	}
-	if _, err := store.ReviewDocumentDraft("admin", "project-a", openapi.ID, secondDraft.ID, "approve"); err != nil {
+	if _, err := store.ReviewDocumentDraft("admin", "project-a", openapi.ID, secondDraft.ID, "approve", reviewInputForTest(t, store, "admin", "project-a", openapi.ID, secondDraft.ID)); err != nil {
 		t.Fatalf("ReviewDocumentDraft(second) error = %v", err)
 	}
 	filteredVersions, err := store.ListDocumentVersions("reader", "project-a", openapi.ID, firstBranch)

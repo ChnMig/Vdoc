@@ -29,7 +29,7 @@ func TestReviewAndPromoteRequireActiveContext(t *testing.T) {
 				t.Fatalf("SubmitDraft() error = %v", err)
 			}
 			test.archive(store, projectID, documentID, branchID)
-			if _, err := store.ReviewDraft("admin", projectID, documentID, draft.ID, "approve"); !Is(err, ErrFailedPrecondition) {
+			if _, err := store.ReviewDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID)); !Is(err, ErrFailedPrecondition) {
 				t.Fatalf("ReviewDraft() error = %v, want failed precondition", err)
 			}
 		})
@@ -79,7 +79,7 @@ func TestMarkdownDraftMutationsRequireActiveContext(t *testing.T) {
 				t.Fatalf("CreateMarkdownDraft() error = %v", err)
 			}
 			test.archive(store, projectID, documentID, branchID)
-			if _, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.1"), SchemaContent: markdownV2()}); !Is(err, ErrFailedPrecondition) {
+			if _, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), VersionName: stringPtrValue("1.0.1"), SchemaContent: markdownV2()}); !Is(err, ErrFailedPrecondition) {
 				t.Fatalf("UpdateMarkdownDraft() error = %v, want failed precondition", err)
 			}
 			if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, draft.ID); !Is(err, ErrFailedPrecondition) {
@@ -97,7 +97,7 @@ func TestMarkdownDraftMutationsRequireActiveContext(t *testing.T) {
 				t.Fatalf("SubmitMarkdownDraft() error = %v", err)
 			}
 			test.archive(store, projectID, documentID, branchID)
-			if _, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve"); !Is(err, ErrFailedPrecondition) {
+			if _, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID)); !Is(err, ErrFailedPrecondition) {
 				t.Fatalf("ReviewMarkdownDraft() error = %v, want failed precondition", err)
 			}
 		})

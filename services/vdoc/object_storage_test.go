@@ -3,6 +3,7 @@ package vdoc
 import (
 	"bytes"
 	"context"
+	"encoding/base32"
 	"errors"
 	"sort"
 	"strings"
@@ -83,8 +84,8 @@ func TestCreateDraftObjectFailureDoesNotCommitDraft(t *testing.T) {
 	if len(objects.objects) != 0 {
 		t.Fatalf("objects after first write failure = %v, want none", objectKeys(objects.objects))
 	}
-	if len(objects.deletes) != 0 {
-		t.Fatalf("deleted objects = %v, want none when the first write failed", objects.deletes)
+	if len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
+		t.Fatalf("deleted objects = %v, want failed write attempt %q cleaned", objects.deletes, objects.writes[0].Key)
 	}
 }
 
@@ -106,8 +107,8 @@ func TestCreateDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	if len(objects.objects) != 0 {
 		t.Fatalf("uncommitted objects after second write failure = %v, want none", objectKeys(objects.objects))
 	}
-	if len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
-		t.Fatalf("deleted objects = %v, want raw object %q", objects.deletes, objects.writes[0].Key)
+	if len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("deleted objects = %v, want failed normalized attempt and raw object cleaned in reverse order", objects.deletes)
 	}
 	if len(store.drafts) != 0 {
 		t.Fatalf("drafts committed after second object failure = %d, want 0", len(store.drafts))
@@ -155,7 +156,7 @@ func TestUpdateDraftObjectFailureLeavesExistingDraftUnchanged(t *testing.T) {
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 1
 
-	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("2.0.0"), SchemaContent: testOpenAPI("updated")})
+	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), VersionName: stringPtrValue("2.0.0"), SchemaContent: testOpenAPI("updated")})
 	if err == nil || !strings.Contains(err.Error(), "object write failed") {
 		t.Fatalf("UpdateDraft() error = %v, want object write failed", err)
 	}
@@ -183,7 +184,7 @@ func TestUpdateDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 2
 
-	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("2.0.0"), SchemaContent: testOpenAPI("updated-second")})
+	_, err = store.UpdateDraft(actorID, projectID, serviceID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), VersionName: stringPtrValue("2.0.0"), SchemaContent: testOpenAPI("updated-second")})
 	if err == nil || !strings.Contains(err.Error(), "object write failed") {
 		t.Fatalf("UpdateDraft() error = %v, want object write failed", err)
 	}
@@ -217,7 +218,7 @@ func TestPublishDraftObjectFailureDoesNotCommitVersion(t *testing.T) {
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 1
 
-	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err == nil || !strings.Contains(err.Error(), "object write failed") {
 		t.Fatalf("ReviewDraft approve error = %v, want object write failed", err)
 	}
@@ -231,8 +232,8 @@ func TestPublishDraftObjectFailureDoesNotCommitVersion(t *testing.T) {
 		t.Fatalf("repository saves=%d objects=%d, want no DB writes", repo.saves, len(repo.objects))
 	}
 	assertObjectKeySet(t, objects.objects, baselineObjects)
-	if len(objects.deletes) != 0 {
-		t.Fatalf("deleted objects = %v, want none when the first publish write failed", objects.deletes)
+	if len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
+		t.Fatalf("deleted objects = %v, want failed publish write attempt %q cleaned", objects.deletes, objects.writes[0].Key)
 	}
 }
 
@@ -254,7 +255,7 @@ func TestPublishDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 	objects.reset(errors.New("object write failed"))
 	objects.failOnWrite = 2
 
-	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err == nil || !strings.Contains(err.Error(), "object write failed") {
 		t.Fatalf("ReviewDraft approve error = %v, want object write failed", err)
 	}
@@ -262,8 +263,8 @@ func TestPublishDraftSecondObjectFailureDoesNotRecordMetadata(t *testing.T) {
 		t.Fatalf("object writes = %d, want raw succeeded then normalized failed", len(objects.writes))
 	}
 	assertObjectKeySet(t, objects.objects, baselineObjects)
-	if len(objects.deletes) != 1 || objects.deletes[0] != objects.writes[0].Key {
-		t.Fatalf("deleted objects = %v, want raw version object %q", objects.deletes, objects.writes[0].Key)
+	if len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
+		t.Fatalf("deleted objects = %v, want failed normalized attempt and raw version object cleaned in reverse order", objects.deletes)
 	}
 	if len(store.versions) != 0 {
 		t.Fatalf("versions committed after second object failure = %d, want 0", len(store.versions))
@@ -290,7 +291,7 @@ func TestDatabaseBackedDraftPublishLoadsVersionContentOnDemand(t *testing.T) {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
 
-	result, err := store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	result, err := store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDraft approve error = %v", err)
 	}
@@ -430,7 +431,7 @@ func TestPublishDraftWritesDiffSnapshotObjectWhenPreviousVersionExists(t *testin
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, firstDraft.ID); err != nil {
 		t.Fatalf("SubmitDraft first error = %v", err)
 	}
-	if _, err := store.ReviewDraft(actorID, projectID, serviceID, firstDraft.ID, "approve"); err != nil {
+	if _, err := store.ReviewDraft(actorID, projectID, serviceID, firstDraft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, firstDraft.ID)); err != nil {
 		t.Fatalf("ReviewDraft first error = %v", err)
 	}
 	repo.resetEvents()
@@ -443,7 +444,7 @@ func TestPublishDraftWritesDiffSnapshotObjectWhenPreviousVersionExists(t *testin
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, secondDraft.ID); err != nil {
 		t.Fatalf("SubmitDraft second error = %v", err)
 	}
-	if _, err := store.ReviewDraft(actorID, projectID, serviceID, secondDraft.ID, "approve"); err != nil {
+	if _, err := store.ReviewDraft(actorID, projectID, serviceID, secondDraft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, secondDraft.ID)); err != nil {
 		t.Fatalf("ReviewDraft second error = %v", err)
 	}
 
@@ -464,6 +465,7 @@ func TestPublishDraftWritesDiffSnapshotObjectWhenPreviousVersionExists(t *testin
 	if !strings.HasPrefix(diffWrite.Key, wantPrefix) || !strings.Contains(diffWrite.Key, "/full-") || !strings.HasSuffix(diffWrite.Key, ".json") {
 		t.Fatalf("diff object key = %q, want prefix %q and full hash suffix", diffWrite.Key, wantPrefix)
 	}
+	assertRichSchemaKey(t, diffWrite.Key, projectID, serviceID, branchID, "diffs", diffWrite.Metadata["owner_id"], "full", diffWrite.Metadata["sha256"])
 	if diffWrite.Metadata["from_version_id"] == "" || diffWrite.Metadata["to_version_id"] == "" {
 		t.Fatalf("diff metadata missing version IDs: %#v", diffWrite.Metadata)
 	}
@@ -504,7 +506,7 @@ func TestPublishDraftDiffObjectFailureDeletesNewVersionObjects(t *testing.T) {
 	objects.reset(errors.New("diff object write failed"))
 	objects.failOnWrite = 3
 
-	_, err = store.ReviewDraft(actorID, projectID, serviceID, secondDraft.ID, "approve")
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, secondDraft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, secondDraft.ID))
 	if err == nil || !strings.Contains(err.Error(), "diff object write failed") {
 		t.Fatalf("ReviewDraft approve error = %v, want diff object write failed", err)
 	}
@@ -515,8 +517,8 @@ func TestPublishDraftDiffObjectFailureDeletesNewVersionObjects(t *testing.T) {
 		t.Fatalf("failed diff write reached database: publishes=%d refs=%d", repo.publishes, len(repo.objects))
 	}
 	assertObjectKeySet(t, objects.objects, baselineObjects)
-	if len(objects.writes) != 3 || len(objects.deletes) != 2 || objects.deletes[0] != objects.writes[1].Key || objects.deletes[1] != objects.writes[0].Key {
-		t.Fatalf("writes=%v deletes=%v, want normalized/raw version objects deleted in reverse order", objectWriteKeys(objects.writes), objects.deletes)
+	if len(objects.writes) != 3 || len(objects.deletes) != 3 || objects.deletes[0] != objects.writes[2].Key || objects.deletes[1] != objects.writes[1].Key || objects.deletes[2] != objects.writes[0].Key {
+		t.Fatalf("writes=%v deletes=%v, want failed diff attempt and normalized/raw version objects deleted in reverse order", objectWriteKeys(objects.writes), objects.deletes)
 	}
 }
 
@@ -535,7 +537,7 @@ func TestPublishDraftSuccessUsesAtomicPublishRepository(t *testing.T) {
 	}
 	repo.resetEvents()
 
-	published, err := store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	published, err := store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDraft approve error = %v", err)
 	}
@@ -572,7 +574,7 @@ func TestPublishDraftRepositoryFailureDoesNotCommitPartialState(t *testing.T) {
 	repo.resetEvents()
 	objects.reset(nil)
 
-	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err == nil || !strings.Contains(err.Error(), "publish transaction failed") {
 		t.Fatalf("ReviewDraft approve error = %v, want publish transaction failed", err)
 	}
@@ -608,7 +610,7 @@ func TestPublishDraftParseFailureDoesNotCommitPartialState(t *testing.T) {
 	repo.resetEvents()
 	objects.reset(nil)
 
-	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err == nil {
 		t.Fatal("ReviewDraft approve error is nil, want parser failure")
 	}
@@ -643,13 +645,16 @@ func TestPublishDraftDuplicateVersionDoesNotCommitPartialState(t *testing.T) {
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, second.ID); err != nil {
 		t.Fatalf("SubmitDraft duplicate candidate error = %v", err)
 	}
-	if _, err := store.ReviewDraft(actorID, projectID, serviceID, first.ID, "approve"); err != nil {
+	if _, err := store.ReviewDraft(actorID, projectID, serviceID, first.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, first.ID)); err != nil {
 		t.Fatalf("ReviewDraft first approve error = %v", err)
+	}
+	if _, err := store.Draft(actorID, projectID, serviceID, second.ID); err != nil {
+		t.Fatal(err)
 	}
 	repo.resetEvents()
 	objects.reset(nil)
 
-	_, err = store.ReviewDraft(actorID, projectID, serviceID, second.ID, "approve")
+	_, err = store.ReviewDraft(actorID, projectID, serviceID, second.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, second.ID))
 	if !Is(err, ErrAlreadyExists) {
 		t.Fatalf("ReviewDraft duplicate error = %v, want already exists", err)
 	}
@@ -730,7 +735,7 @@ func TestPublishMarkdownDraftRepositoryFailureDeletesNewVersionObjects(t *testin
 	repo.resetEvents()
 	objects.reset(nil)
 
-	_, err = store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve")
+	_, err = store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID))
 	if err == nil || !strings.Contains(err.Error(), "markdown publish transaction failed") {
 		t.Fatalf("ReviewMarkdownDraft() error = %v, want markdown publish transaction failed", err)
 	}
@@ -799,7 +804,7 @@ func TestConcurrentPublishSameBranchVersionSerializes(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			_, err := store.ReviewDraft(actorID, projectID, serviceID, id, "approve")
+			_, err := store.ReviewDraft(actorID, projectID, serviceID, id, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, id))
 			results <- err
 		}(draftID)
 	}
@@ -810,10 +815,10 @@ func TestConcurrentPublishSameBranchVersionSerializes(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			successes++
-		} else if Is(err, ErrAlreadyExists) {
+		} else if Is(err, ErrAlreadyExists) || Is(err, ErrFailedPrecondition) {
 			duplicates++
 		} else {
-			t.Fatalf("concurrent publish error = %v, want nil or already exists", err)
+			t.Fatalf("concurrent publish error = %v, want one publication and a duplicate or stale-review rejection", err)
 		}
 	}
 	if successes != 1 || duplicates != 1 {
@@ -1248,7 +1253,7 @@ func publishObjectStorageDraft(t *testing.T, store *Store, actorID, projectID, s
 	if _, err := store.SubmitDraft(actorID, projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft(%s) error = %v", versionName, err)
 	}
-	published, err := store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	published, err := store.ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, actorID, projectID, serviceID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDraft approve(%s) error = %v", versionName, err)
 	}
@@ -1308,9 +1313,15 @@ func assertRichSchemaKey(t *testing.T, key, projectID, serviceID, branchID, owne
 	if strings.Contains(key, "/services/") {
 		t.Fatalf("object key %q uses service-oriented path", key)
 	}
-	want := "projects/" + projectID + "/documents/" + serviceID + "/branches/" + branchID + "/" + ownerCollection + "/" + ownerID + "/" + kind + "-" + hash + ".json"
-	if key != want {
-		t.Fatalf("object key = %q, want %q", key, want)
+	prefix := "projects/" + projectID + "/documents/" + serviceID + "/branches/" + branchID + "/" + ownerCollection + "/" + ownerID + "/"
+	suffix := "/" + kind + "-" + hash + ".json"
+	if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+		t.Fatalf("object key = %q, want %q followed by write attempt and %q", key, prefix, suffix)
+	}
+	attemptID := strings.TrimSuffix(strings.TrimPrefix(key, prefix), suffix)
+	decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(attemptID)
+	if err != nil || len(decoded) < 16 {
+		t.Fatalf("object key %q lacks an independent random write attempt: %v", key, err)
 	}
 }
 

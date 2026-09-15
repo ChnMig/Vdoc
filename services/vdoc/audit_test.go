@@ -20,7 +20,7 @@ func TestPublishFlowRecordsSanitizedAuditTrail(t *testing.T) {
 	if _, err := store.SubmitDraft("writer", projectID, serviceID, draft.ID, ctx); err != nil {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
-	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", ctx)
+	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, serviceID, draft.ID), ctx)
 	if err != nil {
 		t.Fatalf("ReviewDraft(approve) error = %v", err)
 	}
@@ -49,7 +49,7 @@ func TestReviewDraftAuditRecordsTrimmedReviewComment(t *testing.T) {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
 
-	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", AuditContext{RequestID: "trace-review-comment", ReviewComment: "  looks safe to publish  "})
+	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, serviceID, draft.ID), AuditContext{RequestID: "trace-review-comment", ReviewComment: "  looks safe to publish  "})
 	if err != nil {
 		t.Fatalf("ReviewDraft(approve) error = %v", err)
 	}
@@ -75,7 +75,7 @@ func TestReviewMarkdownDraftAuditRecordsReviewComment(t *testing.T) {
 		t.Fatalf("SubmitMarkdownDraft() error = %v", err)
 	}
 
-	reviewed, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "request-changes", AuditContext{ReviewComment: "needs a clearer intro"})
+	reviewed, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "request-changes", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID), AuditContext{ReviewComment: "needs a clearer intro"})
 	if err != nil {
 		t.Fatalf("ReviewMarkdownDraft(request-changes) error = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestTask12PublishAuditEvidenceWriter(t *testing.T) {
 	if _, err := store.SubmitDraft("writer", projectID, serviceID, draft.ID, AuditContext{RequestID: "task-12-publish"}); err != nil {
 		t.Fatalf("SubmitDraft() error = %v", err)
 	}
-	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", AuditContext{RequestID: "task-12-publish"})
+	published, err := store.ReviewDraft("admin", projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, serviceID, draft.ID), AuditContext{RequestID: "task-12-publish"})
 	if err != nil {
 		t.Fatalf("ReviewDraft() error = %v", err)
 	}

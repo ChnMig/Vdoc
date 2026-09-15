@@ -56,18 +56,22 @@ func TestRepositorySourceDoesNotKeepWholeStateAggregatePersistence(t *testing.T)
 	}
 }
 
-func TestDiffPreviewJSONRoundTripsSummary(t *testing.T) {
-	diff := &domainvdoc.Diff{Summary: domainvdoc.DiffSummary{AddedEndpoints: 1, RemovedEndpoints: 2, ModifiedEndpoints: 3, BreakingChanges: 4, DocumentFormat: domainvdoc.DocumentFormatMarkdown, AddedLines: 5, RemovedLines: 6, ModifiedLines: 7, ModifiedBlocks: 8}}
+func TestDiffPreviewJSONRoundTripsBaselineAndSummary(t *testing.T) {
+	diff := &domainvdoc.Diff{FromVersionID: "baseline", ToVersionID: "draft", Summary: domainvdoc.DiffSummary{AddedEndpoints: 1, RemovedEndpoints: 2, ModifiedEndpoints: 3, BreakingChanges: 4, DocumentFormat: domainvdoc.DocumentFormatMarkdown, AddedLines: 5, RemovedLines: 6, ModifiedLines: 7, ModifiedBlocks: 8}}
 
 	loaded := diffPreviewFromJSON(diffPreviewJSON(diff))
 	if loaded == nil {
 		t.Fatal("diffPreviewFromJSON() returned nil")
 	}
-	if loaded.DiffStatus != domainvdoc.DiffStatusSucceeded || loaded.Summary != diff.Summary {
+	if loaded.DiffStatus != domainvdoc.DiffStatusSucceeded || loaded.Summary != diff.Summary || loaded.FromVersionID != diff.FromVersionID {
 		t.Fatalf("loaded diff preview = %+v, want summary %+v", loaded, diff.Summary)
 	}
 	if diffPreviewFromJSON(pgdb.JSONB(nil)) != nil {
 		t.Fatal("nil diff preview JSON should load as nil")
+	}
+	legacy := diffPreviewFromJSON(pgdb.NewJSONB(diff.Summary, "{}"))
+	if legacy == nil || legacy.Summary != diff.Summary || legacy.FromVersionID != "" {
+		t.Fatal("legacy summary-only previews must remain readable")
 	}
 }
 

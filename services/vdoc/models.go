@@ -145,3 +145,7 @@ type AuditContext struct {
 	RequestID     string
 	ReviewComment string
 }
+
+type DraftReviewInput struct {
+	ExpectedReviewRevision string
+}

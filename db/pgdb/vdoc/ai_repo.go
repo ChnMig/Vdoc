@@ -16,7 +16,9 @@ func (r *Repository) UpsertAIProvider(ctx context.Context, provider *domainvdoc.
 	if model == nil {
 		return nil
 	}
-	return r.upsertByID(ctx, model)
+	return r.withAIConfigurationMutation(ctx, func(writer *Repository) error {
+		return writer.upsertByID(ctx, model)
+	})
 }
 
 func (r *Repository) UpsertAIProviderIfUnchanged(ctx context.Context, provider, previous *domainvdoc.AIProviderConfig) error {
@@ -24,7 +26,9 @@ func (r *Repository) UpsertAIProviderIfUnchanged(ctx context.Context, provider, 
 	if model == nil {
 		return nil
 	}
-	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+	return r.withAIConfigurationMutation(ctx, func(writer *Repository) error {
+		return writer.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+	})
 }
 
 func (r *Repository) UpsertAIPrompt(ctx context.Context, prompt *domainvdoc.AIPromptOverride) error {
@@ -32,7 +36,9 @@ func (r *Repository) UpsertAIPrompt(ctx context.Context, prompt *domainvdoc.AIPr
 	if model == nil {
 		return nil
 	}
-	return r.upsertByID(ctx, model)
+	return r.withAIConfigurationMutation(ctx, func(writer *Repository) error {
+		return writer.upsertByID(ctx, model)
+	})
 }
 
 func (r *Repository) UpsertAIPromptIfUnchanged(ctx context.Context, prompt, previous *domainvdoc.AIPromptOverride) error {
@@ -40,7 +46,9 @@ func (r *Repository) UpsertAIPromptIfUnchanged(ctx context.Context, prompt, prev
 	if model == nil {
 		return nil
 	}
-	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+	return r.withAIConfigurationMutation(ctx, func(writer *Repository) error {
+		return writer.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+	})
 }
 
 func (r *Repository) UpsertAISummary(ctx context.Context, summary *domainvdoc.AISummary) error {

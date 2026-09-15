@@ -57,6 +57,7 @@ func (s *Store) UpsertProjectAIPrompt(actorID, projectID, promptKey string, inpu
 }
 
 func (s *Store) upsertAIPrompt(actorID, projectID, promptKey string, input AIPromptTemplate, auditCtx ...AuditContext) (*AIPromptOverride, error) {
+	s = s.withAIConfigurationMutationGuard(actorID, projectID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)

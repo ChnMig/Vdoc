@@ -61,6 +61,7 @@ func (s *Store) TestProjectAIProvider(actorID, projectID string, input *AIProvid
 }
 
 func (s *Store) upsertAIProvider(actorID, projectID string, input AIProviderInput, auditCtx ...AuditContext) (*AIProviderConfig, error) {
+	s = s.withAIConfigurationMutationGuard(actorID, projectID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)

@@ -16,7 +16,7 @@ func TestOpenAPIDocumentDraftSubmitApprovePublishesVersion(t *testing.T) {
 		t.Fatalf("draft hashes raw=%q normalized=%q, want distinct populated hashes", draft.RawSchemaHash, draft.NormalizedSchemaHash)
 	}
 
-	updated, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.1"), SchemaContent: testOpenAPI("documentUpdate"), SourceGitCommitID: stringPtrValue("def456")})
+	updated, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), VersionName: stringPtrValue("1.0.1"), SchemaContent: testOpenAPI("documentUpdate"), SourceGitCommitID: stringPtrValue("def456")})
 	if err != nil {
 		t.Fatalf("UpdateDocumentDraft() error = %v", err)
 	}
@@ -26,7 +26,7 @@ func TestOpenAPIDocumentDraftSubmitApprovePublishesVersion(t *testing.T) {
 	if _, err := store.SubmitDocumentDraft("writer", projectID, documentID, draft.ID); err != nil {
 		t.Fatalf("SubmitDocumentDraft() error = %v", err)
 	}
-	published, err := store.ReviewDocumentDraft("admin", projectID, documentID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDocumentDraft(approve) error = %v", err)
 	}
@@ -118,7 +118,7 @@ func TestOpenAPIDocumentApprovalRejectsDraftThatMatchesNewLatestVersion(t *testi
 	publishOpenAPIDocumentDraft(t, store, "admin", projectID, documentID, branchID, "1.1.1", testOpenAPI("sameAsLatestApproval"), "latest-commit")
 	beforeVersions := len(store.versions)
 
-	_, err = store.ReviewDocumentDraft("admin", projectID, documentID, staleDraft.ID, "approve")
+	_, err = store.ReviewDocumentDraft("admin", projectID, documentID, staleDraft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, staleDraft.ID))
 	if !Is(err, ErrFailedPrecondition) {
 		t.Fatalf("ReviewDocumentDraft(stale approve) error = %v, want failed precondition", err)
 	}
@@ -203,7 +203,7 @@ func publishOpenAPIDocumentDraft(t *testing.T, store *Store, actorID, projectID,
 	if _, err := store.SubmitDocumentDraft(actorID, projectID, documentID, draft.ID); err != nil {
 		t.Fatalf("SubmitDocumentDraft(%s) error = %v", versionName, err)
 	}
-	published, err := store.ReviewDocumentDraft("admin", projectID, documentID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDocumentDraft(%s) error = %v", versionName, err)
 	}

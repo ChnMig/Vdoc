@@ -323,9 +323,12 @@ func TestWriterCannotPublishDraftThroughPrivateRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create writer draft: %v", err)
 	}
+	if _, err := store.SubmitDocumentDraft(writerUser.ID, project.ID, document.ID, draft.ID); err != nil {
+		t.Fatal(err)
+	}
 	writerToken := issuePrivateTestToken(t, writerUser.ID)
 
-	recorder := performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/approve", writerToken, "")
+	recorder := performPrivateReview(t, router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/approve", writerToken, "")
 	envelope := decodePrivateEnvelope(t, recorder)
 	if envelope.Code != 403 || envelope.Status != "PERMISSION_DENIED" {
 		t.Fatalf("writer approve response = code %d status %q body %s", envelope.Code, envelope.Status, recorder.Body.String())
@@ -373,7 +376,7 @@ func TestCrossProjectChildBindingReturnsNotFoundThroughPrivateRoute(t *testing.T
 	if _, err := store.SubmitDocumentDraft(superUser.ID, projectB.ID, documentB.ID, draft.ID); err != nil {
 		t.Fatalf("submit draft: %v", err)
 	}
-	published, err := store.ReviewDocumentDraft(superUser.ID, projectB.ID, documentB.ID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft(superUser.ID, projectB.ID, documentB.ID, draft.ID, "approve", reviewInputForTest(t, store, superUser.ID, projectB.ID, documentB.ID, draft.ID))
 	if err != nil {
 		t.Fatalf("publish draft: %v", err)
 	}
@@ -408,7 +411,7 @@ func TestEndpointListAndDetailReturnParsedContractData(t *testing.T) {
 	if _, err := store.SubmitDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, draft.ID); err != nil {
 		t.Fatalf("submit draft: %v", err)
 	}
-	published, err := store.ReviewDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, draft.ID, "approve", reviewInputForTest(t, store, fixture.adminUser.ID, fixture.project.ID, document.ID, draft.ID))
 	if err != nil {
 		t.Fatalf("publish draft: %v", err)
 	}
@@ -733,7 +736,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 		}
 	}
 
-	updateRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID, fixture.writerToken, `{"version_name":"1.0.0-updated","changelog":"updated schema","source_git_commit_id":"def456","schema_content":`+jsonString(privateTestOpenAPI("updated"))+`}`)
+	updateRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID, fixture.writerToken, `{"expected_revision":`+jsonString(draft.Revision)+`,"version_name":"1.0.0-updated","changelog":"updated schema","source_git_commit_id":"def456","schema_content":`+jsonString(privateTestOpenAPI("updated"))+`}`)
 	updateEnvelope := decodePrivateEnvelope(t, updateRecorder)
 	if updateEnvelope.Code != 200 || updateEnvelope.Status != "OK" {
 		t.Fatalf("update draft response = code %d status %q body %s", updateEnvelope.Code, updateEnvelope.Status, updateRecorder.Body.String())
@@ -749,7 +752,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if submitEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/submit", fixture.writerToken, "")); submitEnvelope.Code != 200 {
 		t.Fatalf("submit response = code %d body %s", submitEnvelope.Code, string(submitEnvelope.Detail))
 	}
-	changesEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/request-changes", fixture.adminToken, ""))
+	changesEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/request-changes", fixture.adminToken, ""))
 	if changesEnvelope.Code != 200 || changesEnvelope.Status != "OK" {
 		t.Fatalf("request changes response = code %d status %q body %s", changesEnvelope.Code, changesEnvelope.Status, changesEnvelope.Message)
 	}
@@ -763,7 +766,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if resubmitEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/submit", fixture.writerToken, "")); resubmitEnvelope.Code != 200 {
 		t.Fatalf("resubmit response = code %d body %s", resubmitEnvelope.Code, string(resubmitEnvelope.Detail))
 	}
-	rejectEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/reject", fixture.adminToken, ""))
+	rejectEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+draft.ID+"/reject", fixture.adminToken, ""))
 	if rejectEnvelope.Code != 200 || rejectEnvelope.Status != "OK" {
 		t.Fatalf("reject response = code %d status %q body %s", rejectEnvelope.Code, rejectEnvelope.Status, rejectEnvelope.Message)
 	}
@@ -782,7 +785,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if _, err := app.DefaultStore().SubmitDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, publishDraft.ID); err != nil {
 		t.Fatalf("submit publish draft: %v", err)
 	}
-	approveEnvelope := decodePrivateEnvelope(t, performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+publishDraft.ID+"/approve", fixture.adminToken, ""))
+	approveEnvelope := decodePrivateEnvelope(t, performPrivateReview(t, fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/drafts/"+publishDraft.ID+"/approve", fixture.adminToken, ""))
 	if approveEnvelope.Code != 200 || approveEnvelope.Status != "OK" {
 		t.Fatalf("approve response = code %d status %q body %s", approveEnvelope.Code, approveEnvelope.Status, approveEnvelope.Message)
 	}
@@ -810,7 +813,7 @@ func TestDocumentDraftPipelineThroughPrivateRoutes(t *testing.T) {
 	if _, err := app.DefaultStore().SubmitDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, targetBaseline.ID); err != nil {
 		t.Fatalf("submit target baseline: %v", err)
 	}
-	baselineAny, err := app.DefaultStore().ReviewDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, targetBaseline.ID, "approve")
+	baselineAny, err := app.DefaultStore().ReviewDocumentDraft(fixture.adminUser.ID, fixture.project.ID, document.ID, targetBaseline.ID, "approve", reviewInputForTest(t, app.DefaultStore(), fixture.adminUser.ID, fixture.project.ID, document.ID, targetBaseline.ID))
 	if err != nil {
 		t.Fatalf("publish target baseline: %v", err)
 	}
@@ -1185,7 +1188,7 @@ func privatePublishContractVersion(t *testing.T, actorID, projectID, serviceID, 
 	if _, err := app.DefaultStore().SubmitDraft(actorID, projectID, serviceID, draft.ID); err != nil {
 		t.Fatalf("submit draft %s: %v", versionName, err)
 	}
-	published, err := app.DefaultStore().ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve")
+	published, err := app.DefaultStore().ReviewDraft(actorID, projectID, serviceID, draft.ID, "approve", reviewInputForTest(t, app.DefaultStore(), actorID, projectID, serviceID, draft.ID))
 	if err != nil {
 		t.Fatalf("approve draft %s: %v", versionName, err)
 	}

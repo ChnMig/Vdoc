@@ -111,6 +111,10 @@ Document lifecycle state is not patchable. `PATCH /api/v1/private/projects/{proj
 
 Create a draft by posting OpenAPI 3.0 or 3.1 content as `schema_content`. Markdown documents use the same private REST draft routes and may post Markdown text as `schema_content` or `content`; MCP Markdown draft tools use `markdown_content`. `content_kind` accepts `raw` or `normalized` for OpenAPI content and `raw` or `stable` for Markdown content.
 
+Draft responses include an opaque `revision`. Every REST draft PATCH and MCP `update_api_version_draft` / `update_doc_draft` call requires `expected_revision` from the draft snapshot the edits were based on. A missing revision returns `INVALID_ARGUMENT`; a stale revision returns `FAILED_PRECONDITION` without changing the draft. Reload and reconcile local edits before retrying. REST draft content responses include `detail.draft` alongside `content` and `hash`, all from one snapshot; editors must use this nested draft's metadata and revision. Deploy the backend and Admin together, and update MCP clients to pass the new required field.
+
+Submitted draft snapshots also include `review_revision`. Approval, request-changes, and rejection require `expected_review_revision` from the exact `detail.draft` returned with the content and diff the reviewer inspected. The review revision binds content, submission round, and the current branch latest used by the preview. Missing values return `INVALID_ARGUMENT`; changed content, resubmission (even with identical content), or a newer branch publication return `FAILED_PRECONDITION`. Reload the content and diff, preserve the review note, and make a new review decision. The server also rechecks the draft and branch baseline within the publish transaction. Published drafts retain their historical review baseline. Backend and Admin must be upgraded together.
+
 ```sh
 DRAFT_ONE_RESPONSE=$(curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/drafts" \
   -H 'Content-Type: application/json' \
@@ -122,8 +126,12 @@ curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/d
 curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/drafts/$DRAFT_ONE_ID/content/normalized" -H "Authorization: $JWT"
 curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/drafts/$DRAFT_ONE_ID/submit" -X POST -H "Authorization: $JWT"
 
+REVIEW_SNAPSHOT=$(curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/drafts/$DRAFT_ONE_ID/content/raw" -H "Authorization: $JWT")
+printf '%s' "$REVIEW_SNAPSHOT" | jq '{content: .detail.content, diff: .detail.draft.diff_preview}'
+# Inspect the content and diff before approving this snapshot.
+REVIEW_BODY=$(printf '%s' "$REVIEW_SNAPSHOT" | jq -c '{expected_review_revision: .detail.draft.review_revision}')
 VERSION_ONE_RESPONSE=$(curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/drafts/$DRAFT_ONE_ID/approve" \
-  -X POST -H "Authorization: $JWT")
+  -X POST -H "Authorization: $JWT" -H 'Content-Type: application/json' -d "$REVIEW_BODY")
 VERSION_ONE_ID=$(printf '%s' "$VERSION_ONE_RESPONSE" | jq -r '.detail.id')
 ```
 

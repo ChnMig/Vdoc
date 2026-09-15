@@ -143,16 +143,59 @@ func (p *postgresPersistence) recordPublicDocumentShareAccess(ctx context.Contex
 	return p.recordAudit(ctx, audit)
 }
 
-func (p *postgresPersistence) archiveTeam(ctx context.Context, teamID string, audit *domainvdoc.AuditLog) error {
-	return p.repo.ArchiveTeam(ctx, teamID, audit)
+func (p *postgresPersistence) archiveTeam(ctx context.Context, teamID string, audit *domainvdoc.AuditLog, guard *domainvdoc.MutationGuard) error {
+	archive := func(repository domainvdoc.Repository) error {
+		if repo, ok := repository.(collaborationInvariantRepository); ok {
+			if err := repo.LockCollaborationInvariants(ctx, true, true); err != nil {
+				return err
+			}
+		}
+		if err := validateRepositoryMutation(ctx, repository, guard); err != nil {
+			return err
+		}
+		return repository.ArchiveTeam(ctx, teamID, audit)
+	}
+	if repo, ok := p.repo.(transactionalRepository); ok {
+		return repo.WithinTransaction(ctx, archive)
+	}
+	return archive(p.repo)
 }
 
 func (p *postgresPersistence) saveLocked(ctx context.Context, store *Store) error {
 	return p.saveLockedWithObjectRefs(ctx, store, nil)
 }
 
+// 协作权限写统一先取得既有 invariant 锁，再锁操作者和目标行，避免交叉降权产生反序。
+func (p *postgresPersistence) lockCollaborationMutations(ctx context.Context, store *Store, repository domainvdoc.Repository) error {
+	repo, ok := repository.(collaborationInvariantRepository)
+	if !ok {
+		return nil
+	}
+	previous := store.persisted
+	if previous == nil {
+		previous = domainvdoc.NewState()
+	}
+	changed := len(changedStoreValues(store.users, previous.Users, func(v *User) string { return v.ID })) > 0 ||
+		len(changedStoreValues(store.teams, previous.Teams, func(v *Team) string { return v.ID })) > 0 ||
+		len(changedStoreValues(store.projects, previous.Projects, func(v *Project) string { return v.ID })) > 0 ||
+		len(changedStoreValues(store.members, previous.Members, func(v *ProjectMember) string { return v.ProjectID + ":" + v.UserID })) > 0
+	if !changed {
+		return nil
+	}
+	return repo.LockCollaborationInvariants(ctx, true, true)
+}
+
 func (p *postgresPersistence) saveLockedWithObjectRefs(ctx context.Context, store *Store, refs []domainvdoc.ObjectRef) error {
 	save := func(repository domainvdoc.Repository) error {
+		if err := p.lockCollaborationMutations(ctx, store, repository); err != nil {
+			return err
+		}
+		if err := prepareRegistrationMutation(ctx, repository, store); err != nil {
+			return err
+		}
+		if err := validateRepositoryMutation(ctx, repository, store.mutationGuard); err != nil {
+			return err
+		}
 		for _, ref := range refs {
 			if ref.Key == "" {
 				continue
@@ -279,11 +322,7 @@ func (p *postgresPersistence) saveCollaborationLocked(ctx context.Context, store
 	})
 	plan := buildCollaborationInvariantPlan(changedUsers, changedProjects, changedMembers, persistedUsers, persistedProjects, persistedMembers)
 	invariantRepo, supportsInvariants := repo.(collaborationInvariantRepository)
-	if supportsInvariants {
-		if err := invariantRepo.LockCollaborationInvariants(ctx, plan.superAdmin, len(plan.projectIDs) > 0 || len(plan.userIDs) > 0); err != nil {
-			return err
-		}
-	}
+	// saveLockedWithObjectRefs 已在权限行锁前持有两个不变量锁，这里只执行写后校验。
 	optimisticRepo, supportsOptimisticWrites := repo.(optimisticCollaborationMutationRepository)
 	for _, user := range changedUsers {
 		var err error

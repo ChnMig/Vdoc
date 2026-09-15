@@ -71,6 +71,7 @@ func (s *Store) CreateDocumentShare(actorID, projectID, documentID string, input
 	if s.latestVersionLocked(document.ID, branch.ID) == nil {
 		return nil, fmt.Errorf("%w: document branch has no published version", ErrFailedPrecondition)
 	}
+	s = s.withMutationGuard(actorID, projectID, documentID, MemberRoleAdmin, branch.ID)
 
 	shareID := id.GenerateID()
 	secret, capability, err := encryption.GenerateDocumentShareCapability(shareID, s.cipherKeyring)
@@ -155,6 +156,8 @@ func (s *Store) RevealDocumentShare(actorID, projectID, documentID, shareID stri
 	if err := domainshare.EnsureRevealable(share, time.Now().UTC()); err != nil {
 		return nil, err
 	}
+	s = s.withMutationGuard(actorID, projectID, documentID, MemberRoleAdmin, share.BranchID)
+	s.mutationGuard.RevealShareID = share.ID
 	secret, err := encryption.RevealDocumentShareCapability(share.ID, s.cipherKeyring, encryption.DocumentShareCapabilityRecord{Hash: share.TokenHash, Ciphertext: share.TokenCiphertext, KID: share.CipherKID})
 	if err != nil {
 		return nil, err
@@ -180,6 +183,8 @@ func (s *Store) RevokeDocumentShare(actorID, projectID, documentID, shareID stri
 	if err != nil {
 		return nil, err
 	}
+	s = s.withMutationGuard(actorID, projectID, documentID, MemberRoleAdmin, share.BranchID)
+	s.mutationGuard.AllowArchived = true
 	revoked, transitioned, err := domainshare.Revoke(share, actorID, time.Now().UTC())
 	if err != nil {
 		return nil, err

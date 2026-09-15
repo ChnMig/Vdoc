@@ -1,6 +1,9 @@
 package vdoc
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type State struct {
 	Users         map[string]*User
@@ -60,15 +63,18 @@ type PublicDocumentShareSnapshot struct {
 }
 
 type PublishStateInput struct {
-	State       *State
-	ObjectRefs  []ObjectRef
-	ProjectID   string
-	ServiceID   string
-	BranchID    string
-	DraftID     string
-	VersionID   string
-	VersionName string
-	ActorID     string
+	State                  *State
+	ObjectRefs             []ObjectRef
+	ProjectID              string
+	ServiceID              string
+	BranchID               string
+	DraftID                string
+	VersionID              string
+	VersionName            string
+	ActorID                string
+	ExpectedDraftUpdatedAt time.Time
+	ExpectedBaseVersionID  string
+	MutationGuard          *MutationGuard
 }
 
 type Repository interface {

@@ -150,7 +150,7 @@ func TestVdocV01FailureMatrix(t *testing.T) {
 		"schema_content": e2eOpenAPI("writer-approval-denied", false, false),
 	}))
 	fixture.requireOK(t, http.MethodPost, draftItemPath(workspace, approvalDraft.ID)+"/submit", workspace.WriterToken, nil)
-	writerApproveDenied := fixture.requireStatus(t, http.MethodPost, draftItemPath(workspace, approvalDraft.ID)+"/approve", workspace.WriterToken, nil, 403, "PERMISSION_DENIED")
+	writerApproveDenied := fixture.requireStatus(t, http.MethodPost, draftItemPath(workspace, approvalDraft.ID)+"/approve", workspace.WriterToken, reviewPayload(t, fixture, workspace, approvalDraft.ID), 403, "PERMISSION_DENIED")
 	rows = append(rows, failureMatrixRow{Scenario: "Writer approve RBAC denial", Surface: "REST envelope", Expected: "403 PERMISSION_DENIED", Observed: fmt.Sprintf("%d %s", writerApproveDenied.Code, writerApproveDenied.Status)})
 
 	versionOne := publishVersion(t, fixture, workspace, "1.0.0", e2eOpenAPI("1.0.0", false, false))

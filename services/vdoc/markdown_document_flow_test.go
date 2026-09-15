@@ -1,6 +1,7 @@
 package vdoc
 
 import (
+	"encoding/base32"
 	"strings"
 	"testing"
 )
@@ -23,7 +24,7 @@ func TestMarkdownDocumentDraftSubmitApprovePublishesVersion(t *testing.T) {
 	assertMarkdownObjectWrite(t, objects.writes[0], projectID, documentID, branchID, "drafts", draft.ID, "raw", draft.RawSchemaHash)
 	assertMarkdownObjectWrite(t, objects.writes[1], projectID, documentID, branchID, "drafts", draft.ID, "stable", draft.NormalizedSchemaHash)
 
-	updated, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{VersionName: stringPtrValue("1.0.0"), SchemaContent: markdownV1UpdatedBeforePublish(), SourceGitCommitID: stringPtrValue("md-update")})
+	updated, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), VersionName: stringPtrValue("1.0.0"), SchemaContent: markdownV1UpdatedBeforePublish(), SourceGitCommitID: stringPtrValue("md-update")})
 	if err != nil {
 		t.Fatalf("UpdateMarkdownDraft() error = %v", err)
 	}
@@ -33,7 +34,7 @@ func TestMarkdownDocumentDraftSubmitApprovePublishesVersion(t *testing.T) {
 	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, draft.ID); err != nil {
 		t.Fatalf("SubmitMarkdownDraft() error = %v", err)
 	}
-	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve")
+	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewMarkdownDraft(approve) error = %v", err)
 	}
@@ -74,7 +75,7 @@ func TestMarkdownDocumentDiffNoChangeAndImmutability(t *testing.T) {
 	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, toDraft.ID); err != nil {
 		t.Fatalf("SubmitMarkdownDraft(v2) error = %v", err)
 	}
-	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, toDraft.ID, "approve")
+	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, toDraft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, toDraft.ID))
 	if err != nil {
 		t.Fatalf("ReviewMarkdownDraft(v2) error = %v", err)
 	}
@@ -125,7 +126,7 @@ func TestMarkdownPromoteSubmitApprovePublishesTargetVersion(t *testing.T) {
 	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, promoted.ID); err != nil {
 		t.Fatalf("SubmitMarkdownDraft(promoted) error = %v", err)
 	}
-	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, promoted.ID, "approve")
+	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, promoted.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, promoted.ID))
 	if err != nil {
 		t.Fatalf("ReviewMarkdownDraft(promoted) error = %v", err)
 	}
@@ -183,7 +184,7 @@ func publishMarkdownDocumentDraft(t *testing.T, store *Store, projectID, documen
 	if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, draft.ID); err != nil {
 		t.Fatalf("SubmitMarkdownDraft(%s) error = %v", versionName, err)
 	}
-	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve")
+	published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, draft.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewMarkdownDraft(%s) error = %v", versionName, err)
 	}
@@ -192,9 +193,15 @@ func publishMarkdownDocumentDraft(t *testing.T, store *Store, projectID, documen
 
 func assertMarkdownObjectWrite(t *testing.T, write ObjectWrite, projectID, documentID, branchID, ownerCollection, ownerID, kind, hash string) {
 	t.Helper()
-	want := "projects/" + projectID + "/documents/" + documentID + "/branches/" + branchID + "/" + ownerCollection + "/" + ownerID + "/" + kind + "-" + hash + ".md"
-	if write.Key != want {
-		t.Fatalf("markdown object key = %q, want %q", write.Key, want)
+	prefix := "projects/" + projectID + "/documents/" + documentID + "/branches/" + branchID + "/" + ownerCollection + "/" + ownerID + "/"
+	suffix := "/" + kind + "-" + hash + ".md"
+	if !strings.HasPrefix(write.Key, prefix) || !strings.HasSuffix(write.Key, suffix) {
+		t.Fatalf("markdown object key = %q, want %q followed by write attempt and %q", write.Key, prefix, suffix)
+	}
+	attemptID := strings.TrimSuffix(strings.TrimPrefix(write.Key, prefix), suffix)
+	decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(attemptID)
+	if err != nil || len(decoded) < 16 {
+		t.Fatalf("markdown object key %q lacks an independent random write attempt: %v", write.Key, err)
 	}
 	if write.ContentType != "text/markdown; charset=utf-8" {
 		t.Fatalf("markdown content type = %q, want text/markdown", write.ContentType)

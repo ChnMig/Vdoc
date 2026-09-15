@@ -159,7 +159,7 @@ func newSeedServer(t *testing.T) *seedServer {
 			writeOK(w, resourceID{ID: "draft_2"})
 		case "/api/v1/private/projects/project_1/documents/document_1/drafts/draft_1/submit", "/api/v1/private/projects/project_1/documents/document_1/drafts/draft_2/submit":
 			requireAuth(t, r, "jwt-writer-secret")
-			writeOK(w, resourceID{ID: "submitted"})
+			writeOK(w, draftSubmission{ReviewRevision: "review-snapshot"})
 		case "/api/v1/private/projects/project_1/documents/document_1/drafts/draft_1/approve":
 			requireAuth(t, r, "jwt-admin-secret")
 			writeOK(w, resourceID{ID: "version_1"})

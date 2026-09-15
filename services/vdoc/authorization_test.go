@@ -27,13 +27,13 @@ func TestProjectRolesAuthorizeExpectedCapabilities(t *testing.T) {
 	if _, err := store.CreateDraft("writer", "project-a", "service-a", DraftInput{BranchID: "branch-a", VersionName: "writer-create", SchemaContent: testOpenAPI("writerCreate")}); err != nil {
 		t.Fatalf("writer CreateDraft error = %v", err)
 	}
-	if _, err := store.UpdateDraft("writer", "project-a", "service-a", "draft-a", DraftPatchInput{VersionName: stringPtrValue("writer"), SchemaContent: testOpenAPI("writerUpdate")}); err != nil {
+	if _, err := store.UpdateDraft("writer", "project-a", "service-a", "draft-a", DraftPatchInput{ExpectedRevision: store.drafts["draft-a"].Revision(), VersionName: stringPtrValue("writer"), SchemaContent: testOpenAPI("writerUpdate")}); err != nil {
 		t.Fatalf("writer UpdateDraft error = %v", err)
 	}
 	if _, err := store.SubmitDraft("writer", "project-a", "service-a", "draft-a"); err != nil {
 		t.Fatalf("writer SubmitDraft error = %v", err)
 	}
-	if _, err := store.ReviewDraft("writer", "project-a", "service-a", "draft-a", "approve"); !Is(err, ErrPermissionDenied) {
+	if _, err := store.ReviewDraft("writer", "project-a", "service-a", "draft-a", "approve", reviewInputForTest(t, store, "writer", "project-a", "service-a", "draft-a")); !Is(err, ErrPermissionDenied) {
 		t.Fatalf("writer ReviewDraft error = %v, want permission denied", err)
 	}
 	if _, err := store.PromoteDraft("writer", "project-a", "service-a", PromoteInput{SourceBranchID: "branch-a", TargetBranchID: "branch-a", VersionName: "writer-promote"}); !Is(err, ErrPermissionDenied) {
@@ -43,7 +43,7 @@ func TestProjectRolesAuthorizeExpectedCapabilities(t *testing.T) {
 		t.Fatalf("writer PatchProjectMemberRole error = %v, want permission denied", err)
 	}
 
-	if _, err := store.ReviewDraft("admin", "project-a", "service-a", "draft-a", "approve"); err != nil {
+	if _, err := store.ReviewDraft("admin", "project-a", "service-a", "draft-a", "approve", reviewInputForTest(t, store, "admin", "project-a", "service-a", "draft-a")); err != nil {
 		t.Fatalf("admin ReviewDraft approve error = %v", err)
 	}
 	if _, err := store.PatchProjectMemberRole("admin", "project-a", "reader", MemberRoleWriter); err != nil {
@@ -70,7 +70,7 @@ func TestSuperAdminBypassesProjectMembership(t *testing.T) {
 	if _, err := store.SubmitDraft("super", "project-a", "service-a", superDraft.ID); err != nil {
 		t.Fatalf("super SubmitDraft error = %v", err)
 	}
-	if _, err := store.ReviewDraft("super", "project-a", "service-a", superDraft.ID, "approve"); err != nil {
+	if _, err := store.ReviewDraft("super", "project-a", "service-a", superDraft.ID, "approve", reviewInputForTest(t, store, "super", "project-a", "service-a", superDraft.ID)); err != nil {
 		t.Fatalf("super ReviewDraft approve error = %v", err)
 	}
 	if _, err := store.PatchProjectMemberRole("super", "project-a", "writer", MemberRoleAdmin); err != nil {

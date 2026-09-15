@@ -90,7 +90,7 @@ func TestDraftPatchesPreserveImmutableContextAndOmittedMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateDocumentDraft() error = %v", err)
 		}
-		updated, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{SchemaContent: testOpenAPI("patchUpdated")})
+		updated, err := store.UpdateDocumentDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), SchemaContent: testOpenAPI("patchUpdated")})
 		if err != nil {
 			t.Fatalf("UpdateDocumentDraft(content only) error = %v", err)
 		}
@@ -109,7 +109,7 @@ func TestDraftPatchesPreserveImmutableContextAndOmittedMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateMarkdownDraft() error = %v", err)
 		}
-		updated, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{SchemaContent: markdownV1UpdatedBeforePublish()})
+		updated, err := store.UpdateMarkdownDraft("writer", projectID, documentID, draft.ID, DraftPatchInput{ExpectedRevision: draft.Revision(), SchemaContent: markdownV1UpdatedBeforePublish()})
 		if err != nil {
 			t.Fatalf("UpdateMarkdownDraft(content only) error = %v", err)
 		}

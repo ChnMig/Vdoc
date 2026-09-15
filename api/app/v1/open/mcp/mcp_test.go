@@ -195,13 +195,11 @@ func TestMCPDocDraftScopeCanManageMarkdownDrafts(t *testing.T) {
 	}
 
 	createResult := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "create_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID, "version_name": "1.0.0", "markdown_content": mcpTestMarkdown("Doc draft create")}), "create_doc_draft")
-	var draft struct {
-		ID string `json:"id"`
-	}
+	var draft mcpDraftDTO
 	if err := json.Unmarshal(createResult, &draft); err != nil || draft.ID == "" {
 		t.Fatalf("decode doc draft: id=%q error=%v body %s", draft.ID, err, string(createResult))
 	}
-	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID, "branch_id": fixture.markdownBranchID, "version_name": "1.0.0", "markdown_content": mcpTestMarkdown("Doc draft updated")}), "update_doc_draft")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID, "expected_revision": draft.Revision, "branch_id": fixture.markdownBranchID, "version_name": "1.0.0", "markdown_content": mcpTestMarkdown("Doc draft updated")}), "update_doc_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID}), "get_doc_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": draft.ID}), "submit_doc_draft")
 }
@@ -335,14 +333,12 @@ func TestMCPJSONRPCToolsCallExecutesV01Tools(t *testing.T) {
 	}
 
 	createResult := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "create_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "branch_id": fixture.branchID, "version_name": "1.2.0", "schema_content": mcpTestOpenAPI("draftCreate")}), "create_api_version_draft")
-	var draft struct {
-		ID string `json:"id"`
-	}
+	var draft mcpDraftDTO
 	if err := json.Unmarshal(createResult, &draft); err != nil || draft.ID == "" {
 		t.Fatalf("decode created draft: id=%q error=%v body %s", draft.ID, err, string(createResult))
 	}
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID}), "get_api_version_draft")
-	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID, "branch_id": fixture.branchID, "version_name": "1.2.0", "schema_content": mcpTestOpenAPIWithReport("draftUpdated")}), "update_api_version_draft")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID, "expected_revision": draft.Revision, "branch_id": fixture.branchID, "version_name": "1.2.0", "schema_content": mcpTestOpenAPIWithReport("draftUpdated")}), "update_api_version_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_api_version_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.documentID, "draft_id": draft.ID}), "submit_api_version_draft")
 
 	latestDoc := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "get_latest_doc", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID}), "get_latest_doc")
@@ -355,9 +351,7 @@ func TestMCPJSONRPCToolsCallExecutesV01Tools(t *testing.T) {
 	}
 
 	docCreateResult := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "create_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID, "version_name": "1.2.0", "markdown_content": mcpTestMarkdown("Draft create")}), "create_doc_draft")
-	var docDraft struct {
-		ID string `json:"id"`
-	}
+	var docDraft mcpDraftDTO
 	if err := json.Unmarshal(docCreateResult, &docDraft); err != nil || docDraft.ID == "" {
 		t.Fatalf("decode created doc draft: id=%q error=%v body %s", docDraft.ID, err, string(docCreateResult))
 	}
@@ -365,7 +359,7 @@ func TestMCPJSONRPCToolsCallExecutesV01Tools(t *testing.T) {
 	if !bytes.Contains(docDraftDetail, []byte("Draft create")) {
 		t.Fatalf("get_doc_draft result %s does not contain draft Markdown content", string(docDraftDetail))
 	}
-	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID, "branch_id": fixture.markdownBranchID, "version_name": "1.2.0", "markdown_content": mcpTestMarkdown("Draft updated")}), "update_doc_draft")
+	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "update_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID, "expected_revision": docDraft.Revision, "branch_id": fixture.markdownBranchID, "version_name": "1.2.0", "markdown_content": mcpTestMarkdown("Draft updated")}), "update_doc_draft")
 	assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "submit_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "draft_id": docDraft.ID}), "submit_doc_draft")
 }
 
@@ -433,9 +427,7 @@ func TestMCPToolResultsUsePublicDocumentDTOs(t *testing.T) {
 	docDraftCreate := assertRPCResult(t, callMCPToolRPC(t, fixture.router, token.Token, "create_doc_draft", gin.H{"project_id": fixture.projectID, "document_id": fixture.markdownDocumentID, "branch_id": fixture.markdownBranchID, "version_name": "2.0.0", "markdown_content": mcpTestMarkdown("DTO draft")}), "create_doc_draft dto")
 	assertPublicMCPResult(t, "create_doc_draft", docDraftCreate, `"document_id"`, `"raw_content_hash"`, `"stable_content_hash"`)
 	assertMCPResultOmits(t, "create_doc_draft", docDraftCreate, `"raw_content"`, `"stable_content"`, `object_key`)
-	var docDraft struct {
-		ID string `json:"id"`
-	}
+	var docDraft mcpDraftDTO
 	if err := json.Unmarshal(docDraftCreate, &docDraft); err != nil || docDraft.ID == "" {
 		t.Fatalf("decode doc draft id: id=%q error=%v body=%s", docDraft.ID, err, string(docDraftCreate))
 	}
@@ -898,7 +890,7 @@ func publishMCPFixtureVersion(t *testing.T, fixture mcpFixture, versionName, sch
 	if _, err := store.SubmitDocumentDraft(fixture.superID, fixture.projectID, fixture.documentID, draft.ID); err != nil {
 		t.Fatalf("SubmitDraft(%s) error = %v", versionName, err)
 	}
-	published, err := store.ReviewDocumentDraft(fixture.superID, fixture.projectID, fixture.documentID, draft.ID, "approve")
+	published, err := store.ReviewDocumentDraft(fixture.superID, fixture.projectID, fixture.documentID, draft.ID, "approve", reviewInputForTest(t, store, fixture.superID, fixture.projectID, fixture.documentID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewDraft(%s) error = %v", versionName, err)
 	}
@@ -919,7 +911,7 @@ func publishMCPFixtureMarkdownVersion(t *testing.T, fixture mcpFixture, versionN
 	if _, err := store.SubmitMarkdownDraft(fixture.superID, fixture.projectID, fixture.markdownDocumentID, draft.ID); err != nil {
 		t.Fatalf("SubmitMarkdownDraft(%s) error = %v", versionName, err)
 	}
-	published, err := store.ReviewMarkdownDraft(fixture.superID, fixture.projectID, fixture.markdownDocumentID, draft.ID, "approve")
+	published, err := store.ReviewMarkdownDraft(fixture.superID, fixture.projectID, fixture.markdownDocumentID, draft.ID, "approve", reviewInputForTest(t, store, fixture.superID, fixture.projectID, fixture.markdownDocumentID, draft.ID))
 	if err != nil {
 		t.Fatalf("ReviewMarkdownDraft(%s) error = %v", versionName, err)
 	}

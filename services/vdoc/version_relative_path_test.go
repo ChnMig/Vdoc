@@ -51,7 +51,7 @@ func TestDocumentVersionRelativePathSurvivesPublishRenameAndReload(t *testing.T)
 				if _, submitErr := store.SubmitMarkdownDraft("writer", "project-a", document.ID, draft.ID); submitErr != nil {
 					t.Fatalf("SubmitMarkdownDraft() error = %v", submitErr)
 				}
-				result, reviewErr := store.ReviewMarkdownDraft("admin", "project-a", document.ID, draft.ID, "approve")
+				result, reviewErr := store.ReviewMarkdownDraft("admin", "project-a", document.ID, draft.ID, "approve", reviewInputForTest(t, store, "admin", "project-a", document.ID, draft.ID))
 				if reviewErr != nil {
 					t.Fatalf("ReviewMarkdownDraft() error = %v", reviewErr)
 				}
@@ -64,7 +64,7 @@ func TestDocumentVersionRelativePathSurvivesPublishRenameAndReload(t *testing.T)
 				if _, submitErr := store.SubmitDocumentDraft("writer", "project-a", document.ID, draft.ID); submitErr != nil {
 					t.Fatalf("SubmitDocumentDraft() error = %v", submitErr)
 				}
-				result, reviewErr := store.ReviewDocumentDraft("admin", "project-a", document.ID, draft.ID, "approve")
+				result, reviewErr := store.ReviewDocumentDraft("admin", "project-a", document.ID, draft.ID, "approve", reviewInputForTest(t, store, "admin", "project-a", document.ID, draft.ID))
 				if reviewErr != nil {
 					t.Fatalf("ReviewDocumentDraft() error = %v", reviewErr)
 				}

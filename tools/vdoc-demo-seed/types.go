@@ -12,6 +12,10 @@ type envelope struct {
 	Detail  json.RawMessage `json:"detail"`
 }
 
+type draftSubmission struct {
+	ReviewRevision string `json:"review_revision"`
+}
+
 type request struct {
 	Method string
 	Path   string
