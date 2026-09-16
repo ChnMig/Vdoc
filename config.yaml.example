@@ -74,6 +74,13 @@ log:
   gin_level: ""     # Gin access/error 日志级别；为空时跟随 level
 
 database:
+  # 单文件 Compose 可改用以下分项；非空 dsn 优先，旧部署无需改配置。
+  # host: postgres
+  # port: 5432
+  # name: vdoc
+  # user: vdoc
+  # password: ""  # 必填；支持 URI 特殊字符，无需自行编码
+  # ssl_mode: disable
   enabled: false
   dsn: "postgres://vdoc:<password>@127.0.0.1:5432/vdoc?sslmode=disable"
   max_open_conns: 20

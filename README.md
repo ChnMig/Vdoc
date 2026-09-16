@@ -41,7 +41,9 @@ Public workspace deployment and release documents are maintained in Vdoc-site:
 - [PILOT_RUNBOOK.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/PILOT_RUNBOOK.md)
 - [RELEASE_DEPLOY.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/RELEASE_DEPLOY.md)
 
-First [download and initialize the full workspace](https://chnmig.github.io/Vdoc-site/en/deployment). The backend repository alone does not contain the root Compose files. Run the following from the initialized workspace root:
+For deployment, download [docker-compose.yml](https://chnmig.github.io/Vdoc-site/downloads/docker-compose.yml), fill its settings and keys, and run `docker compose pull` followed by `docker compose up -d`. Backend applies database migrations and creates the initial administrator and storage bucket during startup. The [deployment guide](https://chnmig.github.io/Vdoc-site/en/deployment) covers first login and upgrades.
+
+For source development and disposable E2E, initialize the [developer workspace](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/README.md) and run from its root:
 
 ```sh
 scripts/vdoc-local-bootstrap.sh
@@ -93,7 +95,7 @@ Push a version tag such as `v0.1.1` or `v0.1.1-rc.1` after committing the releas
 
 CI uploads the verified artifacts and then creates a [GitHub Release](https://github.com/ChnMig/Vdoc/releases) from the existing tag. Prerelease tags create prereleases. Ordinary branch pushes and pull requests run checks only. The publish job reuses the verified artifacts and does not overwrite an existing release.
 
-For a local packaging check, run `make release-package RELEASE_TAG=v0.2.1` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
+For a local packaging check, run `make release-package RELEASE_TAG=v0.3.0` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
 
 ## Product Concepts
 
@@ -387,3 +389,5 @@ Issues and pull requests are welcome. Since the project is early, please keep ch
 ## License
 
 [MIT License](LICENSE)
+
+Verified Linux amd64/arm64 images are also published to `ghcr.io/chnmig/vdoc:<tag>`. Release assets include `container-image.json` with the manifest digest and source commit. `--check-config` validates settings without opening database/storage connections or writing runtime files.

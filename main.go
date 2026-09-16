@@ -31,8 +31,9 @@ import (
 )
 
 var CLI struct {
-	Dev     bool `help:"Run in development mode" short:"d"`
-	Version bool `help:"Show version information" short:"v"`
+	Dev         bool `help:"Run in development mode" short:"d"`
+	Version     bool `help:"Show version information" short:"v"`
+	CheckConfig bool `help:"Validate configuration without starting services or changing data"`
 }
 
 var (
@@ -82,6 +83,16 @@ func main() {
 	if err := config.LoadConfig(); err != nil {
 		fmt.Printf("Failed to load configuration: %v\n", err)
 		ctx.Exit(1)
+		return
+	}
+
+	if CLI.CheckConfig {
+		if err := config.ValidateLoadedConfig(); err != nil {
+			fmt.Printf("Configuration invalid: %v\n", err)
+			ctx.Exit(1)
+			return
+		}
+		fmt.Println("Configuration valid")
 		return
 	}
 

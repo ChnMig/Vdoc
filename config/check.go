@@ -25,6 +25,20 @@ const (
 	maxInitialAdminPasswordBytes = 72
 )
 
+// ValidateLoadedConfig 供容器启动前的配置检查使用，不连接数据库，也不创建运行文件。
+func ValidateLoadedConfig() error {
+	cfg, err := readConfig()
+	if err != nil {
+		return err
+	}
+	return validateConfig(cfg)
+}
+
+func isDeploymentPlaceholder(value string) bool {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	return strings.HasPrefix(value, "CHANGE_ME") || strings.HasPrefix(value, "REPLACE_WITH_")
+}
+
 // CheckConfig 校验关键配置项，缺失或不安全则 fatal 并记录日志
 func CheckConfig(
 	JWTKey string,
@@ -184,12 +198,12 @@ func validateJWTConfig(JWTKey string, JWTExpiration int64) error {
 
 	// 检查 JWT 密钥是否为空
 	if JWTKey == "" {
-		return fmt.Errorf("JWTKey 配置缺失，请在 config.yaml 中设置")
+		return fmt.Errorf("JWTKey 配置缺失，请设置 jwt.key 或 VDOC_JWT_KEY")
 	}
 
 	// 检查是否使用了默认的不安全密钥
 	if isUnsafeExampleJWTKey(JWTKey) {
-		return fmt.Errorf("JWT 密钥仍使用示例值，存在严重安全风险，请修改 config.yaml 中的 jwt.key 为强密钥")
+		return fmt.Errorf("JWT 密钥仍使用示例值，请设置 jwt.key 或 VDOC_JWT_KEY 为至少 32 字符的独立随机密钥")
 	}
 
 	// 检查密钥长度是否足够
@@ -235,6 +249,9 @@ func validateStorageConfig(cfg loadedConfig) error {
 	if endpoint == "" || bucket == "" || accessKey == "" || secretKey == "" {
 		return fmt.Errorf("storage endpoint, bucket, access_key and secret_key are required when storage.enabled=true")
 	}
+	if isDeploymentPlaceholder(accessKey) || isDeploymentPlaceholder(secretKey) {
+		return fmt.Errorf("replace storage.access_key and storage.secret_key in docker-compose.yml before starting")
+	}
 	if strings.Contains(endpoint, "://") {
 		return fmt.Errorf("storage.endpoint must be host[:port] without scheme when storage.enabled=true")
 	}
@@ -261,6 +278,9 @@ func validateInitialAdminConfig(cfg loadedConfig) error {
 }
 
 func ValidateInitialAdminPassword(password string) error {
+	if isDeploymentPlaceholder(password) {
+		return fmt.Errorf("replace initial_admin.password in docker-compose.yml before starting")
+	}
 	if strings.TrimSpace(password) != password {
 		return fmt.Errorf("initial_admin.password must not have leading or trailing whitespace")
 	}
@@ -315,6 +335,9 @@ func CurrentMCPTokenCipherKeyring() (encryption.Keyring, error) {
 }
 
 func isUnsafeExampleJWTKey(key string) bool {
+	if isDeploymentPlaceholder(key) {
+		return true
+	}
 	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(key), "-", "_"))
 	unsafeKeys := map[string]struct{}{
 		unsafeDefaultKey:  {},

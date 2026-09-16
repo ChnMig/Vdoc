@@ -126,14 +126,20 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [verify, images]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: write
+      packages: write
     concurrency:
       group: backend-release-${{ github.ref }}
       cancel-in-progress: false
     steps:
+      - name: Checkout publishing tools
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
       - name: Download verified release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -149,6 +155,12 @@ jobs:
         run: |
           sha256sum --check SHA256SUMS
           for checksum in *.sha256; do sha256sum --check "$checksum"; done
+
+      - name: Publish verified multi-platform image to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/publish-image.sh "$RELEASE_TAG" release
 
       - name: Create GitHub Release
         env:

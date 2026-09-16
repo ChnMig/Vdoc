@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -140,6 +143,12 @@ func setDefaults() {
 
 	v.SetDefault("database.enabled", false)
 	v.SetDefault("database.dsn", "")
+	v.SetDefault("database.host", "")
+	v.SetDefault("database.port", 5432)
+	v.SetDefault("database.name", "vdoc")
+	v.SetDefault("database.user", "vdoc")
+	v.SetDefault("database.password", "")
+	v.SetDefault("database.ssl_mode", "disable")
 	v.SetDefault("database.max_open_conns", 20)
 	v.SetDefault("database.max_idle_conns", 5)
 
@@ -233,6 +242,12 @@ func readConfig() (loadedConfig, error) {
 
 	cfg.DatabaseEnabled = v.GetBool("database.enabled")
 	cfg.DatabaseDSN = v.GetString("database.dsn")
+	if cfg.DatabaseEnabled && strings.TrimSpace(cfg.DatabaseDSN) == "" && v.GetString("database.host") != "" {
+		cfg.DatabaseDSN, err = structuredDatabaseDSN()
+		if err != nil {
+			return loadedConfig{}, err
+		}
+	}
 	cfg.DatabaseMaxOpenConn = v.GetInt("database.max_open_conns")
 	cfg.DatabaseMaxIdleConn = v.GetInt("database.max_idle_conns")
 
@@ -255,6 +270,31 @@ func readConfig() (loadedConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// structuredDatabaseDSN 允许 Compose 用 YAML 锚点共享凭据，并正确转义密码中的 URI 字符。
+func structuredDatabaseDSN() (string, error) {
+	host := strings.TrimSpace(v.GetString("database.host"))
+	port := v.GetInt("database.port")
+	name := v.GetString("database.name")
+	user := v.GetString("database.user")
+	password := v.GetString("database.password")
+	sslMode := v.GetString("database.ssl_mode")
+	if host == "" || port < 1 || port > 65535 || name == "" || user == "" || password == "" {
+		return "", fmt.Errorf("database host, port (1–65535), name, user and password are required")
+	}
+	if isDeploymentPlaceholder(password) {
+		return "", fmt.Errorf("replace database.password in docker-compose.yml before starting")
+	}
+	switch sslMode {
+	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+	default:
+		return "", fmt.Errorf("database.ssl_mode is invalid")
+	}
+	connection := url.URL{Scheme: "postgres", User: url.UserPassword(user, password), Host: net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port)), Path: "/" + name}
+	query := url.Values{"sslmode": []string{sslMode}}
+	connection.RawQuery = query.Encode()
+	return connection.String(), nil
 }
 
 func applyLoadedConfig(cfg loadedConfig) {

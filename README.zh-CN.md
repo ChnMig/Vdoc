@@ -41,7 +41,9 @@ API 文档：
 - [PILOT_RUNBOOK.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/PILOT_RUNBOOK.md)
 - [RELEASE_DEPLOY.md](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/RELEASE_DEPLOY.md)
 
-先按[部署指南](https://chnmig.github.io/Vdoc-site/deployment)下载并初始化完整 workspace；单独克隆后端仓库不包含根级 Compose 文件。以下命令在初始化后的 workspace 根目录执行：
+部署时下载 [docker-compose.yml](https://chnmig.github.io/Vdoc-site/downloads/docker-compose.yml)，在 YAML 中填写配置和密钥，再执行 `docker compose pull` 与 `docker compose up -d`。后端启动时自动运行数据库迁移并创建初始管理员和存储桶。[部署指南](https://chnmig.github.io/Vdoc-site/deployment)包含首次登录和升级说明。
+
+源码开发和一次性 E2E 使用[开发工作区](https://github.com/ChnMig/Vdoc-site/blob/main/workspace/README.md)，以下命令在其根目录执行：
 
 ```sh
 scripts/vdoc-local-bootstrap.sh
@@ -72,7 +74,7 @@ scripts/vdoc-release-dry-run.sh
 
 随后自动创建 [GitHub Release](https://github.com/ChnMig/Vdoc/releases) 并上传同一份已验证产物；带预发布后缀的 tag 会标记为预发布。普通分支提交和 PR 只运行检查。发布任务不会覆盖已有 Release。
 
-本地可用 `make release-package RELEASE_TAG=v0.2.1` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
+本地可用 `make release-package RELEASE_TAG=v0.3.0` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
 
 ## 已实现能力
 
@@ -360,3 +362,5 @@ unset NEW_PASSWORD
 ## 许可证
 
 [MIT License](LICENSE)
+
+通过校验的 Linux amd64/arm64 镜像同时发布到 `ghcr.io/chnmig/vdoc:<tag>`。Release 附带 `container-image.json`，记录镜像 digest 和源码提交。`--check-config` 可在不连接数据库/存储、不写运行文件的情况下验证配置。
