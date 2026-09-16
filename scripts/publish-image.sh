@@ -51,7 +51,15 @@ for arch in amd64 arm64; do
     docker tag "$local_id" "$remote"
     docker push "$remote"
   fi
-  docker buildx imagetools inspect "$remote" --format '{{.Manifest.Digest}}' >"$stage/$arch.digest"
+  # 支持 registry 返回单架构 manifest 或附带 provenance 的 OCI index。
+  docker buildx imagetools inspect "$remote" --raw >"$stage/arch-manifest.json"
+  if jq -e '.manifests | type == "array"' "$stage/arch-manifest.json" >/dev/null; then
+    jq -er --arg arch "$arch" \
+      '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch)] | if length == 1 then .[0].digest else error("expected exactly one Linux platform image") end' \
+      "$stage/arch-manifest.json" >"$stage/$arch.digest"
+  else
+    docker buildx imagetools inspect "$remote" --format '{{.Manifest.Digest}}' >"$stage/$arch.digest"
+  fi
 done
 
 jq -n --arg amd64 "$(cat "$stage/amd64.digest")" --arg arm64 "$(cat "$stage/arm64.digest")" \
@@ -63,7 +71,8 @@ if inspect_remote "$target"; then
     exit 1
   }
 else
-  docker buildx imagetools create --tag "$target" "$target-amd64" "$target-arm64"
+  docker buildx imagetools create --tag "$target" \
+    "$registry@$(cat "$stage/amd64.digest")" "$registry@$(cat "$stage/arm64.digest")"
 fi
 
 docker buildx imagetools inspect "$target" --raw |
