@@ -3,6 +3,8 @@ package documentversion
 import "time"
 
 type ContractVersion struct {
+	ParserVersion        int       `json:"-"`
+	ParsedSchemaHash     string    `json:"-"`
 	ID                   string    `json:"id"`
 	ProjectID            string    `json:"project_id"`
 	DocumentID           string    `json:"document_id,omitempty"`

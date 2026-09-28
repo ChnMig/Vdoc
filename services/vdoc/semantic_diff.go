@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"vdoc/utils/id"
+	"vdoc/utils/jsonvalue"
 )
 
 type semanticDiffBuilder struct {
@@ -14,13 +15,14 @@ type semanticDiffBuilder struct {
 }
 
 func (b *semanticDiffBuilder) compareEndpoint(from, to Endpoint) {
+	from, to = endpointForComparison(from), endpointForComparison(to)
 	if !valuesEqual(endpointMetadata(from), endpointMetadata(to)) {
 		b.add(ChangeEndpointModified, SeverityWarning, to, "endpoint", "Endpoint metadata changed", false, endpointMetadata(from), endpointMetadata(to))
 	}
 	b.compareParameters(from, to)
 	b.compareRequestBody(from, to)
 	b.compareResponses(from, to)
-	if !valuesEqual(from.Security, to.Security) {
+	if !valuesEqual(optionalCollection(from.Security), optionalCollection(to.Security)) {
 		b.add(ChangeSecurityChanged, SeverityWarning, to, "security", "Security requirements changed", false, from.Security, to.Security)
 	}
 	if !valuesEqual(endpointSecuritySchemes(from), endpointSecuritySchemes(to)) {
@@ -28,6 +30,9 @@ func (b *semanticDiffBuilder) compareEndpoint(from, to Endpoint) {
 	}
 	if from.Deprecated != to.Deprecated {
 		b.add(ChangeDeprecatedChanged, SeverityInfo, to, "deprecated", "Deprecated status changed", false, from.Deprecated, to.Deprecated)
+	}
+	if !valuesEqual(canonicalServers(from.Servers), canonicalServers(to.Servers)) {
+		b.manualContractChange(ChangeEndpointModified, to, "servers", "Server contract changed; compatibility requires manual review", from.Servers, to.Servers)
 	}
 }
 
@@ -84,10 +89,6 @@ func (b *semanticDiffBuilder) compareParameterPair(endpoint Endpoint, oldParam, 
 	if oldLocation != location {
 		b.add(ChangeParameterChanged, SeverityBreaking, endpoint, parameterPath(location, name), "Parameter location changed", true, oldLocation, location)
 	}
-	oldType, newType := schemaType(oldParam["schema"]), schemaType(newParam["schema"])
-	if oldType != newType {
-		b.add(ChangeParameterChanged, SeverityBreaking, endpoint, parameterPath(location, name), "Parameter type changed", true, oldType, newType)
-	}
 	oldRequired, newRequired := boolValue(oldParam["required"]), boolValue(newParam["required"])
 	if oldRequired != newRequired {
 		breaking := newRequired
@@ -97,8 +98,39 @@ func (b *semanticDiffBuilder) compareParameterPair(endpoint Endpoint, oldParam, 
 		}
 		b.add(ChangeParameterChanged, severity, endpoint, parameterPath(location, name), "Parameter required flag changed", breaking, oldRequired, newRequired)
 	}
-	b.compareEnumValues(ChangeParameterChanged, endpoint, parameterPath(location, name), oldParam["schema"], newParam["schema"], "Parameter enum value removed")
-	b.compareSchemaChildren(ChangeParameterChanged, endpoint, parameterPath(location, name), oldParam["schema"], newParam["schema"], false)
+	prefix := parameterPath(location, name)
+	oldContent, newContent := mediaSchemas(oldParam), mediaSchemas(newParam)
+	if len(oldContent) > 0 || len(newContent) > 0 {
+		if len(oldContent) == 0 || len(newContent) == 0 {
+			b.manualSchemaChange(ChangeParameterChanged, endpoint, prefix, oldParam, newParam)
+		} else {
+			for _, media := range sortedStringUnionKeys(oldContent, newContent) {
+				oldSchema, oldOK := oldContent[media]
+				newSchema, newOK := newContent[media]
+				if !oldOK || !newOK {
+					b.manualSchemaChange(ChangeParameterChanged, endpoint, prefix+".content."+media, oldSchema, newSchema)
+				} else {
+					b.compareSchemaFields(ChangeParameterChanged, endpoint, prefix+".content."+media, oldSchema, newSchema, false)
+				}
+			}
+		}
+	} else {
+		oldSchema, newSchema := unconstrainedSchema(oldParam["schema"]), unconstrainedSchema(newParam["schema"])
+		oldType, newType := schemaType(oldSchema), schemaType(newSchema)
+		if oldType != newType {
+			breaking := typeChangeBreaking(oldType, newType, false)
+			b.add(ChangeParameterChanged, compatibilitySeverity(breaking), endpoint, parameterPath(location, name), "Parameter type changed", breaking, oldType, newType)
+		}
+		b.compareEnumValues(ChangeParameterChanged, endpoint, prefix, oldSchema, newSchema, "Parameter enum value removed")
+		b.compareSchemaChildren(ChangeParameterChanged, endpoint, prefix, oldSchema, newSchema, false)
+		b.compareSchemaConstraints(ChangeParameterChanged, endpoint, prefix, oldSchema, newSchema, false)
+	}
+	// 序列化选项会改变线上的参数表示，无法只靠 schema 判断兼容性。
+	for _, key := range []string{"style", "explode", "allowReserved", "allowEmptyValue"} {
+		if !valuesEqual(oldParam[key], newParam[key]) {
+			b.manualSchemaChange(ChangeParameterChanged, endpoint, prefix+"."+key, oldParam[key], newParam[key])
+		}
+	}
 }
 
 func (b *semanticDiffBuilder) compareRequestBody(from, to Endpoint) {
@@ -119,11 +151,11 @@ func (b *semanticDiffBuilder) compareRequestBody(from, to Endpoint) {
 		oldSchema, ok := fs[media]
 		if !ok {
 			b.add(ChangeRequestBodyChanged, SeverityWarning, to, "requestBody."+media, "Request body media type added", false, nil, compactSchemaValue(newSchema))
-			b.compareSchemaFields(ChangeRequestBodyChanged, to, "requestBody."+media, nil, newSchema, false)
 			continue
 		}
 		b.compareSchemaFields(ChangeRequestBodyChanged, to, "requestBody."+media, oldSchema, newSchema, false)
 	}
+	b.compareMediaEncoding(ChangeRequestBodyChanged, to, "requestBody", from.RequestBody, to.RequestBody)
 	for _, media := range sortedStringKeys(fs) {
 		if _, ok := ts[media]; !ok {
 			b.add(ChangeRequestBodyChanged, SeverityBreaking, to, "requestBody."+media, "Request body media type removed", true, compactSchemaValue(fs[media]), nil)
@@ -137,6 +169,11 @@ func (b *semanticDiffBuilder) compareResponses(from, to Endpoint) {
 	for _, status := range sortedStringKeys(ts) {
 		if _, ok := fs[status]; !ok {
 			b.add(ChangeResponseChanged, SeverityInfo, to, "responses."+status, "Response status added", false, nil, ts[status])
+		} else {
+			oldHeaders, newHeaders := responseHeaders(fs[status]), responseHeaders(ts[status])
+			if !valuesEqual(oldHeaders, newHeaders) {
+				b.manualContractChange(ChangeResponseChanged, to, "responses."+status+".headers", "Response header contract changed; compatibility requires manual review", oldHeaders, newHeaders)
+			}
 		}
 	}
 	for _, status := range sortedStringKeys(fs) {
@@ -172,6 +209,7 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 	b.compareSchemaRootType(change, endpoint, prefix, oldSchema, newSchema, response)
 	b.compareEnumValues(change, endpoint, prefix, oldSchema, newSchema, "Enum value removed")
 	b.compareSchemaChildren(change, endpoint, prefix, oldSchema, newSchema, response)
+	b.compareSchemaConstraints(change, endpoint, prefix, oldSchema, newSchema, response)
 }
 
 func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
@@ -182,7 +220,8 @@ func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoin
 		oldField, ok := oldFields[path]
 		location := prefix + "." + path
 		if !ok {
-			breaking := !response && newField.Required
+			itemConstrained := newField.arrayItem && (newField.Type != "" || newField.Enum != nil)
+			breaking := !response && (newField.Required || itemConstrained) && newFieldAffectsExistingInput(path, oldFields, newFields)
 			severity := SeverityInfo
 			message := "Response field added"
 			if !response {
@@ -202,10 +241,11 @@ func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoin
 			if change == ChangeParameterChanged {
 				message = "Parameter field type changed"
 			}
-			b.add(change, SeverityBreaking, endpoint, location, message, true, oldField.Type, newField.Type)
+			breaking := typeChangeBreaking(oldField.Type, newField.Type, response)
+			b.add(change, compatibilitySeverity(breaking), endpoint, location, message, breaking, oldField.Type, newField.Type)
 		}
 		if oldField.Required != newField.Required {
-			breaking := !response && newField.Required
+			breaking := (!response && newField.Required) || (response && oldField.Required)
 			severity := SeverityWarning
 			if breaking {
 				severity = SeverityBreaking
@@ -237,17 +277,18 @@ func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoin
 
 func (b *semanticDiffBuilder) compareSchemaRootType(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
 	oldType, newType := schemaType(oldSchema), schemaType(newSchema)
-	if oldType == "" || newType == "" || oldType == newType {
+	if oldSchema == nil || newSchema == nil || oldType == newType {
 		return
 	}
-	b.add(change, SeverityBreaking, endpoint, prefix+".type", schemaTypeChangeMessage(response), true, oldType, newType)
+	breaking := typeChangeBreaking(oldType, newType, response)
+	b.add(change, compatibilitySeverity(breaking), endpoint, prefix+".type", schemaTypeChangeMessage(response), breaking, oldType, newType)
 }
 
 func (b *semanticDiffBuilder) compareEnumValues(change int, endpoint Endpoint, location string, oldSchema, newSchema any, message string) {
 	if oldSchema == nil || newSchema == nil {
 		return
 	}
-	b.compareEnumValueLists(change, endpoint, location, enumValues(oldSchema), enumValues(newSchema), message)
+	b.compareEnumValueLists(change, endpoint, location, enumIdentities(oldSchema), enumIdentities(newSchema), message)
 }
 
 func (b *semanticDiffBuilder) compareEnumValueLists(change int, endpoint Endpoint, location string, oldValues, newValues []string, message string) {
@@ -268,7 +309,7 @@ func (b *semanticDiffBuilder) compareEnumValueLists(change int, endpoint Endpoin
 		if breaking {
 			severity = SeverityBreaking
 		}
-		b.add(change, severity, endpoint, location, message, breaking, oldValues, newValues)
+		b.add(change, severity, endpoint, location, message, breaking, enumDisplay(oldValues), enumDisplay(newValues))
 		return
 	}
 	newSet := map[string]bool{}
@@ -277,7 +318,17 @@ func (b *semanticDiffBuilder) compareEnumValueLists(change int, endpoint Endpoin
 	}
 	for _, value := range oldValues {
 		if !newSet[value] {
-			b.add(change, SeverityBreaking, endpoint, location, message, true, value, nil)
+			b.add(change, SeverityBreaking, endpoint, location, message, true, enumDisplayValue(value), nil)
+		}
+	}
+	oldSet := map[string]bool{}
+	for _, value := range oldValues {
+		oldSet[value] = true
+	}
+	for _, value := range newValues {
+		if !oldSet[value] {
+			breaking := change == ChangeResponseChanged
+			b.add(change, compatibilitySeverity(breaking), endpoint, location, "Enum value added", breaking, nil, enumDisplayValue(value))
 		}
 	}
 }
@@ -313,7 +364,7 @@ func endpointIdentity(endpoint Endpoint) map[string]any {
 }
 
 func endpointMetadata(endpoint Endpoint) map[string]any {
-	return map[string]any{"operation_id": endpoint.OperationID, "summary": endpoint.Summary, "tags": endpoint.Tags}
+	return map[string]any{"operation_id": endpoint.OperationID, "summary": endpoint.Summary, "tags": optionalCollection(endpoint.Tags)}
 }
 
 func parametersByIdentity(value any) map[string]map[string]any {
@@ -382,6 +433,13 @@ func compactSchemaValue(schema any) map[string]any {
 	return map[string]any{"type": schemaType(schema), "fields": schemaFields(schema)}
 }
 
+func unconstrainedSchema(schema any) any {
+	if schema == nil {
+		return map[string]any{}
+	}
+	return schema
+}
+
 func mediaSchemas(requestBody any) map[string]any {
 	out := map[string]any{}
 	body, ok := requestBody.(map[string]any)
@@ -397,9 +455,7 @@ func mediaSchemas(requestBody any) map[string]any {
 		if !ok {
 			continue
 		}
-		if schema := entry["schema"]; schema != nil {
-			out[media] = schema
-		}
+		out[media] = unconstrainedSchema(entry["schema"])
 	}
 	return out
 }
@@ -410,19 +466,19 @@ func requestBodyRequired(requestBody any) bool {
 }
 
 func responseStatuses(responses any) map[string]any {
-	responseMap, ok := responses.(map[string]any)
-	if !ok {
-		return map[string]any{}
+	responseMap, _ := responses.(map[string]any)
+	out := map[string]any{}
+	for key, value := range responseMap {
+		if !strings.HasPrefix(key, "x-") {
+			out[key] = value
+		}
 	}
-	return responseMap
+	return out
 }
 
 func responseSchemas(responses any) map[string]any {
 	out := map[string]any{}
-	responseMap, ok := responses.(map[string]any)
-	if !ok {
-		return out
-	}
+	responseMap := responseStatuses(responses)
 	for status, value := range responseMap {
 		response, ok := value.(map[string]any)
 		if !ok {
@@ -440,22 +496,21 @@ func responseSchemas(responses any) map[string]any {
 			if !ok {
 				continue
 			}
-			if schema := entry["schema"]; schema != nil {
-				out[status+"."+media] = schema
-			}
+			out[status+"."+media] = unconstrainedSchema(entry["schema"])
 		}
 	}
 	return out
 }
 
 type schemaField struct {
-	Type     string   `json:"type,omitempty"`
-	Required bool     `json:"required"`
-	Enum     []string `json:"enum,omitempty"`
+	arrayItem bool
+	Type      string   `json:"type,omitempty"`
+	Required  bool     `json:"required"`
+	Enum      []string `json:"enum,omitempty"`
 }
 
 func (f schemaField) diffValue() map[string]any {
-	return map[string]any{"type": f.Type, "required": f.Required, "enum": f.Enum}
+	return map[string]any{"type": f.Type, "required": f.Required, "enum": enumDisplay(f.Enum)}
 }
 
 func schemaFields(schema any) map[string]schemaField {
@@ -476,18 +531,21 @@ func collectSchemaFields(out map[string]schemaField, prefix string, schema any) 
 			required[name] = true
 		}
 	}
+	for name := range required {
+		mergeSchemaField(out, schemaPath(prefix, "properties."+schemaPropertyName(name)), schemaField{Required: true})
+	}
 	for _, fragment := range fragments {
 		properties, _ := fragment["properties"].(map[string]any)
 		for _, name := range sortedStringKeys(properties) {
 			property := properties[name]
-			path := schemaPath(prefix, "properties."+name)
-			mergeSchemaField(out, path, schemaField{Type: schemaType(property), Required: required[name], Enum: enumValues(property)})
+			path := schemaPath(prefix, "properties."+schemaPropertyName(name))
+			mergeSchemaField(out, path, schemaField{Type: schemaType(property), Required: required[name], Enum: enumIdentities(property)})
 			collectSchemaFields(out, path, property)
 		}
 		if items := fragment["items"]; items != nil {
 			path := schemaPath(prefix, "items")
 			// items 本身也有类型和枚举，不能只收集其下的对象属性。
-			mergeSchemaField(out, path, schemaField{Type: schemaType(items), Enum: enumValues(items)})
+			mergeSchemaField(out, path, schemaField{Type: schemaType(items), Enum: enumIdentities(items), arrayItem: true})
 			collectSchemaFields(out, path, items)
 		}
 	}
@@ -506,6 +564,11 @@ func schemaFragments(schema map[string]any) []map[string]any {
 	return out
 }
 
+// 转义字段名里的路径分隔符，避免字面属性 a.properties.b 与嵌套 a/b 合并。
+func schemaPropertyName(name string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(name, `\`, `\\`), `.`, `\.`)
+}
+
 func schemaPath(prefix, suffix string) string {
 	if prefix == "" {
 		return suffix
@@ -519,10 +582,9 @@ func mergeSchemaField(out map[string]schemaField, path string, next schemaField)
 		out[path] = next
 		return
 	}
-	if current.Type == "" {
-		current.Type = next.Type
-	}
+	current.Type = intersectSchemaTypes(current.Type, next.Type)
 	current.Required = current.Required || next.Required
+	current.arrayItem = current.arrayItem || next.arrayItem
 	if current.Enum == nil {
 		current.Enum = next.Enum
 	} else if next.Enum != nil {
@@ -556,22 +618,107 @@ func stringSet(value any) map[string]bool {
 }
 
 func schemaType(schema any) string {
-	m, ok := schema.(map[string]any)
+	m, ok := asMap(schema)
 	if !ok {
 		return ""
 	}
-	if value, ok := m["type"].(string); ok {
-		return value
-	}
-	for _, fragment := range schemaFragments(m)[1:] {
-		if value, ok := fragment["type"].(string); ok {
-			return value
+	var allowed map[string]bool
+	for _, fragment := range schemaFragments(m) {
+		var types []string
+		switch value := fragment["type"].(type) {
+		case string:
+			types = []string{value}
+		case []any:
+			types = stringSlice(value)
+		}
+		if len(types) == 0 {
+			continue
+		}
+		next := map[string]bool{}
+		for _, value := range types {
+			next[value] = true
+		}
+		if boolValue(fragment["nullable"]) {
+			next["null"] = true
+		}
+		if allowed == nil {
+			allowed = next
+			continue
+		}
+		intersection := intersectSchemaTypes(strings.Join(sortedStringKeys(allowed), "|"), strings.Join(sortedStringKeys(next), "|"))
+		allowed = map[string]bool{}
+		for _, value := range strings.Split(intersection, "|") {
+			allowed[value] = true
 		}
 	}
-	return ""
+	if allowed == nil {
+		return ""
+	}
+	if len(allowed) == 0 {
+		return "never"
+	}
+	return strings.Join(sortedStringKeys(allowed), "|")
 }
 
+func typeChangeBreaking(oldType, newType string, response bool) bool {
+	if response {
+		oldType, newType = newType, oldType
+	}
+	if newType == "" || oldType == "never" {
+		return false
+	}
+	if oldType == "" {
+		return true
+	}
+	allowed := map[string]bool{}
+	for _, value := range strings.Split(newType, "|") {
+		allowed[value] = true
+	}
+	for _, value := range strings.Split(oldType, "|") {
+		if !allowed[value] && !(value == "integer" && allowed["number"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func compatibilitySeverity(breaking bool) int {
+	if breaking {
+		return SeverityBreaking
+	}
+	return SeverityInfo
+}
+
+func enumDisplayValue(value string) any {
+	var decoded any
+	if jsonvalue.Decode([]byte(value), &decoded) == nil {
+		return decoded
+	}
+	return value
+}
+func enumDisplay(values []string) []any {
+	if values == nil {
+		return nil
+	}
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, enumDisplayValue(value))
+	}
+	return out
+}
 func enumValues(schema any) []string {
+	identities := enumIdentities(schema)
+	if identities == nil {
+		return nil
+	}
+	out := make([]string, 0, len(identities))
+	for _, value := range identities {
+		out = append(out, fmt.Sprint(enumDisplayValue(value)))
+	}
+	return out
+}
+
+func enumIdentities(schema any) []string {
 	m, ok := schema.(map[string]any)
 	if !ok {
 		return nil
@@ -579,12 +726,26 @@ func enumValues(schema any) []string {
 	var allowed map[string]bool
 	for _, fragment := range schemaFragments(m) {
 		items, constrained := fragment["enum"].([]any)
+		if constant, exists := fragment["const"]; exists {
+			if !constrained {
+				items, constrained = []any{constant}, true
+			} else {
+				intersection := []any{}
+				for _, item := range items {
+					if valuesEqual(item, constant) {
+						intersection = append(intersection, item)
+					}
+				}
+				items = intersection
+			}
+		}
 		if !constrained {
 			continue
 		}
 		next := map[string]bool{}
 		for _, item := range items {
-			next[fmt.Sprint(item)] = true
+			encoded, _ := json.Marshal(normalizeValue(item))
+			next[string(encoded)] = true
 		}
 		if allowed == nil {
 			allowed = next
@@ -613,36 +774,24 @@ func boolValue(value any) bool {
 }
 
 func valuesEqual(left, right any) bool {
-	leftBytes, _ := json.Marshal(canonicalDiffValue(left))
-	rightBytes, _ := json.Marshal(canonicalDiffValue(right))
-	return string(leftBytes) == string(rightBytes)
+	leftBytes, leftErr := json.Marshal(normalizeValue(left))
+	rightBytes, rightErr := json.Marshal(normalizeValue(right))
+	return leftErr == nil && rightErr == nil && string(leftBytes) == string(rightBytes)
 }
 
-func canonicalDiffValue(value any) any {
+// 仅端点级可选集合允许空/缺省等价，Schema 内的 [] 与 null 必须保持区别。
+func optionalCollection(value any) any {
 	switch typed := value.(type) {
 	case []string:
 		if len(typed) == 0 {
 			return nil
 		}
-		return typed
 	case []any:
 		if len(typed) == 0 {
 			return nil
 		}
-		out := make([]any, len(typed))
-		for index, item := range typed {
-			out[index] = canonicalDiffValue(item)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, item := range typed {
-			out[key] = canonicalDiffValue(item)
-		}
-		return out
-	default:
-		return typed
 	}
+	return value
 }
 
 func fieldTypeChangeMessage(response bool) string {
@@ -664,4 +813,42 @@ func fieldRequiredChangeMessage(response bool) string {
 		return "Response field required flag changed"
 	}
 	return "Request body field required flag changed"
+}
+
+func newFieldAffectsExistingInput(path string, oldFields, newFields map[string]schemaField) bool {
+	// 只检查祖先路径，避免大量新增字段时逐个扫描整张字段表。
+	for index := strings.LastIndexByte(path, '.'); index >= 0; index = strings.LastIndexByte(path[:index], '.') {
+		parent := path[:index]
+		field, exists := newFields[parent]
+		if !exists {
+			continue
+		}
+		if _, existed := oldFields[parent]; !existed && !field.Required && !field.arrayItem {
+			return false
+		}
+	}
+	return true
+}
+
+func intersectSchemaTypes(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	result := map[string]bool{}
+	for _, x := range strings.Split(a, "|") {
+		for _, y := range strings.Split(b, "|") {
+			if x == y {
+				result[x] = true
+			} else if (x == "integer" && y == "number") || (x == "number" && y == "integer") {
+				result["integer"] = true
+			}
+		}
+	}
+	if len(result) == 0 {
+		return "never"
+	}
+	return strings.Join(sortedStringKeys(result), "|")
 }

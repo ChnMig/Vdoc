@@ -170,6 +170,8 @@ func (DocumentDraft) TableName() string { return TableNameDocumentDrafts }
 
 type DocumentVersion struct {
 	pgdb.Base
+	ParserVersion             int        `gorm:"column:parser_version;not null;default:0"`
+	ParsedSchemaHash          string     `gorm:"column:parsed_schema_hash;not null;default:''"`
 	ProjectID                 string     `gorm:"column:project_id;type:uuid;not null"`
 	DocumentID                string     `gorm:"column:document_id;type:uuid;not null"`
 	BranchID                  string     `gorm:"column:branch_id;type:uuid;not null"`
@@ -272,6 +274,7 @@ type DocumentDiffItem struct {
 	NewValue       pgdb.JSONB `gorm:"column:new_value;type:jsonb"`
 	Message        string     `gorm:"column:message;type:text;not null"`
 	FrontendImpact *string    `gorm:"column:frontend_impact;type:text"`
+	MustHandle     bool       `gorm:"column:must_handle;not null;default:false"`
 	IsBreaking     bool       `gorm:"column:is_breaking;type:boolean;not null;default:false"`
 	SortOrder      int        `gorm:"column:sort_order;type:integer;not null;default:0"`
 }

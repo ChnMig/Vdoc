@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"vdoc/utils/jsonvalue"
 )
 
 type JSONB []byte
@@ -49,10 +50,10 @@ func (j JSONB) Interface() any {
 		return nil
 	}
 	var out any
-	if err := json.Unmarshal(j, &out); err != nil {
+	if err := jsonvalue.Decode(j, &out); err != nil {
 		return nil
 	}
-	return out
+	return jsonvalue.Normalize(out)
 }
 
 type StringArray []string

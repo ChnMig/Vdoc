@@ -21,6 +21,21 @@ func listDiffs(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if _, paged := c.GetQuery("page_size"); paged {
+		query, err := shared.PageQuery(c)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		values, total, err := shared.Store(c).QueryDocumentDiffs(userID, c.Param("project_id"), c.Param("document_id"), c.Query("from_version_id"), c.Query("to_version_id"), query)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		response.ReturnPage(c, shared.DiffList(values), &total, query.Offset+len(values) < total, "")
+		return
+	}
+
 	diffs, err := shared.Store(c).ListDocumentDiffs(userID, c.Param("project_id"), c.Param("document_id"), c.Query("from_version_id"), c.Query("to_version_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)

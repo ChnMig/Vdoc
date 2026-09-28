@@ -140,8 +140,8 @@ func TestCompareVersionsDetectsPreviouslyHiddenBreakingChanges(t *testing.T) {
 	})
 
 	t.Run("nested array response field removed", func(t *testing.T) {
-		fromSchema := `{"openapi":"3.1.0","info":{"title":"Nested Array","version":"1"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","required":["code","label"],"properties":{"code":{"type":"string"},"label":{"type":"string"}}}}}}}}}}}}}}}`
-		toSchema := `{"openapi":"3.1.0","info":{"title":"Nested Array","version":"2"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","required":["code"],"properties":{"code":{"type":"string"}}}}}}}}}}}}}}}`
+		fromSchema := `{"openapi":"3.1.0","info":{"title":"Nested Array","version":"1"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","required":["code","label"],"properties":{"code":{"type":"string"},"label":{"type":"string"}}}}}}}}}}}}}}`
+		toSchema := `{"openapi":"3.1.0","info":{"title":"Nested Array","version":"2"},"paths":{"/widgets":{"get":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","required":["code"],"properties":{"code":{"type":"string"}}}}}}}}}}}}}}`
 		diff := compareSemanticSchemas(t, fromSchema, toSchema)
 		assertDiffItem(t, diff, ChangeResponseChanged, "responses.200.application/json.properties.groups.items.properties.label", SeverityBreaking, true, "Response field removed")
 	})

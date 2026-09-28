@@ -1,11 +1,17 @@
 package vdoc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
+	"math/big"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+	"vdoc/utils/jsonvalue"
 
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -19,7 +25,18 @@ type ParsedOpenAPI struct {
 }
 
 func ParseOpenAPI(content string) (ParsedOpenAPI, error) {
-	raw, err := decodeOpenAPI(content)
+	return ParseOpenAPIContext(context.Background(), content)
+}
+
+func ParseOpenAPIContext(ctx context.Context, content string) (ParsedOpenAPI, error) {
+	r := &openAPIResolver{ctx: ctx}
+	if len(content) > maxOpenAPIBytes {
+		return ParsedOpenAPI{}, fmt.Errorf("%w: OpenAPI source exceeds size limit", ErrInvalidArgument)
+	}
+	if err := ctx.Err(); err != nil {
+		return ParsedOpenAPI{}, err
+	}
+	raw, err := r.decode(content)
 	if err != nil {
 		return ParsedOpenAPI{}, err
 	}
@@ -46,6 +63,9 @@ func ParseOpenAPI(content string) (ParsedOpenAPI, error) {
 	}
 	endpoints := []Endpoint{}
 	for _, pathName := range keys(paths) {
+		if strings.HasPrefix(pathName, "x-") {
+			continue
+		}
 		if !strings.HasPrefix(pathName, "/") {
 			return ParsedOpenAPI{}, fmt.Errorf("%w: path must start with /", ErrInvalidArgument)
 		}
@@ -53,12 +73,16 @@ func ParseOpenAPI(content string) (ParsedOpenAPI, error) {
 		if !ok {
 			return ParsedOpenAPI{}, fmt.Errorf("%w: path item must be an object", ErrInvalidArgument)
 		}
+		pathItem, err = r.pathItem(raw, pathItem, map[string]bool{}, 0)
+		if err != nil {
+			return ParsedOpenAPI{}, err
+		}
 		for _, method := range openAPIMethods {
 			op, ok := asMap(pathItem[method])
 			if !ok {
 				continue
 			}
-			endpoint, err := extractEndpoint(raw, pathName, method, pathItem, op)
+			endpoint, err := r.extractEndpoint(raw, pathName, method, pathItem, op)
 			if err != nil {
 				return ParsedOpenAPI{}, err
 			}
@@ -85,13 +109,72 @@ func validateOpenAPIInfo(root map[string]any) error {
 }
 
 func decodeOpenAPI(content string) (map[string]any, error) {
-	var raw any
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
-			return nil, fmt.Errorf("%w: invalid OpenAPI JSON/YAML", ErrInvalidArgument)
+	return (&openAPIResolver{ctx: context.Background()}).decode(content)
+}
+
+// 输入树和展开树共用累计预算，重复引用与 YAML alias 也会逐次计费。
+const (
+	maxOpenAPIBytes = 16 << 20
+	maxOpenAPINodes = 200000
+	maxOpenAPIDepth = 128
+)
+
+type openAPIResolver struct {
+	ctx          context.Context
+	nodes, bytes int
+	outputBytes  int
+}
+
+func (r *openAPIResolver) visit(value any, depth int) error {
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
+	r.nodes++
+	r.bytes += 8
+	switch v := value.(type) {
+	case string:
+		if strings.ContainsRune(v, 0) {
+			return fmt.Errorf("%w: OpenAPI strings cannot contain NUL (unsupported by JSONB)", ErrInvalidArgument)
+		}
+		r.bytes += len(v) * 6 // JSON 转义的最坏字节数
+	case json.Number:
+		r.bytes += len(v)
+	case map[string]any:
+		for key := range v {
+			if strings.ContainsRune(key, 0) {
+				return fmt.Errorf("%w: OpenAPI object keys cannot contain NUL (unsupported by JSONB)", ErrInvalidArgument)
+			}
+			r.bytes += len(key)*6 + 4
 		}
 	}
-	converted := normalizeValue(raw)
+	if r.nodes > maxOpenAPINodes || r.bytes > maxOpenAPIBytes || depth > maxOpenAPIDepth {
+		return fmt.Errorf("%w: OpenAPI expansion exceeds node, byte or depth limit", ErrInvalidArgument)
+	}
+	return nil
+}
+
+func (r *openAPIResolver) decode(content string) (map[string]any, error) {
+	var raw any
+	if err := jsonvalue.Decode([]byte(content), &raw); err != nil {
+		var node yaml.Node
+		decoder := yaml.NewDecoder(strings.NewReader(content))
+		if err := decoder.Decode(&node); err != nil {
+			return nil, fmt.Errorf("%w: invalid OpenAPI JSON/YAML", ErrInvalidArgument)
+		}
+		var extra yaml.Node
+		if err := decoder.Decode(&extra); err != io.EOF {
+			return nil, fmt.Errorf("%w: expected one OpenAPI document", ErrInvalidArgument)
+		}
+		var err error
+		raw, err = r.yamlValue(&node, map[*yaml.Node]bool{}, 0)
+		if err != nil {
+			return nil, err
+		}
+	}
+	converted, err := r.value(nil, raw, nil, nil, refLiteral, 0)
+	if err != nil {
+		return nil, err
+	}
 	root, ok := converted.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("%w: OpenAPI document must be an object", ErrInvalidArgument)
@@ -99,7 +182,163 @@ func decodeOpenAPI(content string) (map[string]any, error) {
 	return root, nil
 }
 
-func extractEndpoint(root map[string]any, pathName, method string, pathItem, op map[string]any) (Endpoint, error) {
+func (r *openAPIResolver) yamlValue(node *yaml.Node, seen map[*yaml.Node]bool, depth int) (any, error) {
+	if err := r.visit(node.Value, depth); err != nil {
+		return nil, err
+	}
+	if seen[node] {
+		return nil, fmt.Errorf("%w: circular YAML alias", ErrInvalidArgument)
+	}
+	seen[node] = true
+	defer delete(seen, node)
+	switch node.Kind {
+	case yaml.DocumentNode:
+		if len(node.Content) != 1 {
+			return nil, fmt.Errorf("%w: invalid YAML document", ErrInvalidArgument)
+		}
+		return r.yamlValue(node.Content[0], seen, depth+1)
+	case yaml.AliasNode:
+		return r.yamlValue(node.Alias, seen, depth+1)
+	case yaml.MappingNode:
+		out := map[string]any{}
+		explicit := map[string]bool{}
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i].Value
+			if node.Content[i].Kind != yaml.ScalarNode {
+				return nil, fmt.Errorf("%w: YAML key must be scalar", ErrInvalidArgument)
+			}
+			merge := node.Content[i].Tag == "!!merge"
+			if !merge && explicit[key] {
+				return nil, fmt.Errorf("%w: duplicate YAML key %s", ErrInvalidArgument, key)
+			}
+			value, err := r.yamlValue(node.Content[i+1], seen, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			if !merge {
+				out[key] = value
+				explicit[key] = true
+				continue
+			}
+			sources, ok := value.([]any)
+			if !ok {
+				sources = []any{value}
+			}
+			for _, source := range sources {
+				mapping, ok := asMap(source)
+				if !ok {
+					return nil, fmt.Errorf("%w: YAML merge must reference a mapping", ErrInvalidArgument)
+				}
+				for name, item := range mapping {
+					if _, exists := out[name]; !exists {
+						out[name] = item
+					}
+				}
+			}
+		}
+		return out, nil
+	case yaml.SequenceNode:
+		out := make([]any, 0, len(node.Content))
+		for _, child := range node.Content {
+			value, err := r.yamlValue(child, seen, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, value)
+		}
+		return out, nil
+	case yaml.ScalarNode:
+		switch node.Tag {
+		case "!!int":
+			if len(node.Value) > 4096 {
+				return nil, fmt.Errorf("%w: number exceeds digit limit", ErrInvalidArgument)
+			}
+			value := strings.ReplaceAll(node.Value, "_", "")
+			integer, ok := new(big.Int).SetString(value, 0)
+			if !ok {
+				integer, ok = new(big.Int).SetString(value, 10)
+			}
+			if !ok {
+				return nil, fmt.Errorf("%w: invalid YAML integer", ErrInvalidArgument)
+			}
+			number, err := jsonvalue.Number(integer.String())
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+			}
+			return number, nil
+		case "!!float":
+			value := strings.TrimPrefix(strings.ReplaceAll(node.Value, "_", ""), "+")
+			exponent := ""
+			if index := strings.IndexAny(value, "eE"); index >= 0 {
+				value, exponent = value[:index], value[index:]
+			}
+			sign := ""
+			if strings.HasPrefix(value, "-") {
+				sign, value = "-", value[1:]
+			}
+			// YAML 允许前导零、缺失整数部分和小数点后直接接指数。
+			value = strings.TrimLeft(value, "0")
+			if value == "" {
+				value = "0"
+			}
+			if strings.HasPrefix(value, ".") {
+				value = "0" + value
+			}
+			if strings.HasSuffix(value, ".") {
+				value += "0"
+			}
+			number, err := jsonvalue.Number(sign + value + exponent)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid YAML number", ErrInvalidArgument)
+			}
+			return number, nil
+		case "!!null":
+			return nil, nil
+		case "!!bool":
+			return strings.EqualFold(node.Value, "true"), nil
+		default:
+			return node.Value, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: invalid YAML node", ErrInvalidArgument)
+}
+
+// Path Item 的引用只解析路径级对象，schema 留给对应 operation 的有界解析。
+func (r *openAPIResolver) pathItem(root, item map[string]any, seen map[string]bool, depth int) (map[string]any, error) {
+	if err := r.visit(item, depth); err != nil {
+		return nil, err
+	}
+	ref, ok := item["$ref"].(string)
+	if !ok {
+		return item, nil
+	}
+	if !strings.HasPrefix(ref, "#") || seen[ref] {
+		return nil, fmt.Errorf("%w: invalid or circular Path Item reference %s", ErrInvalidArgument, ref)
+	}
+	target, ok := lookupJSONPointer(root, ref)
+	object, objectOK := asMap(target)
+	if !ok || !objectOK {
+		return nil, fmt.Errorf("%w: unresolved Path Item reference %s", ErrInvalidArgument, ref)
+	}
+	seen[ref] = true
+	resolved, err := r.pathItem(root, object, seen, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	out := maps.Clone(resolved)
+	for key, value := range item {
+		if key == "$ref" {
+			continue
+		}
+		if old, exists := out[key]; exists && !valuesEqual(old, value) {
+			return nil, fmt.Errorf("%w: ambiguous Path Item reference sibling %s", ErrInvalidArgument, key)
+		}
+		out[key] = value
+	}
+	return out, nil
+}
+
+func (r *openAPIResolver) extractEndpoint(root map[string]any, pathName, method string, pathItem, op map[string]any) (Endpoint, error) {
 	refs := map[string]bool{}
 	endpoint := Endpoint{Method: strings.ToUpper(method), Path: pathName}
 	endpoint.OperationID, _ = op["operationId"].(string)
@@ -107,19 +346,19 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 	endpoint.Deprecated, _ = op["deprecated"].(bool)
 	endpoint.Tags = stringSlice(op["tags"])
 
-	parameters, err := resolveParameters(root, pathItem["parameters"], op["parameters"], refs)
+	parameters, err := r.resolveParameters(root, pathItem["parameters"], op["parameters"], refs)
 	if err != nil {
 		return Endpoint{}, err
 	}
 	if len(parameters) > 0 {
 		endpoint.Parameters = parameters
 	}
-	if requestBody, ok, err := resolveOptional(root, op["requestBody"], refs); err != nil {
+	if requestBody, ok, err := r.resolveOptional(root, op["requestBody"], refs, refObject); err != nil {
 		return Endpoint{}, err
 	} else if ok {
 		endpoint.RequestBody = requestBody
 	}
-	if responses, ok, err := resolveOptional(root, op["responses"], refs); err != nil {
+	if responses, ok, err := r.resolveOptional(root, op["responses"], refs, refResponsesMap); err != nil {
 		return Endpoint{}, err
 	} else if ok {
 		responsesMap, ok := asMap(responses)
@@ -133,7 +372,7 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 	if security, ok := effectiveValue(root, pathItem, op, "security"); ok {
 		endpoint.Security = normalizeValue(security)
 	}
-	securitySchemes, err := resolveSecuritySchemes(root, endpoint.Security)
+	securitySchemes, err := r.resolveSecuritySchemes(root, endpoint.Security)
 	if err != nil {
 		return Endpoint{}, err
 	}
@@ -144,6 +383,7 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 		endpoint.SchemaRefs = refsList(refs)
 	}
 	normalizedOperation := map[string]any{
+		"openapi":         root["openapi"],
 		"method":          endpoint.Method,
 		"path":            endpoint.Path,
 		"operationId":     endpoint.OperationID,
@@ -159,12 +399,19 @@ func extractEndpoint(root map[string]any, pathName, method string, pathItem, op 
 		"schemaRefs":      endpoint.SchemaRefs,
 	}
 	endpoint.NormalizedOperation = dropNil(normalizedOperation)
-	hashBytes, _ := json.Marshal(endpoint.NormalizedOperation)
+	hashBytes, err := json.Marshal(endpoint.NormalizedOperation)
+	if err != nil {
+		return Endpoint{}, err
+	}
+	r.outputBytes += len(hashBytes)
+	if r.outputBytes > maxOpenAPIBytes {
+		return Endpoint{}, fmt.Errorf("%w: expanded operations exceed size limit", ErrInvalidArgument)
+	}
 	endpoint.Hash = sha(string(hashBytes))
 	return endpoint, nil
 }
 
-func resolveParameters(root map[string]any, pathParameters, operationParameters any, refs map[string]bool) ([]any, error) {
+func (r *openAPIResolver) resolveParameters(root map[string]any, pathParameters, operationParameters any, refs map[string]bool) ([]any, error) {
 	merged := []any{}
 	positions := map[string]int{}
 	for _, source := range []any{pathParameters, operationParameters} {
@@ -174,7 +421,7 @@ func resolveParameters(root map[string]any, pathParameters, operationParameters 
 		}
 		identities := map[string]bool{}
 		for _, item := range items {
-			resolved, err := resolveRefs(root, item, refs, map[string]bool{})
+			resolved, err := r.value(root, item, refs, map[string]bool{}, refObject, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -203,11 +450,11 @@ func resolveParameters(root map[string]any, pathParameters, operationParameters 
 	return merged, nil
 }
 
-func resolveOptional(root map[string]any, value any, refs map[string]bool) (any, bool, error) {
+func (r *openAPIResolver) resolveOptional(root map[string]any, value any, refs map[string]bool, kind refValueKind) (any, bool, error) {
 	if value == nil {
 		return nil, false, nil
 	}
-	resolved, err := resolveRefs(root, value, refs, map[string]bool{})
+	resolved, err := r.value(root, value, refs, map[string]bool{}, kind, 0)
 	if err != nil {
 		return nil, false, err
 	}
@@ -215,7 +462,7 @@ func resolveOptional(root map[string]any, value any, refs map[string]bool) (any,
 }
 
 func resolveRefs(root map[string]any, value any, refs, seen map[string]bool) (any, error) {
-	return resolveOpenAPIValue(root, value, refs, seen, refObject)
+	return (&openAPIResolver{ctx: context.Background()}).value(root, value, refs, seen, refObject, 0)
 }
 
 type refValueKind int
@@ -226,17 +473,18 @@ const (
 	refSchemaMap
 	refSchemaArray
 	refObjectMap
+	refResponsesMap
 	refLiteral
 )
 
-func resolveOpenAPIValue(root map[string]any, value any, refs, seen map[string]bool, kind refValueKind) (any, error) {
-	if kind == refLiteral {
-		return normalizeValue(value), nil
+func (r *openAPIResolver) value(root map[string]any, value any, refs, seen map[string]bool, kind refValueKind, depth int) (any, error) {
+	if err := r.visit(value, depth); err != nil {
+		return nil, err
 	}
 	switch typed := value.(type) {
 	case map[string]any:
-		if ref, ok := typed["$ref"].(string); ok && kind != refSchemaMap && kind != refObjectMap {
-			if !strings.HasPrefix(ref, "#/") {
+		if ref, ok := typed["$ref"].(string); ok && kind != refLiteral && kind != refSchemaMap && kind != refObjectMap && kind != refResponsesMap {
+			if !strings.HasPrefix(ref, "#") {
 				return nil, fmt.Errorf("%w: only local OpenAPI $ref values are supported", ErrInvalidArgument)
 			}
 			if seen[ref] {
@@ -249,7 +497,7 @@ func resolveOpenAPIValue(root map[string]any, value any, refs, seen map[string]b
 			refs[ref] = true
 			nextSeen := mapsClone(seen)
 			nextSeen[ref] = true
-			target, err := resolveOpenAPIValue(root, resolved, refs, nextSeen, kind)
+			target, err := r.value(root, resolved, refs, nextSeen, kind, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -261,7 +509,7 @@ func resolveOpenAPIValue(root map[string]any, value any, refs, seen map[string]b
 			delete(siblings, "$ref")
 			if kind == refSchema && len(siblings) > 0 {
 				// 3.1 Schema 的同级关键字与引用共同生效，不能用覆盖合并削弱约束。
-				additional, err := resolveOpenAPIValue(root, siblings, refs, seen, refSchema)
+				additional, err := r.value(root, siblings, refs, seen, refSchema, depth+1)
 				if err != nil {
 					return nil, err
 				}
@@ -284,7 +532,7 @@ func resolveOpenAPIValue(root map[string]any, value any, refs, seen map[string]b
 		}
 		out := make(map[string]any, len(typed))
 		for _, key := range keys(typed) {
-			resolved, err := resolveOpenAPIValue(root, typed[key], refs, seen, childRefKind(kind, key))
+			resolved, err := r.value(root, typed[key], refs, seen, childRefKind(kind, key), depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -298,23 +546,38 @@ func resolveOpenAPIValue(root map[string]any, value any, refs, seen map[string]b
 			if kind == refSchemaArray {
 				childKind = refSchema
 			}
-			resolved, err := resolveOpenAPIValue(root, item, refs, seen, childKind)
+			resolved, err := r.value(root, item, refs, seen, childKind, depth+1)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, resolved)
 		}
 		return out, nil
+	case json.Number:
+		value, err := jsonvalue.Number(string(typed))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+		}
+		return value, nil
 	default:
 		return typed, nil
 	}
 }
 
 func childRefKind(parent refValueKind, key string) refValueKind {
+	if parent == refLiteral {
+		return refLiteral
+	}
 	if parent == refSchemaMap {
 		return refSchema
 	}
 	if parent == refObjectMap {
+		return refObject
+	}
+	if parent == refResponsesMap {
+		if strings.HasPrefix(key, "x-") {
+			return refLiteral
+		}
 		return refObject
 	}
 	if parent == refSchema {
@@ -329,11 +592,16 @@ func childRefKind(parent refValueKind, key string) refValueKind {
 			return refLiteral
 		}
 	}
+	if strings.HasPrefix(key, "x-") {
+		return refLiteral
+	}
 	switch key {
 	case "schema":
 		return refSchema
-	case "content", "headers", "examples", "responses":
+	case "content", "headers", "examples", "encoding":
 		return refObjectMap
+	case "responses":
+		return refResponsesMap
 	case "example", "default", "enum", "const", "value":
 		return refLiteral
 	default:
@@ -341,7 +609,7 @@ func childRefKind(parent refValueKind, key string) refValueKind {
 	}
 }
 
-func resolveSecuritySchemes(root map[string]any, security any) (map[string]any, error) {
+func (r *openAPIResolver) resolveSecuritySchemes(root map[string]any, security any) (map[string]any, error) {
 	out := map[string]any{}
 	components, _ := asMap(root["components"])
 	schemes, _ := asMap(components["securitySchemes"])
@@ -353,7 +621,7 @@ func resolveSecuritySchemes(root map[string]any, security any) (map[string]any, 
 			if !exists {
 				continue
 			}
-			resolved, err := resolveRefs(root, definition, map[string]bool{}, map[string]bool{})
+			resolved, err := r.value(root, definition, map[string]bool{}, map[string]bool{}, refObject, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -373,15 +641,52 @@ func endpointSecuritySchemes(endpoint Endpoint) any {
 }
 
 func lookupJSONPointer(root map[string]any, ref string) (any, bool) {
+	if !strings.HasPrefix(ref, "#") {
+		return nil, false
+	}
+	pointer, err := url.PathUnescape(strings.TrimPrefix(ref, "#"))
+	if err != nil {
+		return nil, false
+	}
 	current := any(root)
-	for part := range strings.SplitSeq(strings.TrimPrefix(ref, "#/"), "/") {
-		part = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
-		currentMap, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
+	if pointer == "" {
+		return current, true
+	}
+	if !strings.HasPrefix(pointer, "/") {
+		return nil, false
+	}
+	for part := range strings.SplitSeq(pointer[1:], "/") {
+		for i := 0; i < len(part); i++ {
+			if part[i] == '~' {
+				if i+1 >= len(part) || (part[i+1] != '0' && part[i+1] != '1') {
+					return nil, false
+				}
+				i++
+			}
 		}
-		current, ok = currentMap[part]
-		if !ok {
+		part = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
+		switch value := current.(type) {
+		case map[string]any:
+			var ok bool
+			current, ok = value[part]
+			if !ok {
+				return nil, false
+			}
+		case []any:
+			if part == "" || (len(part) > 1 && part[0] == '0') {
+				return nil, false
+			}
+			for _, digit := range part {
+				if digit < '0' || digit > '9' {
+					return nil, false
+				}
+			}
+			index, err := strconv.Atoi(part)
+			if err != nil || index >= len(value) {
+				return nil, false
+			}
+			current = value[index]
+		default:
 			return nil, false
 		}
 	}
@@ -459,6 +764,10 @@ func stringSlice(v any) []string {
 
 func normalizeValue(value any) any {
 	switch typed := value.(type) {
+	case json.Number:
+		return jsonvalue.Normalize(typed)
+	case float64:
+		return jsonvalue.Normalize(json.Number(strconv.FormatFloat(typed, 'g', -1, 64)))
 	case map[string]any:
 		out := make(map[string]any, len(typed))
 		for key, value := range typed {
@@ -478,17 +787,17 @@ func normalizeValue(value any) any {
 		}
 		return out
 	case int:
-		return float64(typed)
+		return json.Number(fmt.Sprint(typed))
 	case int64:
-		return float64(typed)
+		return json.Number(fmt.Sprint(typed))
 	case int32:
-		return float64(typed)
+		return json.Number(fmt.Sprint(typed))
 	case uint:
-		return float64(typed)
+		return json.Number(fmt.Sprint(typed))
 	case uint64:
-		return float64(typed)
+		return json.Number(fmt.Sprint(typed))
 	case uint32:
-		return float64(typed)
+		return json.Number(fmt.Sprint(typed))
 	default:
 		return typed
 	}
@@ -496,4 +805,11 @@ func normalizeValue(value any) any {
 
 func mapsClone(in map[string]bool) map[string]bool {
 	return maps.Clone(in)
+}
+
+func resolveParameters(root map[string]any, pathParameters, operationParameters any, refs map[string]bool) ([]any, error) {
+	return (&openAPIResolver{ctx: context.Background()}).resolveParameters(root, pathParameters, operationParameters, refs)
+}
+func resolveSecuritySchemes(root map[string]any, security any) (map[string]any, error) {
+	return (&openAPIResolver{ctx: context.Background()}).resolveSecuritySchemes(root, security)
 }

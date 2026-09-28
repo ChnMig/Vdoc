@@ -75,6 +75,15 @@ func maxStoredObjectBytes() int64 {
 	return defaultMaxStoredObjectBytes
 }
 
+// 写入与读取遵守同一上限，规范化或 Diff 膨胀不能留下无法读取的对象。
+func validateStoredObjectWriteSize(size int) error {
+	limit := maxStoredObjectBytes()
+	if int64(size) > limit {
+		return fmt.Errorf("%w: document content or generated snapshot exceeds the %d byte storage limit", ErrInvalidArgument, limit)
+	}
+	return nil
+}
+
 func readStoredObjectBody(reader io.Reader) ([]byte, error) {
 	limit := maxStoredObjectBytes()
 	if limit >= math.MaxInt64 {

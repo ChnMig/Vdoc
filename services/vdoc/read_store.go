@@ -25,6 +25,7 @@ func (s *Store) readScope(scope domain.ReadScope) (*Store, domain.ReadRepository
 	local := &Store{storeState: &storeState{}, ctx: s.requestContext()}
 	local.applyStateLocked(state)
 	local.objects = s.objects
+	local.endpointFactsRepo, _ = s.persistence.repo.(domain.EndpointFactsRepository)
 	return local, repo, nil
 }
 
@@ -76,6 +77,18 @@ func (s *Store) QueryDocumentEndpoints(actorID, projectID, documentID, versionID
 		}
 		if err := local.ensureOpenAPIDocumentLocked(documentID); err != nil {
 			return nil, 0, err
+		}
+		if version := local.versions[versionID]; version != nil && version.ParserVersion < openAPIParserVersion {
+			local, _, err = s.readScope(domain.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: documentID, VersionID: versionID, Endpoints: true})
+			if err != nil {
+				return nil, 0, err
+			}
+			if !local.canReadLocked(actorID, projectID) {
+				return nil, 0, ErrPermissionDenied
+			}
+			if err := local.ensureVersionEndpointFactsLocked(versionID); err != nil {
+				return nil, 0, err
+			}
 		}
 		return repo.ReadEndpoints(s.requestContext(), versionID, query)
 	}

@@ -51,15 +51,18 @@ func Is(err, target error) bool { return domainvdoc.Is(err, target) }
 
 type Store struct {
 	*storeState
-	ctx           context.Context
-	mutationGuard *domainvdoc.MutationGuard
-	registration  *registrationMutation
+	ctx               context.Context
+	mutationGuard     *domainvdoc.MutationGuard
+	registration      *registrationMutation
+	prepared          *preparedOpenAPI
+	endpointFactsRepo domainvdoc.EndpointFactsRepository
 }
 
 // storeState 在请求之间共享；请求 context 只保存在轻量 Store 视图中。
 type storeState struct {
 	mu                  sync.RWMutex
 	verifyLoginPassword func(password, hash string) bool
+	hashPassword        func(password []byte) (string, error)
 	users               map[string]*User
 	teams               map[string]*Team
 	projects            map[string]*Project
@@ -100,6 +103,7 @@ func NewStore() *Store {
 	}
 	return &Store{storeState: &storeState{
 		verifyLoginPassword: encryption.VerifyBcryptPassword,
+		hashPassword:        encryption.HashPasswordBytesWithBcrypt,
 		users:               map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
 		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
 		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{}, shares: map[string]*DocumentShare{},
@@ -160,6 +164,9 @@ func (s *Store) persistWithObjectRefsLocked(refs ...domainvdoc.ObjectRef) error 
 }
 
 func (s *Store) persistSchemaObjectLocked(projectID, documentID, branchID, ownerType, ownerID, kind, hash, content string) (string, domainvdoc.ObjectRef, error) {
+	if err := validateStoredObjectWriteSize(len(content)); err != nil {
+		return "", domainvdoc.ObjectRef{}, err
+	}
 	ownerCollection := ownerType + "s"
 	key := newObjectWriteKey(projectID, documentID, branchID, ownerType, ownerID, kind, hash, "json")
 	metadata := map[string]string{
@@ -195,6 +202,9 @@ func (s *Store) persistSchemaObjectLocked(projectID, documentID, branchID, owner
 }
 
 func (s *Store) persistMarkdownObjectLocked(projectID, documentID, branchID, ownerType, ownerID, kind, hash, content string) (string, domainvdoc.ObjectRef, error) {
+	if err := validateStoredObjectWriteSize(len(content)); err != nil {
+		return "", domainvdoc.ObjectRef{}, err
+	}
 	ownerCollection := ownerType + "s"
 	key := newObjectWriteKey(projectID, documentID, branchID, ownerType, ownerID, kind, hash, "md")
 	metadata := map[string]string{
@@ -248,6 +258,9 @@ func (s *Store) persistDiffSnapshotLocked(projectID, documentID, branchID string
 	}{ID: diff.ID, DocumentID: diff.DocumentID, ServiceID: diff.ServiceID, FromVersionID: diff.FromVersionID, ToVersionID: diff.ToVersionID, DiffStatus: diff.DiffStatus, Summary: diff.Summary, Items: diff.Items, CreatedAt: diff.CreatedAt, UpdatedAt: diff.UpdatedAt}
 	body, err := json.Marshal(snapshot)
 	if err != nil {
+		return domainvdoc.ObjectRef{}, err
+	}
+	if err := validateStoredObjectWriteSize(len(body)); err != nil {
 		return domainvdoc.ObjectRef{}, err
 	}
 	hash := sha(string(body))
@@ -689,13 +702,20 @@ func (s *Store) registerLocked(ctx AuditContext, email, name, password string) (
 	if err := validateUserPassword(password); err != nil {
 		return nil, err
 	}
-	for _, u := range s.users {
-		if strings.EqualFold(u.Email, email) {
-			return nil, fmt.Errorf("%w: email already exists", ErrAlreadyExists)
-		}
+	if err := s.ensureUserEmailAvailableLocked(email); err != nil {
+		return nil, err
 	}
-	hash, err := encryption.HashPasswordWithBcrypt(password)
+	hash, err := s.hashPasswordOutsideLock([]byte(password))
 	if err != nil {
+		return nil, err
+	}
+	if err := s.refreshLocked(); err != nil {
+		return nil, err
+	}
+	if s.registration != nil && s.registration.onlyIfEmpty && len(s.users) > 0 {
+		return nil, errInitialAdminAlreadyExists
+	}
+	if err := s.ensureUserEmailAvailableLocked(email); err != nil {
 		return nil, err
 	}
 	now := time.Now()
@@ -709,6 +729,27 @@ func (s *Store) registerLocked(ctx AuditContext, email, name, password string) (
 		return nil, err
 	}
 	return cloneUser(user), nil
+}
+
+func (s *Store) ensureUserEmailAvailableLocked(email string) error {
+	for _, user := range s.users {
+		if strings.EqualFold(user.Email, email) {
+			return fmt.Errorf("%w: email already exists", ErrAlreadyExists)
+		}
+	}
+	return nil
+}
+
+// 调用和返回时均持有写锁，仅在 bcrypt 计算期间释放锁。
+// 调用方随后必须 refreshLocked 并复核所有写入条件，不得使用旧状态指针。
+func (s *Store) hashPasswordOutsideLock(password []byte) (string, error) {
+	hashPassword := s.hashPassword
+	if hashPassword == nil {
+		hashPassword = encryption.HashPasswordBytesWithBcrypt
+	}
+	s.mu.Unlock()
+	defer s.mu.Lock()
+	return hashPassword(password)
 }
 
 func (s *Store) Login(email, password string, auditCtx ...AuditContext) (*User, error) {
@@ -840,13 +881,18 @@ func (s *Store) CreateUser(actorID, email, name, password string, super bool, au
 	if err := validateUserPassword(password); err != nil {
 		return nil, err
 	}
-	for _, u := range s.users {
-		if strings.EqualFold(u.Email, email) {
-			return nil, ErrAlreadyExists
-		}
+	if err := s.ensureUserEmailAvailableLocked(email); err != nil {
+		return nil, err
 	}
-	hash, err := encryption.HashPasswordWithBcrypt(password)
+	hash, err := s.hashPasswordOutsideLock([]byte(password))
 	if err != nil {
+		return nil, err
+	}
+	// refresh 同时复核管理员权限；哈希期间可能已禁用或降权。
+	if err := s.refreshLocked(); err != nil {
+		return nil, err
+	}
+	if err := s.ensureUserEmailAvailableLocked(email); err != nil {
 		return nil, err
 	}
 	now := time.Now()
@@ -2198,6 +2244,7 @@ func (s *Store) ArchiveBranch(actorID, projectID, serviceID, branchID string, au
 }
 
 func (s *Store) CreateDraft(actorID, projectID, serviceID string, input DraftInput, auditCtx ...AuditContext) (*ContractDraft, error) {
+	s = s.prepareOpenAPI(input.SchemaContent)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -2207,6 +2254,7 @@ func (s *Store) CreateDraft(actorID, projectID, serviceID string, input DraftInp
 	return s.createDraftLocked(actorID, projectID, serviceID, input, SourceTypeWebUpload, ctx)
 }
 func (s *Store) CreateMCPDraft(actorID, projectID, serviceID string, input DraftInput, auditCtx ...AuditContext) (*ContractDraft, error) {
+	s = s.prepareOpenAPI(input.SchemaContent)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -2216,6 +2264,7 @@ func (s *Store) CreateMCPDraft(actorID, projectID, serviceID string, input Draft
 	return s.createDraftLocked(actorID, projectID, serviceID, input, SourceTypeMCPUpload, ctx)
 }
 func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input DraftPatchInput, auditCtx ...AuditContext) (*ContractDraft, error) {
+	s = s.prepareOpenAPI(input.SchemaContent)
 	s = s.withMutationGuard(actorID, projectID, serviceID, MemberRoleWriter)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2249,7 +2298,7 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	if err := domaindraft.ValidateCreate(versionName, input.SchemaContent); err != nil {
 		return nil, err
 	}
-	parsed, err := ParseOpenAPI(input.SchemaContent)
+	parsed, err := s.parseOpenAPI(input.SchemaContent)
 	if err != nil {
 		return nil, err
 	}
@@ -2259,7 +2308,7 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 			return nil, err
 		}
 	}
-	if latest != nil && latest.NormalizedSchemaHash == sha(parsed.Normalized) {
+	if latest != nil && effectiveVersionHash(latest) == sha(parsed.Normalized) {
 		return nil, fmt.Errorf("%w: schema has no changes from latest version", ErrFailedPrecondition)
 	}
 	updated := *d
@@ -2348,6 +2397,11 @@ func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, audit
 	return submitted, nil
 }
 func (s *Store) ReviewDraft(actorID, projectID, serviceID, draftID, action string, input DraftReviewInput, auditCtx ...AuditContext) (any, error) {
+	var err error
+	s, err = s.prepareDraftOpenAPI(actorID, projectID, serviceID, draftID)
+	if err != nil {
+		return nil, err
+	}
 	s = s.withMutationGuard(actorID, projectID, serviceID, MemberRoleAdmin)
 	s.mu.Lock()
 	ctx := auditContext(auditCtx)
@@ -2980,6 +3034,11 @@ func (s *Store) RevokeUserMCPToken(actorID, userID, tokenID string, auditCtx ...
 }
 
 func (s *Store) AuthenticateMCPToken(token string, auditCtx ...AuditContext) (*MCPToken, *User, error) {
+	if s.persistence != nil {
+		if repo, ok := s.persistence.repo.(domainvdoc.MCPTokenAuthRepository); ok {
+			return s.authenticateMCPTokenRepository(repo, token, auditContext(auditCtx))
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -3090,7 +3149,7 @@ func (s *Store) createDraftLocked(actorID, projectID, serviceID string, input Dr
 	if err := domaindraft.ValidateCreate(input.VersionName, input.SchemaContent); err != nil {
 		return nil, err
 	}
-	parsed, err := ParseOpenAPI(input.SchemaContent)
+	parsed, err := s.parseOpenAPI(input.SchemaContent)
 	if err != nil {
 		return nil, err
 	}
@@ -3102,7 +3161,7 @@ func (s *Store) createDraftLocked(actorID, projectID, serviceID string, input Dr
 	}
 	latestHash := ""
 	if latest != nil {
-		latestHash = latest.NormalizedSchemaHash
+		latestHash = effectiveVersionHash(latest)
 	}
 	rawHash := sha(input.SchemaContent)
 	normalizedHash := sha(parsed.Normalized)
@@ -3158,7 +3217,7 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 	latest := s.latestVersionLocked(documentID, input.BranchID)
 	latestHash := ""
 	if latest != nil {
-		latestHash = latest.NormalizedSchemaHash
+		latestHash = effectiveVersionHash(latest)
 	}
 	rawHash := sha(input.SchemaContent)
 	stableHash := sha(stableContent)
@@ -3232,20 +3291,22 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 	}
 	latestHash := ""
 	if latest != nil {
-		latestHash = latest.NormalizedSchemaHash
+		latestHash = effectiveVersionHash(latest)
 	}
-	if err := domaindraft.EnsureChangedFromLatest(latestHash, d.NormalizedSchemaHash); err != nil {
-		return nil, err
-	}
-	parsed, err := ParseOpenAPI(d.RawSchema)
+	parsed, err := s.parseOpenAPI(d.RawSchema)
 	if err != nil {
 		return nil, err
 	}
+	if err := domaindraft.EnsureChangedFromLatest(latestHash, sha(parsed.Normalized)); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
-	v, err := domainversion.PublishFromDraft(domainversion.PublishParams{ID: id.GenerateID(), PublishedBy: actorID, Now: now, Draft: domainversion.DraftSnapshot{ID: d.ID, ProjectID: d.ProjectID, DocumentID: d.ServiceID, BranchID: d.BranchID, VersionName: d.VersionName, RelativePath: firstNonEmpty(service.RelativePath, service.BasePath), Changelog: d.Changelog, SourceGitCommitID: d.SourceGitCommitID, SchemaFormat: d.SchemaFormat, SourceType: d.SourceType, SourceBranchID: d.SourceBranchID, SourceVersionID: d.SourceVersionID, BaseVersionID: d.BaseVersionID, RawSchema: d.RawSchema, NormalizedSchema: d.NormalizedSchema, RawSchemaHash: d.RawSchemaHash, NormalizedSchemaHash: d.NormalizedSchemaHash, Status: d.Status}})
+	v, err := domainversion.PublishFromDraft(domainversion.PublishParams{ID: id.GenerateID(), PublishedBy: actorID, Now: now, Draft: domainversion.DraftSnapshot{ID: d.ID, ProjectID: d.ProjectID, DocumentID: d.ServiceID, BranchID: d.BranchID, VersionName: d.VersionName, RelativePath: firstNonEmpty(service.RelativePath, service.BasePath), Changelog: d.Changelog, SourceGitCommitID: d.SourceGitCommitID, SchemaFormat: d.SchemaFormat, SourceType: d.SourceType, SourceBranchID: d.SourceBranchID, SourceVersionID: d.SourceVersionID, BaseVersionID: d.BaseVersionID, RawSchema: d.RawSchema, NormalizedSchema: parsed.Normalized, RawSchemaHash: d.RawSchemaHash, NormalizedSchemaHash: sha(parsed.Normalized), Status: d.Status}})
 	if err != nil {
 		return nil, err
 	}
+	v.ParserVersion, v.ParsedSchemaHash = openAPIParserVersion, sha(parsed.Normalized)
 	rawKey, rawRef, err := s.persistSchemaObjectLocked(v.ProjectID, v.ServiceID, v.BranchID, "version", v.ID, "raw", v.RawSchemaHash, v.RawSchema)
 	if err != nil {
 		return nil, err
@@ -3319,7 +3380,7 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 	latest := s.latestVersionLocked(d.ServiceID, d.BranchID)
 	latestHash := ""
 	if latest != nil {
-		latestHash = latest.NormalizedSchemaHash
+		latestHash = effectiveVersionHash(latest)
 	}
 	if err := domaindraft.EnsureChangedFromLatest(latestHash, d.NormalizedSchemaHash); err != nil {
 		return nil, err

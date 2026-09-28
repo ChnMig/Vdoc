@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"vdoc/utils/jsonvalue"
 
 	"vdoc/db/pgdb"
 	domainvdoc "vdoc/domain/vdoc"
@@ -696,11 +697,31 @@ func (r *Repository) UpsertMCPToken(ctx context.Context, token *domainvdoc.MCPTo
 }
 
 func (r *Repository) UpsertMCPTokenIfUnchanged(ctx context.Context, token, previous *domainvdoc.MCPToken) error {
+	if r == nil || r.database == nil {
+		return fmt.Errorf("postgres repository is not initialized")
+	}
 	model := mcpTokenModelFromDomain(token)
 	if model == nil {
 		return nil
 	}
-	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+	if previous == nil {
+		return r.upsertByIDIfUnchanged(ctx, model, model.ID, nil)
+	}
+	return r.transaction(ctx, func(tx *gorm.DB) error {
+		var current MCPToken
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", model.ID).Take(&current).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		if !current.UpdatedAt.Equal(previous.UpdatedAt) {
+			return fmt.Errorf("%w: row %s changed since it was loaded", domainvdoc.ErrFailedPrecondition, model.ID)
+		}
+		// 生命周期仍受乐观锁保护，旧快照不得回退并发鉴权写入的使用时间。
+		if current.LastUsedAt != nil && (model.LastUsedAt == nil || current.LastUsedAt.After(*model.LastUsedAt)) {
+			model.LastUsedAt = current.LastUsedAt
+		}
+		model.UpdatedAt = time.Now().UTC()
+		return (&Repository{database: tx}).upsertByID(ctx, model)
+	})
 }
 
 func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishStateInput) error {
@@ -742,7 +763,7 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 		if input.ExpectedDraftUpdatedAt.IsZero() || currentDraft.UpdatedAt.UnixMicro() != input.ExpectedDraftUpdatedAt.UnixMicro() {
 			return fmt.Errorf("%w: draft changed before publication; reload and review it again", domainvdoc.ErrFailedPrecondition)
 		}
-		if err := writer.ensureChangedFromLatest(ctx, input.ServiceID, input.BranchID, currentDraft.NormalizedSchemaHash, input.ExpectedBaseVersionID); err != nil {
+		if err := writer.ensureChangedFromLatest(ctx, input.ServiceID, input.BranchID, version.NormalizedSchemaHash, input.ExpectedBaseVersionID); err != nil {
 			return err
 		}
 		if err := writer.ensureVersionAvailable(ctx, input.ServiceID, input.BranchID, input.VersionName); err != nil {
@@ -798,7 +819,23 @@ func (r *Repository) PublishState(ctx context.Context, input domainvdoc.PublishS
 }
 
 func (r *Repository) upsertByID(ctx context.Context, value any) error {
-	return mapPostgresError(r.database.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).Create(value).Error)
+	return mapPostgresError(upsertIncludingDatabaseDefaults(r.database.WithContext(ctx), value))
+}
+
+func upsertIncludingDatabaseDefaults(database *gorm.DB, value any) error {
+	statement := &gorm.Statement{DB: database}
+	if err := statement.Parse(value); err != nil {
+		return err
+	}
+	// GORM 的 UpdateAll 不包含数据库默认表达式列（JSONB、数组等）。
+	// 补齐这些可写列，其余字段和自动更新时间仍遵循 GORM 的原有行为。
+	columns := []string{}
+	for _, field := range statement.Schema.FieldsWithDefaultDBValue {
+		if field.Updatable && field.Creatable && !field.PrimaryKey && field.AutoCreateTime == 0 && field.AutoUpdateTime == 0 && !strings.EqualFold(field.DefaultValue, "NULL") {
+			columns = append(columns, field.DBName)
+		}
+	}
+	return database.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true, DoUpdates: clause.AssignmentColumns(columns)}).Create(value).Error
 }
 
 func (r *Repository) upsertByIDIfUnchanged(ctx context.Context, value any, id string, expectedUpdatedAt *time.Time) error {
@@ -836,7 +873,7 @@ func (r *Repository) upsertByIDIfUnchanged(ctx context.Context, value any, id st
 			return fmt.Errorf("%w: row %s changed since it was loaded", domainvdoc.ErrFailedPrecondition, id)
 		}
 		touchModelUpdatedAt(value, time.Now().UTC())
-		return tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).Create(value).Error
+		return upsertIncludingDatabaseDefaults(tx.WithContext(ctx), value)
 	}))
 }
 
@@ -978,7 +1015,11 @@ func (r *Repository) ensureChangedFromLatest(ctx context.Context, serviceID, bra
 	if domainID(latest.ID) != expectedBaseVersionID {
 		return fmt.Errorf("%w: review baseline changed before publication; reload and review the latest diff", domainvdoc.ErrFailedPrecondition)
 	}
-	if latest.NormalizedSchemaHash == candidateHash {
+	latestHash := latest.ParsedSchemaHash
+	if latestHash == "" {
+		latestHash = latest.NormalizedSchemaHash
+	}
+	if latestHash == candidateHash {
 		return fmt.Errorf("%w: schema has no changes from latest version", domainvdoc.ErrFailedPrecondition)
 	}
 	return nil
@@ -1000,7 +1041,7 @@ func documentVersionModelFromDomain(version *domainvdoc.ContractVersion, version
 	if version == nil {
 		return nil
 	}
-	return &DocumentVersion{Base: pgdb.Base{ID: version.ID, CreatedAt: nonZeroTime(version.CreatedAt), UpdatedAt: nonZeroTime(version.UpdatedAt)}, ProjectID: version.ProjectID, DocumentID: domainDocumentID(version.DocumentID, version.ServiceID), BranchID: version.BranchID, VersionName: version.VersionName, VersionNo: versionNo, RelativePath: version.RelativePath, Status: version.Status, SourceDraftID: version.DraftID, SourceType: version.SourceType, SourceBranchID: stringPtr(version.SourceBranchID), SourceVersionID: stringPtr(version.SourceVersionID), BaseVersionID: stringPtr(version.BaseVersionID), DocumentFormat: version.SchemaFormat, RawSchemaObjectKey: version.RawSchemaObjectKey, NormalizedSchemaObjectKey: version.NormalizedObjectKey, RawSchemaHash: version.RawSchemaHash, NormalizedSchemaHash: version.NormalizedSchemaHash, SchemaSizeBytes: int64(len(version.RawSchema)), SchemaMetadata: versionContentMetadata(version), Changelog: stringPtr(version.Changelog), SourceGitCommitID: stringPtr(version.SourceGitCommitID), EndpointCount: endpoints, PublishedBy: version.PublishedBy, PublishedAt: nonZeroTime(version.PublishedAt)}
+	return &DocumentVersion{ParserVersion: version.ParserVersion, ParsedSchemaHash: version.ParsedSchemaHash, Base: pgdb.Base{ID: version.ID, CreatedAt: nonZeroTime(version.CreatedAt), UpdatedAt: nonZeroTime(version.UpdatedAt)}, ProjectID: version.ProjectID, DocumentID: domainDocumentID(version.DocumentID, version.ServiceID), BranchID: version.BranchID, VersionName: version.VersionName, VersionNo: versionNo, RelativePath: version.RelativePath, Status: version.Status, SourceDraftID: version.DraftID, SourceType: version.SourceType, SourceBranchID: stringPtr(version.SourceBranchID), SourceVersionID: stringPtr(version.SourceVersionID), BaseVersionID: stringPtr(version.BaseVersionID), DocumentFormat: version.SchemaFormat, RawSchemaObjectKey: version.RawSchemaObjectKey, NormalizedSchemaObjectKey: version.NormalizedObjectKey, RawSchemaHash: version.RawSchemaHash, NormalizedSchemaHash: version.NormalizedSchemaHash, SchemaSizeBytes: int64(len(version.RawSchema)), SchemaMetadata: versionContentMetadata(version), Changelog: stringPtr(version.Changelog), SourceGitCommitID: stringPtr(version.SourceGitCommitID), EndpointCount: endpoints, PublishedBy: version.PublishedBy, PublishedAt: nonZeroTime(version.PublishedAt)}
 }
 
 func (r *Repository) insertPublishedEndpoints(ctx context.Context, endpoints map[string]*domainvdoc.Endpoint, versions map[string]*domainvdoc.ContractVersion, versionID string) error {
@@ -1045,7 +1086,7 @@ func (r *Repository) insertPublishedDiffs(ctx context.Context, diffs map[string]
 			if !ok {
 				return fmt.Errorf("%w: unsupported diff method %q", domainvdoc.ErrInvalidArgument, item.Method)
 			}
-			if err := r.database.WithContext(ctx).Create(&DocumentDiffItem{Base: pgdb.Base{ID: item.ID, CreatedAt: nonZeroTime(diff.CreatedAt), UpdatedAt: nonZeroTime(diff.UpdatedAt)}, DiffID: diff.ID, ChangeType: item.ChangeType, Severity: item.Severity, Method: method, Path: stringPtr(item.Path), OperationID: stringPtr(item.OperationID), Location: stringPtr(item.Location), OldValue: pgdb.NewJSONB(item.OldValue, "null"), NewValue: pgdb.NewJSONB(item.NewValue, "null"), Message: item.Message, FrontendImpact: stringPtr(item.FrontendImpact), IsBreaking: item.IsBreaking, SortOrder: item.SortOrder}).Error; err != nil {
+			if err := r.database.WithContext(ctx).Create(&DocumentDiffItem{Base: pgdb.Base{ID: item.ID, CreatedAt: nonZeroTime(diff.CreatedAt), UpdatedAt: nonZeroTime(diff.UpdatedAt)}, DiffID: diff.ID, ChangeType: item.ChangeType, Severity: item.Severity, Method: method, Path: stringPtr(item.Path), OperationID: stringPtr(item.OperationID), Location: stringPtr(item.Location), OldValue: pgdb.NewJSONB(item.OldValue, "null"), NewValue: pgdb.NewJSONB(item.NewValue, "null"), Message: item.Message, FrontendImpact: stringPtr(item.FrontendImpact), IsBreaking: item.IsBreaking, MustHandle: item.MustHandle, SortOrder: item.SortOrder}).Error; err != nil {
 				return err
 			}
 		}
@@ -1064,7 +1105,7 @@ func (r *Repository) upsertDocumentDiffItem(ctx context.Context, diff *domainvdo
 	if !ok {
 		return fmt.Errorf("%w: unsupported diff method %q", domainvdoc.ErrInvalidArgument, item.Method)
 	}
-	model := &DocumentDiffItem{Base: pgdb.Base{ID: item.ID, CreatedAt: nonZeroTime(diff.CreatedAt), UpdatedAt: nonZeroTime(diff.UpdatedAt)}, DiffID: diff.ID, ChangeType: item.ChangeType, Severity: item.Severity, Method: method, Path: stringPtr(item.Path), OperationID: stringPtr(item.OperationID), Location: stringPtr(item.Location), OldValue: pgdb.NewJSONB(item.OldValue, "null"), NewValue: pgdb.NewJSONB(item.NewValue, "null"), Message: item.Message, FrontendImpact: stringPtr(item.FrontendImpact), IsBreaking: item.IsBreaking, SortOrder: item.SortOrder}
+	model := &DocumentDiffItem{Base: pgdb.Base{ID: item.ID, CreatedAt: nonZeroTime(diff.CreatedAt), UpdatedAt: nonZeroTime(diff.UpdatedAt)}, DiffID: diff.ID, ChangeType: item.ChangeType, Severity: item.Severity, Method: method, Path: stringPtr(item.Path), OperationID: stringPtr(item.OperationID), Location: stringPtr(item.Location), OldValue: pgdb.NewJSONB(item.OldValue, "null"), NewValue: pgdb.NewJSONB(item.NewValue, "null"), Message: item.Message, FrontendImpact: stringPtr(item.FrontendImpact), IsBreaking: item.IsBreaking, MustHandle: item.MustHandle, SortOrder: item.SortOrder}
 	return r.upsertByID(ctx, model)
 }
 
@@ -1279,7 +1320,7 @@ func (r *Repository) loadVersions(ctx context.Context, loaded *domainvdoc.State)
 
 func domainDocumentVersionFromModel(model DocumentVersion) *domainvdoc.ContractVersion {
 	documentID := domainID(model.DocumentID)
-	return &domainvdoc.ContractVersion{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), DraftID: domainID(model.SourceDraftID), VersionName: model.VersionName, RelativePath: model.RelativePath, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: domainID(model.PublishedBy), PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+	return &domainvdoc.ContractVersion{ParserVersion: model.ParserVersion, ParsedSchemaHash: model.ParsedSchemaHash, ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(model.BranchID), DraftID: domainID(model.SourceDraftID), VersionName: model.VersionName, RelativePath: model.RelativePath, Changelog: stringValue(model.Changelog), SourceGitCommitID: stringValue(model.SourceGitCommitID), SchemaFormat: model.DocumentFormat, SourceType: model.SourceType, SourceBranchID: stringValueID(model.SourceBranchID), SourceVersionID: stringValueID(model.SourceVersionID), BaseVersionID: stringValueID(model.BaseVersionID), RawSchemaObjectKey: model.RawSchemaObjectKey, NormalizedObjectKey: model.NormalizedSchemaObjectKey, RawSchemaHash: model.RawSchemaHash, NormalizedSchemaHash: model.NormalizedSchemaHash, Status: model.Status, PublishedBy: domainID(model.PublishedBy), PublishedAt: model.PublishedAt, CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 }
 
 func (r *Repository) loadEndpoints(ctx context.Context, loaded *domainvdoc.State, versionID ...string) error {
@@ -1344,7 +1385,7 @@ func (r *Repository) loadDiffs(ctx context.Context, loaded *domainvdoc.State) er
 		if diff == nil {
 			continue
 		}
-		diff.Items = append(diff.Items, domainvdoc.DiffItem{ID: domainID(model.ID), ChangeType: model.ChangeType, Severity: model.Severity, Method: codeToOptionalMethod(model.Method), Path: stringValue(model.Path), OperationID: stringValue(model.OperationID), Location: stringValue(model.Location), OldValue: model.OldValue.Interface(), NewValue: model.NewValue.Interface(), Message: model.Message, FrontendImpact: stringValue(model.FrontendImpact), IsBreaking: model.IsBreaking, MustHandle: model.IsBreaking, SortOrder: model.SortOrder})
+		diff.Items = append(diff.Items, domainvdoc.DiffItem{ID: domainID(model.ID), ChangeType: model.ChangeType, Severity: model.Severity, Method: codeToOptionalMethod(model.Method), Path: stringValue(model.Path), OperationID: stringValue(model.OperationID), Location: stringValue(model.Location), OldValue: model.OldValue.Interface(), NewValue: model.NewValue.Interface(), Message: model.Message, FrontendImpact: stringValue(model.FrontendImpact), IsBreaking: model.IsBreaking, MustHandle: model.MustHandle || model.IsBreaking, SortOrder: model.SortOrder})
 	}
 	return nil
 }
@@ -1670,7 +1711,7 @@ func diffPreviewFromJSON(raw pgdb.JSONB) *domainvdoc.Diff {
 	}
 	if _, ok := fields["summary"]; ok {
 		var preview domainvdoc.Diff
-		if err := json.Unmarshal(raw, &preview); err != nil {
+		if err := jsonvalue.Decode(raw, &preview); err != nil {
 			return nil
 		}
 		preview.DiffStatus = domainvdoc.DiffStatusSucceeded
@@ -1715,10 +1756,10 @@ func jsonToInterface(raw []byte) any {
 		return nil
 	}
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := jsonvalue.Decode(raw, &value); err != nil {
 		return nil
 	}
-	return value
+	return jsonvalue.Normalize(value)
 }
 
 func nullStringBytes(value sql.NullString) []byte {

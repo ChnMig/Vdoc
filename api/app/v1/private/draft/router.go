@@ -94,6 +94,21 @@ func listDrafts(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if _, paged := c.GetQuery("page_size"); paged {
+		query, err := shared.PageQuery(c)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		values, total, err := shared.Store(c).QueryDrafts(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"), query)
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		response.ReturnPage(c, shared.DraftList(values), &total, query.Offset+len(values) < total, "")
+		return
+	}
+
 	drafts, err := shared.Store(c).ListDrafts(userID, c.Param("project_id"), c.Param("document_id"), c.Query("branch_id"))
 	if err != nil {
 		shared.ReturnAppError(c, err)

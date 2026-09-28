@@ -485,7 +485,8 @@ func TestDiffItemPersistenceIncludesSemanticFields(t *testing.T) {
 		"NewValue: pgdb.NewJSONB(item.NewValue, \"null\")",
 		"OldValue: model.OldValue.Interface()",
 		"NewValue: model.NewValue.Interface()",
-		"MustHandle: model.IsBreaking",
+		"MustHandle: model.MustHandle || model.IsBreaking",
+		"MustHandle: item.MustHandle",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("repo.go missing semantic diff item persistence marker %q", want)

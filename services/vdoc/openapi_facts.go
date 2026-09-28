@@ -2,9 +2,10 @@ package vdoc
 
 import (
 	"fmt"
+	domain "vdoc/domain/vdoc"
 )
 
-const openAPIParserVersion = 4
+const openAPIParserVersion = 8
 
 // 待发布草稿始终对比当前分支 latest；已发布草稿保留当时审核基线。
 func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
@@ -52,7 +53,7 @@ func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
 		if err := s.ensureVersionEndpointFactsLocked(baseline.ID); err != nil {
 			return err
 		}
-		parsed, err := ParseOpenAPI(draft.RawSchema)
+		parsed, err := s.parseOpenAPI(draft.RawSchema)
 		if err != nil {
 			return err
 		}
@@ -89,7 +90,7 @@ func (s *Store) ensureVersionEndpointFactsLocked(versionID string) error {
 		return nil
 	}
 	endpoints := s.endpointsForVersionLocked(versionID)
-	legacy := false
+	legacy := version.ParserVersion < openAPIParserVersion
 	for _, endpoint := range endpoints {
 		operation, _ := asMap(endpoint.NormalizedOperation)
 		if _, current := operation["securitySchemes"]; !current {
@@ -102,7 +103,7 @@ func (s *Store) ensureVersionEndpointFactsLocked(versionID string) error {
 	if err := s.hydrateVersionContentLocked(s.requestContext(), version, "raw"); err != nil {
 		return err
 	}
-	parsed, err := ParseOpenAPI(version.RawSchema)
+	parsed, err := ParseOpenAPIContext(s.requestContext(), version.RawSchema)
 	if err != nil {
 		return err
 	}
@@ -110,22 +111,40 @@ func (s *Store) ensureVersionEndpointFactsLocked(versionID string) error {
 	for _, endpoint := range parsed.Endpoints {
 		byOperation[endpoint.Method+" "+endpoint.Path] = endpoint
 	}
-	if len(byOperation) != len(endpoints) {
-		return fmt.Errorf("%w: stored endpoint index does not match version source", ErrFailedPrecondition)
-	}
-	updated := make([]Endpoint, 0, len(endpoints))
+	oldByOperation := map[string]Endpoint{}
 	for _, old := range endpoints {
-		current, ok := byOperation[old.Method+" "+old.Path]
-		if !ok {
+		if _, ok := byOperation[old.Method+" "+old.Path]; !ok {
 			return fmt.Errorf("%w: stored endpoint is absent from version source", ErrFailedPrecondition)
 		}
-		current.ID, current.ContractVersionID = old.ID, old.ContractVersionID
-		current.CreatedAt, current.UpdatedAt = old.CreatedAt, old.UpdatedAt
+		oldByOperation[old.Method+" "+old.Path] = old
+	}
+	updated := make([]Endpoint, 0, len(parsed.Endpoints))
+	for _, current := range parsed.Endpoints {
+		if old, ok := oldByOperation[current.Method+" "+current.Path]; ok {
+			current.ID, current.CreatedAt, current.UpdatedAt = old.ID, old.CreatedAt, old.UpdatedAt
+		} else {
+			current.ID = sha("endpoint-facts:" + versionID + ":" + current.Method + ":" + current.Path)[:32]
+			current.CreatedAt, current.UpdatedAt = version.CreatedAt, version.CreatedAt
+		}
+		current.ContractVersionID = versionID
 		updated = append(updated, current)
+	}
+	repo := s.endpointFactsRepo
+	if repo == nil && s.persistence != nil {
+		repo, _ = s.persistence.repo.(domain.EndpointFactsRepository)
+	}
+	if repo != nil {
+		if err := repo.RefreshEndpointFacts(s.requestContext(), versionID, version.RawSchemaHash, openAPIParserVersion, sha(parsed.Normalized), updated); err != nil {
+			return err
+		}
+	}
+	version.ParserVersion, version.ParsedSchemaHash = openAPIParserVersion, sha(parsed.Normalized)
+	if s.persisted != nil && s.persisted.Versions[versionID] != nil {
+		s.persisted.Versions[versionID].ParserVersion, s.persisted.Versions[versionID].ParsedSchemaHash = version.ParserVersion, version.ParsedSchemaHash
 	}
 	for _, endpoint := range updated {
 		s.endpoints[endpoint.ID] = cloneEndpoint(&endpoint)
-		// 与延迟加载原文一样，缓存升级不修改不可变的发布索引记录。
+		// 派生索引已单独持久化，同步快照以免后续保存误判为发布内容变更。
 		if s.persisted != nil {
 			s.persisted.Endpoints[endpoint.ID] = cloneEndpoint(&endpoint)
 		}
@@ -171,4 +190,11 @@ func (s *Store) ensureDiffFactsLocked(diff *Diff) error {
 	}
 	*diff = *updated
 	return nil
+}
+
+func effectiveVersionHash(version *ContractVersion) string {
+	if version.ParsedSchemaHash != "" {
+		return version.ParsedSchemaHash
+	}
+	return version.NormalizedSchemaHash
 }

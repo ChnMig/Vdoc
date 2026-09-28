@@ -594,6 +594,10 @@ paths:
       security: [{ JWTAuth: [] }]
       parameters:
         - { $ref: "#/components/parameters/BranchIDQuery" }
+        - { $ref: "#/components/parameters/PageSizeQuery" }
+        - { $ref: "#/components/parameters/OffsetQuery" }
+        - { $ref: "#/components/parameters/SearchQuery" }
+      description: With page_size, returns draft metadata without content, diff_preview, revision or review_revision. Search matches version names. Fetch the draft content snapshot before editing or reviewing. Omitting page_size preserves the legacy list.
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
     post:
@@ -791,6 +795,7 @@ paths:
     get:
       tags: [Endpoints]
       summary: Get endpoint detail.
+      description: Includes json_preview, a map of server-formatted JSON strings keyed by detail section, for exact numeric rendering. Original structured fields remain available.
       operationId: getDocumentVersionEndpoint
       security: [{ JWTAuth: [] }]
       responses:
@@ -815,9 +820,15 @@ paths:
     get:
       tags: [Diffs]
       summary: List stored document diffs.
-      description: Optional from_version_id and to_version_id query parameters select an exact version pair.
+      description: Optional from_version_id and to_version_id select a version pair. With page_size, returns identity, version pair, status and timestamps only; fetch the diff detail for current summary and items. Search matches either version name. Omitting page_size preserves the legacy list.
       operationId: listDocumentDiffs
       security: [{ JWTAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/PageSizeQuery" }
+        - { $ref: "#/components/parameters/OffsetQuery" }
+        - { $ref: "#/components/parameters/SearchQuery" }
+        - { name: from_version_id, in: query, schema: { type: string } }
+        - { name: to_version_id, in: query, schema: { type: string } }
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}:
@@ -828,6 +839,7 @@ paths:
     get:
       tags: [Diffs]
       summary: Get document diff.
+      description: Items include old_value_json and new_value_json strings for exact JSON rendering without browser number rounding; original old_value and new_value remain available.
       operationId: getDocumentDiff
       security: [{ JWTAuth: [] }]
       responses:

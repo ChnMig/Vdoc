@@ -84,9 +84,19 @@ func (s *Store) CreateDocumentShare(actorID, projectID, documentID string, input
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		encoded, hashErr := encryption.HashPasswordBytesWithBcrypt(parsed.Bytes())
+		encoded, hashErr := s.hashPasswordOutsideLock(parsed.Bytes())
 		if hashErr != nil {
 			return nil, hashErr
+		}
+		if err := s.refreshLocked(); err != nil {
+			return nil, err
+		}
+		document, branch, err = s.activeShareParentsLocked(projectID, documentID, input.BranchID)
+		if err != nil {
+			return nil, err
+		}
+		if s.latestVersionLocked(document.ID, branch.ID) == nil {
+			return nil, fmt.Errorf("%w: document branch has no published version", ErrFailedPrecondition)
 		}
 		passwordVerifier = &encoded
 	}

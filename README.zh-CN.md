@@ -74,7 +74,7 @@ scripts/vdoc-release-dry-run.sh
 
 随后自动创建 [GitHub Release](https://github.com/ChnMig/Vdoc/releases) 并上传同一份已验证产物；带预发布后缀的 tag 会标记为预发布。普通分支提交和 PR 只运行检查。发布任务不会覆盖已有 Release。
 
-本地可用 `make release-package RELEASE_TAG=v0.3.0` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
+本地可用 `make release-package RELEASE_TAG=v0.3.1` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
 
 ## 已实现能力
 

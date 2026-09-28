@@ -406,13 +406,14 @@ type EndpointSummaryDTO struct {
 
 type EndpointDTO struct {
 	EndpointSummaryDTO
-	Parameters          any `json:"parameters,omitempty"`
-	RequestBody         any `json:"request_body,omitempty"`
-	Responses           any `json:"responses,omitempty"`
-	Security            any `json:"security,omitempty"`
-	Servers             any `json:"servers,omitempty"`
-	NormalizedOperation any `json:"normalized_operation,omitempty"`
-	SchemaRefs          any `json:"schema_refs,omitempty"`
+	Parameters          any               `json:"parameters,omitempty"`
+	RequestBody         any               `json:"request_body,omitempty"`
+	Responses           any               `json:"responses,omitempty"`
+	Security            any               `json:"security,omitempty"`
+	Servers             any               `json:"servers,omitempty"`
+	NormalizedOperation any               `json:"normalized_operation,omitempty"`
+	SchemaRefs          any               `json:"schema_refs,omitempty"`
+	JSONPreview         map[string]string `json:"json_preview,omitempty"`
 }
 
 func EndpointSummary(v *app.Endpoint) EndpointSummaryDTO {
@@ -434,7 +435,7 @@ func Endpoint(v *app.Endpoint) EndpointDTO {
 	if v == nil {
 		return EndpointDTO{}
 	}
-	return EndpointDTO{EndpointSummaryDTO: EndpointSummary(v), Parameters: v.Parameters, RequestBody: v.RequestBody, Responses: v.Responses, Security: v.Security, Servers: v.Servers, NormalizedOperation: v.NormalizedOperation, SchemaRefs: v.SchemaRefs}
+	return EndpointDTO{EndpointSummaryDTO: EndpointSummary(v), Parameters: v.Parameters, RequestBody: v.RequestBody, Responses: v.Responses, Security: v.Security, Servers: v.Servers, NormalizedOperation: v.NormalizedOperation, SchemaRefs: v.SchemaRefs, JSONPreview: endpointJSONPreview(v)}
 }
 
 type DiffDTO struct {
@@ -471,7 +472,9 @@ type DiffItemDTO struct {
 	OperationID    string `json:"operation_id,omitempty"`
 	Location       string `json:"location,omitempty"`
 	OldValue       any    `json:"old_value,omitempty"`
+	OldValueJSON   string `json:"old_value_json,omitempty"`
 	NewValue       any    `json:"new_value,omitempty"`
+	NewValueJSON   string `json:"new_value_json,omitempty"`
 	Message        string `json:"message"`
 	FrontendImpact string `json:"frontend_impact,omitempty"`
 	IsBreaking     bool   `json:"is_breaking"`
@@ -511,7 +514,7 @@ func DiffSummaryDTO(v app.DiffSummary) DiffSummary {
 }
 
 func DiffItem(v app.DiffItem) DiffItemDTO {
-	return DiffItemDTO{ID: v.ID, ChangeType: v.ChangeType, Severity: v.Severity, Method: v.Method, Path: v.Path, OperationID: v.OperationID, Location: v.Location, OldValue: v.OldValue, NewValue: v.NewValue, Message: v.Message, FrontendImpact: v.FrontendImpact, IsBreaking: v.IsBreaking, MustHandle: v.MustHandle, SortOrder: v.SortOrder}
+	return DiffItemDTO{ID: v.ID, ChangeType: v.ChangeType, Severity: v.Severity, Method: v.Method, Path: v.Path, OperationID: v.OperationID, Location: v.Location, OldValue: v.OldValue, NewValue: v.NewValue, OldValueJSON: exactJSON(v.OldValue), NewValueJSON: exactJSON(v.NewValue), Message: v.Message, FrontendImpact: v.FrontendImpact, IsBreaking: v.IsBreaking, MustHandle: v.MustHandle, SortOrder: v.SortOrder}
 }
 
 type AuditLogDTO struct {
