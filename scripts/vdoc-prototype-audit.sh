@@ -65,7 +65,7 @@ check_allowed_sql_execution() {
     [ -z "$line" ] && continue
     path="${line%%:*}"
     case "$path" in
-      db/migrations.go|./db/migrations.go|db/pgdb/vdoc/repo.go|./db/pgdb/vdoc/repo.go)
+      db/migrations.go|./db/migrations.go|db/pgdb/vdoc/*|./db/pgdb/vdoc/*)
         ;;
       *)
         bad+="$line"$'\n'
@@ -90,7 +90,8 @@ check_allowed_paths "database/sql and pgx confined to db boundaries" 'database/s
 check_allowed_sql_execution
 check_absent "v0.2 MCP publish tools not exposed" 'publish_api_schema|publish_api_version' api/app/v1/open/mcp docs/api/openapi.yaml --glob '!**/*_test.go'
 check_absent "runtime TODO/FIXME/HACK markers" 'TODO|FIXME|HACK' api domain services/vdoc db/pgdb --glob '*.go' --glob '!**/*_test.go'
-check_absent "stale prototype/scaffold docs wording" 'prototype|scaffold|脚手架' README.md README.zh-CN.md IMPROVEMENTS.md IMPROVEMENTS.zh-CN.md docs/api
+# README 中的脚手架来源归属是有效文档，不代表后端仍处于原型阶段。
+check_absent "stale prototype docs wording" 'prototype' README.md README.zh-CN.md IMPROVEMENTS.md IMPROVEMENTS.zh-CN.md docs/api
 
 go test ./services/vdoc -run 'TestInitDefaultStore(UsesInMemoryStoreWhenDatabaseDisabled|RequiresRepositoryWhenDatabaseEnabled)|TestDatabaseEnabledDefaultStoreRefreshesFromRepository|TestPostgresPersistenceSourceDoesNotUsePrototypeStateTable' -count=1 -v
 go test ./db/pgdb/vdoc -run TestRepositorySourceDoesNotUsePrototypeStateTable -count=1 -v

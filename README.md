@@ -26,15 +26,18 @@ Backend uploads or AI submits an OpenAPI or Markdown draft through MCP
         -> Frontend updates integration code and project knowledge with context
 ```
 
+## Scaffold Origin
+
+The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-template/tree/main/http-services) scaffold from [ChnMig/go-template](https://github.com/ChnMig/go-template). Shared runtime improvements are reviewed and integrated with Vdoc's API, persistence, and security contracts. The reviewed upstream commit and integration decisions are recorded in [docs/scaffold-sync.md](docs/scaffold-sync.md).
+
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc v0.1.
+This repository contains the Go/Gin backend for Vdoc. The current release is v0.3.2.
 
 API documentation:
 
 - Human-readable guide: [docs/api/API.md](docs/api/API.md)
 - Machine-readable OpenAPI spec: [docs/api/openapi.yaml](docs/api/openapi.yaml)
-- Reviewed upstream scaffold delta: [docs/scaffold-sync.md](docs/scaffold-sync.md)
 
 Public workspace deployment and release documents are maintained in Vdoc-site:
 
@@ -95,7 +98,7 @@ Push a version tag such as `v0.1.1` or `v0.1.1-rc.1` after committing the releas
 
 CI uploads the verified artifacts and then creates a [GitHub Release](https://github.com/ChnMig/Vdoc/releases) from the existing tag. Prerelease tags create prereleases. Ordinary branch pushes and pull requests run checks only. The publish job reuses the verified artifacts and does not overwrite an existing release.
 
-For a local packaging check, run `make release-package RELEASE_TAG=v0.3.1` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
+For a local packaging check, run `make release-package RELEASE_TAG=v0.3.2` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
 
 ## Product Concepts
 

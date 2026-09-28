@@ -39,36 +39,48 @@ func FromStandardContext(ctx context.Context) *zap.Logger {
 	return logger.With(zap.String(traceIDKey, traceID))
 }
 
-// FromContext 优先返回 Gin 中间件注入的请求 logger，并安全回退到标准 context 或全局 logger。
+// FromContext 从基础 logger 派生请求日志，统一附加一次请求元数据。
+// 没有 Gin TraceID 时继续从标准 context 读取，保留下游传递能力。
 func FromContext(ctx *gin.Context) *zap.Logger {
-	if logger, ok := ginRequestLogger(ctx); ok {
-		return logger
+	var base *zap.Logger
+	if ctx != nil {
+		if value, exists := ctx.Get(contextkey.Logger); exists {
+			base, _ = value.(*zap.Logger)
+		}
 	}
-	if ctx != nil && ctx.Request != nil {
-		return FromStandardContext(ctx.Request.Context())
+	if base == nil {
+		base = GetLogger()
 	}
-	return GetLogger()
+	if ctx == nil {
+		return base
+	}
+	fields := make([]zap.Field, 0, 4)
+	traceID := ctx.GetString(contextkey.TraceID)
+	if traceID == "" && ctx.Request != nil {
+		traceID, _ = TraceID(ctx.Request.Context())
+	}
+	if traceID != "" {
+		fields = append(fields, zap.String(traceIDKey, traceID))
+	}
+	if ctx.Request != nil {
+		fields = append(fields, zap.String("method", ctx.Request.Method), zap.String("client_ip", ctx.ClientIP()))
+		if ctx.Request.URL != nil {
+			fields = append(fields, zap.String("path", ctx.Request.URL.Path))
+		}
+	}
+	return base.With(fields...)
 }
 
 // WithRequest 只提取不含值的请求摘要。禁止记录 query value、form、
 // multipart 或绑定后的业务参数，避免密码、token、API key 和文档正文落盘。
 func WithRequest(ctx *gin.Context) *zap.Logger {
-	base, hasInjectedRequestFields := ginRequestLogger(ctx)
-	if !hasInjectedRequestFields {
-		base = FromContext(ctx)
-	}
+	base := FromContext(ctx)
 	if ctx == nil || ctx.Request == nil {
 		return base
 	}
 
-	fields := make([]zap.Field, 0, 4)
-	if !hasInjectedRequestFields {
-		fields = append(fields, zap.String("method", ctx.Request.Method))
-	}
+	fields := make([]zap.Field, 0, 2)
 	if ctx.Request.URL != nil {
-		if !hasInjectedRequestFields {
-			fields = append(fields, zap.String("path", ctx.Request.URL.Path))
-		}
 		if rawQuery := ctx.Request.URL.RawQuery; rawQuery != "" {
 			fields = append(fields, zap.Strings("query_keys", QueryKeys(rawQuery)))
 		}
@@ -81,19 +93,6 @@ func WithRequest(ctx *gin.Context) *zap.Logger {
 		fields = append(fields, zap.Any("path_params", pathParams))
 	}
 	return base.With(fields...)
-}
-
-// ginRequestLogger 返回 TraceID 中间件注入、且已携带 method/path/client_ip 的 logger。
-func ginRequestLogger(ctx *gin.Context) (*zap.Logger, bool) {
-	if ctx == nil {
-		return nil, false
-	}
-	value, exists := ctx.Get(contextkey.Logger)
-	if !exists {
-		return nil, false
-	}
-	logger, ok := value.(*zap.Logger)
-	return logger, ok && logger != nil
 }
 
 // QueryKeys 解析并排序 query 参数名，不返回任何参数值。解析失败时仅返回固定标记。

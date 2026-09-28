@@ -27,14 +27,9 @@ func TraceID() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(serviceLog.WithTraceID(c.Request.Context(), traceID))
 		c.Header(TraceIDHeaderKey, traceID)
 
-		// 创建带上下文信息的 logger 并存入 context
-		contextLogger := zap.L().With(
-			zap.String("trace_id", traceID),
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
-			zap.String("client_ip", c.ClientIP()),
-		)
-		c.Set(contextkey.Logger, contextLogger)
+		// 只保存基础 logger，请求字段统一由日志 helper 附加。
+		c.Set(contextkey.Logger, zap.L())
+		contextLogger := serviceLog.FromContext(c)
 
 		// 记录请求开始（调试级别）
 		contextLogger.Debug("Request started")

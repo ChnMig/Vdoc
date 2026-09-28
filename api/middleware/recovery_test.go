@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 
 	"vdoc/api/response"
@@ -97,5 +99,64 @@ func TestAccessLogDoesNotBlockRequest(t *testing.T) {
 	}
 	if w.Header().Get(contextkey.TraceIDHeader) == "" {
 		t.Fatalf("未写入 %s 响应头", contextkey.TraceIDHeader)
+	}
+}
+
+func TestRecoveryAbortsTransportFailuresWithoutWritingResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"broken pipe", fmt.Errorf("write failed: %w", syscall.EPIPE)},
+		{"connection reset", fmt.Errorf("read failed: %w", syscall.ECONNRESET)},
+		{"abort handler", http.ErrAbortHandler},
+		{"wrapped abort handler", fmt.Errorf("stream failed: %w", http.ErrAbortHandler)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			var appCode int
+			var appStatus string
+			var written bool
+			router := gin.New()
+			router.Use(TraceID(), func(c *gin.Context) {
+				defer func() {
+					appCode = c.GetInt(contextkey.AppCode)
+					appStatus = c.GetString(contextkey.AppStatus)
+					written = c.Writer.Written()
+				}()
+				c.Next()
+			}, Recovery())
+			router.GET("/abort", func(c *gin.Context) { panic(tc.err) })
+			w := httptest.NewRecorder()
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/abort", nil))
+			}()
+			if recovered != http.ErrAbortHandler {
+				t.Fatalf("transport panic = %v, want http.ErrAbortHandler", recovered)
+			}
+			if written || w.Body.Len() != 0 {
+				t.Fatalf("recovery wrote to an aborted response: %s", w.Body.String())
+			}
+			if appCode != response.CANCELLED.Code || appStatus != response.CANCELLED.Status {
+				t.Fatalf("outer access-log outcome = %d/%s, want CANCELLED", appCode, appStatus)
+			}
+		})
+	}
+}
+
+func TestRecoveryAbortDoesNotReturnSuccessfulHTTPResponse(t *testing.T) {
+	router := gin.New()
+	router.Use(TraceID(), AccessLog(), Recovery())
+	router.POST("/abort", func(c *gin.Context) { panic(http.ErrAbortHandler) })
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+	res, err := server.Client().Post(server.URL+"/abort", "application/json", nil)
+	if res != nil {
+		defer res.Body.Close()
+	}
+	if err == nil {
+		t.Fatalf("aborted request returned HTTP %d, want a transport error", res.StatusCode)
 	}
 }

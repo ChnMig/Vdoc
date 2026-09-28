@@ -6,10 +6,24 @@ Vdoc started from the [`go-template/http-services`](https://github.com/ChnMig/go
 
 - Repository: `https://github.com/ChnMig/go-template.git`
 - Path: `http-services/`
-- Upstream commit: [`4526389ed6b432b09b18404e5826a937f2255ba4`](https://github.com/ChnMig/go-template/commit/4526389ed6b432b09b18404e5826a937f2255ba4)
-- Reviewed on: 2026-08-27
+- Upstream commit: [`f8ab23762a9ddff028bf309f5f7ceb5de7685eb5`](https://github.com/ChnMig/go-template/commit/f8ab23762a9ddff028bf309f5f7ceb5de7685eb5)
+- Reviewed on: 2026-09-28
+- Previous snapshot: [`4526389ed6b432b09b18404e5826a937f2255ba4`](https://github.com/ChnMig/go-template/commit/4526389ed6b432b09b18404e5826a937f2255ba4), reviewed on 2026-08-27
 
 The comparison covered the entrypoint, configuration, middleware, response/logging helpers, PID ownership, Make targets, dependencies, database adapters, and utility packages.
+
+## September 2026 delta
+
+Two upstream commits changed `http-services/` since the previous snapshot:
+
+- [`0216ab6`](https://github.com/ChnMig/go-template/commit/0216ab67a706784890c36aae08b14bcbe6f59699): added cryptographically random, unpadded Base64URL strings. The helper and length/encoding/invalid-size tests are integrated. Existing MCP and document-share token formats stay compatible.
+- [`f8ab237`](https://github.com/ChnMig/go-template/commit/f8ab23762a9ddff028bf309f5f7ceb5de7685eb5): improved request logging and recovery. Vdoc integrates centralized request metadata, standard-context trace fallback with an injected base logger, and clearing stale parameters before rebinding. Connection-abort panics now record a `CANCELLED` outcome without a server-error envelope.
+
+The abort path deliberately propagates `http.ErrAbortHandler` to net/http after the access-log outcome is set. Swallowing that sentinel would let Gin write an empty successful response when the request should terminate. Ordinary panics retain Vdoc's HTTP 200 plus `INTERNAL` envelope, stack reporting, and middleware order.
+
+Vdoc already emits one request-scoped warning through its unified response helpers for parameter validation and JWT rejection. This behavior is retained instead of adding duplicate diagnostics containing raw parser errors. Upstream's raw-body collector, full query/form/bound-parameter logging, and corresponding value-disclosure tests are excluded. Vdoc tests cover successful binding, failed rebinding, safe metadata, credential redaction, unread bodies on authentication rejection, and real HTTP abort behavior. Operational guidance is in [troubleshooting/request-logging.md](troubleshooting/request-logging.md).
+
+This delta does not change dependencies, database migrations, or REST/MCP response contracts for completed requests. The README files explicitly identify the scaffold repository and subdirectory.
 
 ## Integrated or retained
 

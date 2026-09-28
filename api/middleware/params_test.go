@@ -72,3 +72,36 @@ func TestCheckJSONParamWithMessageKeepsResponseContract(t *testing.T) {
 		t.Fatalf("response = %+v, want INVALID_ARGUMENT with custom message", body)
 	}
 }
+
+func TestFailedRebindingClearsPreviousBoundParams(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		bind func(any, *gin.Context) error
+	}{
+		{"default", BindParam},
+		{"JSON", BindJSONParam},
+		{"query", BindQueryParam},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodGet, "/resource?page=7", nil)
+			previous := &struct {
+				Page int `form:"page"`
+			}{}
+			if err := BindQueryParam(previous, c); err != nil {
+				t.Fatal(err)
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, "/resource?page=invalid", strings.NewReader(`{"page":[]}`))
+			c.Request.Header.Set("Content-Type", "application/json")
+			params := &struct {
+				Page int `form:"page" json:"page"`
+			}{}
+			if err := tc.bind(params, c); err == nil {
+				t.Fatal("invalid integer was accepted")
+			}
+			if bound, _ := c.Get(contextkey.BoundParams); bound != nil {
+				t.Fatalf("failed binding retained params: %#v", bound)
+			}
+		})
+	}
+}

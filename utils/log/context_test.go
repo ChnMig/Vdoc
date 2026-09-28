@@ -3,8 +3,11 @@ package log
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -21,12 +24,26 @@ func TestWithRequestRedactsRequestValues(t *testing.T) {
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&output), zap.DebugLevel,
 	))
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/projects/project-1?token=query-secret&search=private", nil)
+	const body = `{"password":"body-secret"}`
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/projects/project-1?token=query-secret&search=private", strings.NewReader(body))
+	ctx.Request.Header.Set("Authorization", "header-secret")
+	ctx.Request.Header.Set("Cookie", "session=cookie-secret")
+	ctx.Request.PostForm = url.Values{"password": {"form-secret"}}
+	ctx.Request.MultipartForm = &multipart.Form{Value: url.Values{"api_key": {"multipart-secret"}}}
 	ctx.Params = gin.Params{{Key: "project_id", Value: "project-1"}}
 	ctx.Set(contextkey.Logger, logger)
 	ctx.Set(BoundParamsKey, map[string]string{"token": "body-secret"})
 
 	WithRequest(ctx).Error("operation failed")
+	for _, secret := range []string{"query-secret", "body-secret", "header-secret", "cookie-secret", "form-secret", "multipart-secret"} {
+		if strings.Contains(output.String(), secret) {
+			t.Fatalf("request value %q leaked into log: %s", secret, output.String())
+		}
+	}
+	remaining, err := io.ReadAll(ctx.Request.Body)
+	if err != nil || string(remaining) != body {
+		t.Fatalf("logging changed request body: %q, %v", remaining, err)
+	}
 
 	var entry map[string]any
 	if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
@@ -44,14 +61,23 @@ func TestWithRequestRedactsRequestValues(t *testing.T) {
 	}
 }
 
-func TestFromContextFallsBackToStandardTraceContext(t *testing.T) {
+func TestFromContextFallsBackToStandardTraceContextWithBaseLogger(t *testing.T) {
+	var output bytes.Buffer
+	base := zap.New(zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&output), zap.DebugLevel,
+	))
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set(contextkey.Logger, base)
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	ctx.Request = request.WithContext(WithTraceID(request.Context(), "trace-standard-1"))
 
-	logger := FromContext(ctx)
-	if logger == nil {
-		t.Fatal("FromContext() returned nil")
+	FromContext(ctx).Info("standard context fallback")
+	var entry map[string]any
+	if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["trace_id"] != "trace-standard-1" || entry["method"] != http.MethodGet || entry["path"] != "/health" || entry["client_ip"] != "192.0.2.1" {
+		t.Fatalf("missing request metadata: %s", output.String())
 	}
 }
 
@@ -61,17 +87,16 @@ func TestWithRequestAcceptsNilContext(t *testing.T) {
 	}
 }
 
-func TestWithRequestDoesNotDuplicateInjectedRequestFields(t *testing.T) {
+func TestWithRequestDoesNotDuplicateRequestFields(t *testing.T) {
 	var output bytes.Buffer
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&output), zap.DebugLevel,
-	)).With(
-		zap.String("method", http.MethodGet),
-		zap.String("path", "/projects/project-1"),
-	)
+	))
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/projects/project-1?view=summary", nil)
 	ctx.Set(contextkey.Logger, logger)
+	ctx.Set(contextkey.TraceID, "gin-trace")
+	ctx.Request = ctx.Request.WithContext(WithTraceID(ctx.Request.Context(), "standard-trace"))
 
 	WithRequest(ctx).Warn("request failed")
 
@@ -84,5 +109,8 @@ func TestWithRequestDoesNotDuplicateInjectedRequestFields(t *testing.T) {
 	}
 	if !strings.Contains(entry, `"query_keys"`) {
 		t.Fatalf("query_keys missing: %s", entry)
+	}
+	if strings.Count(entry, `"trace_id"`) != 1 || !strings.Contains(entry, `"trace_id":"gin-trace"`) {
+		t.Fatalf("request trace missing or duplicated: %s", entry)
 	}
 }

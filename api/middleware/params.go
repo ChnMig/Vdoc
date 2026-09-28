@@ -65,6 +65,8 @@ func checkParamWithBinderAndMessage(params any, c *gin.Context, binder binding.B
 }
 
 func bindParamWithBinder(params any, c *gin.Context, binder binding.Binding) error {
+	// 重绑失败时不能残留上一次成功绑定的参数。
+	c.Set(contextkey.BoundParams, nil)
 	if err := c.ShouldBindWith(params, binder); err != nil {
 		return err
 	}

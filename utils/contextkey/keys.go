@@ -7,7 +7,7 @@ const (
 	TraceIDHeader = "X-Trace-ID"
 	// TraceID 是 Gin context 中存放请求追踪 ID 的 key。
 	TraceID = "trace_id"
-	// Logger 是 Gin context 中存放请求上下文 logger 的 key。
+	// Logger 是 Gin context 中存放基础 logger 的 key，请求字段由日志 helper 附加。
 	Logger = "logger"
 	// JWTData 是 Gin context 中存放 JWT 解密数据的 key。
 	JWTData = "jwtData"

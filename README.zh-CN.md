@@ -26,15 +26,18 @@ Vdoc 的目标不是再做一个 Swagger UI，而是解决 AI 辅助开发里经
         -> 前端带着上下文更新对接代码和项目知识
 ```
 
+## 脚手架来源
+
+Go 后端基于 [ChnMig/go-template](https://github.com/ChnMig/go-template) 的 [`http-services/`](https://github.com/ChnMig/go-template/tree/main/http-services) 脚手架构建。通用运行时改进会经过审阅，按 Vdoc 的 API、持久化和安全约定合入。已审阅的上游提交及合入取舍记录在 [docs/scaffold-sync.md](docs/scaffold-sync.md)。
+
 ## 当前状态
 
-这个仓库当前是 Vdoc v0.1 的 Go/Gin 后端。
+这个仓库是 Vdoc 的 Go/Gin 后端，当前发行版本为 v0.3.2。
 
 API 文档：
 
 - 人类可读指南：[docs/api/API.md](docs/api/API.md)
 - 机器可读 OpenAPI 规格：[docs/api/openapi.yaml](docs/api/openapi.yaml)
-- 已审计的上游脚手架差异：[docs/scaffold-sync.md](docs/scaffold-sync.md)
 
 试点和发布文档由 Vdoc-site 提供公开副本：
 
@@ -74,7 +77,7 @@ scripts/vdoc-release-dry-run.sh
 
 随后自动创建 [GitHub Release](https://github.com/ChnMig/Vdoc/releases) 并上传同一份已验证产物；带预发布后缀的 tag 会标记为预发布。普通分支提交和 PR 只运行检查。发布任务不会覆盖已有 Release。
 
-本地可用 `make release-package RELEASE_TAG=v0.3.1` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
+本地可用 `make release-package RELEASE_TAG=v0.3.2` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
 
 ## 已实现能力
 
