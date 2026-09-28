@@ -125,7 +125,6 @@ func TestValidateConfig(t *testing.T) {
 			mutate: func(cfg *loadedConfig) {
 				cfg.CORSAllowedOrigins = []string{"*"}
 			},
-			wantErr: true,
 		},
 		{
 			name: "cors origin with path",

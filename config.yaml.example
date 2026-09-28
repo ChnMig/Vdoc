@@ -40,7 +40,7 @@ server:
   # 静态文件目录；相对路径基于工作目录，设为空字符串可关闭 /static。
   static_dir: "./static"
 
-  # 精确列出允许访问 API 的 Admin Origin；生产环境不要使用通配符。
+  # 可设为 ["*"] 允许任意浏览器来源，或精确列出 HTTP(S) Origin；不启用跨站 Cookie。
   cors_allowed_origins:
     - "http://localhost:5173"
     - "http://127.0.0.1:5173"

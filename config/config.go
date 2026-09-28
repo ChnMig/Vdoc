@@ -45,7 +45,7 @@ var (
 	EnableRateLimit    bool          // 是否启用全局限流
 	GlobalRateLimit    int           // 全局限流速率（每秒请求数）
 	GlobalRateBurst    int           // 全局限流突发容量
-	CORSAllowedOrigins []string      // 允许跨域访问 API 的精确 HTTP(S) Origin
+	CORSAllowedOrigins []string      // 允许跨域访问 API 的 HTTP(S) Origin；* 表示任意来源
 	TrustedProxies     []string      // 允许提供真实客户端 IP 的反向代理 IP/CIDR
 	PidFile            string        // pid 文件路径（支持相对路径，相对工作目录）
 	StaticDir          string        // 静态文件目录；为空时不挂载 /static

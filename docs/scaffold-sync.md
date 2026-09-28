@@ -30,7 +30,7 @@ This delta does not change dependencies, database migrations, or REST/MCP respon
 - Explicit default, JSON, and query bind helpers now centralize Gin parameter binding while preserving each handler's existing error disclosure policy.
 - Bound request objects are registered under the shared context key, but Vdoc's logging layer deliberately never serializes their values.
 - Request trace IDs propagate through both Gin and standard `context.Context`.
-- CORS uses a fixed method/header surface, `204` preflight responses, explicit origin allowlists, and exposed trace/download headers.
+- CORS uses a fixed method/header surface, `204` preflight responses, explicit origin allowlists or opt-in `*`, and exposed trace/download headers. The standalone deployment uses `*` without credentialed cookies; API authentication is unchanged.
 - Static serving can be disabled; proxy trust, body limits, timeouts, rate limits, and configuration values are validated before startup.
 - PID files use exclusive ownership, rollback on partial writes, owner-checked removal, and are disabled under Docker supervision.
 - Make verification includes formatting, vet, race tests, build checks, module tidy diff, and module checksum verification.
@@ -40,7 +40,7 @@ This delta does not change dependencies, database migrations, or REST/MCP respon
 
 - MySQL, Redis, and generic migration adapters: Vdoc's supported persistence contract is PostgreSQL plus RustFS/S3.
 - `gin.Default()` and framework default recovery/access logs: Vdoc requires its ordered `TraceID -> AccessLog -> Recovery` envelope contract.
-- Wildcard CORS and implicit localhost proxy trust: self-hosted deployments must configure exact origins and trusted proxy IP/CIDR values.
+- Implicit localhost proxy trust: self-hosted deployments must configure trusted proxy IP/CIDR values. Wildcard CORS is now an explicit supported deployment setting, independently of proxy trust.
 - Full query, form, bound-parameter, or response-detail logging: those values can contain passwords, tokens, API keys, private documents, and share capabilities.
 - Mutable config hot reload: Vdoc validates changed files but requires restart, preventing partial component updates and data races.
 - UUIDv7-MD5 helpers and the standalone task-group package: no current Vdoc runtime consumer needs them, so adding unused infrastructure would increase maintenance surface without product value.

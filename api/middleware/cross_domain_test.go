@@ -54,3 +54,34 @@ func TestCorsDomainHandlerReturnsNoContentForAllowedPreflight(t *testing.T) {
 		t.Fatalf("preflight status = %d, want %d", recorder.Code, http.StatusNoContent)
 	}
 }
+
+func TestCorsWildcardAllowsBrowserOriginsWithoutBypassingAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CorsDomainHandler("*"))
+	router.GET("/private", func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) })
+	for _, origin := range []string{"https://admin.example.test", "https://another-client.example.test", "null"} {
+		for _, method := range []string{http.MethodOptions, http.MethodGet} {
+			t.Run(origin+"/"+method, func(t *testing.T) {
+				request := httptest.NewRequest(method, "/private", nil)
+				request.Header.Set("Origin", origin)
+				request.Header.Set("Access-Control-Request-Headers", "authorization,content-type")
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, request)
+				wantStatus := http.StatusUnauthorized
+				if method == http.MethodOptions {
+					wantStatus = http.StatusNoContent
+				}
+				if recorder.Code != wantStatus || recorder.Header().Get("Access-Control-Allow-Origin") != "*" {
+					t.Fatalf("status=%d headers=%v", recorder.Code, recorder.Header())
+				}
+				if recorder.Header().Get("Access-Control-Allow-Credentials") != "" {
+					t.Fatal("wildcard mode must not enable ambient browser credentials")
+				}
+				if recorder.Header().Get("Access-Control-Allow-Headers") != corsAllowedHeaders {
+					t.Fatal("wildcard mode must retain the supported authorization and share headers")
+				}
+			})
+		}
+	}
+}

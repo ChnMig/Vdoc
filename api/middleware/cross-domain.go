@@ -13,13 +13,16 @@ const (
 	corsExposedHeaders = "Content-Disposition, Content-Type, X-Trace-ID"
 )
 
-// CorsDomainHandler permits only explicitly configured HTTP(S) origins and a
-// fixed set of Vdoc methods and headers. Same-origin requests do not require
-// CORS response headers and continue to work with an empty allowlist.
+// CorsDomainHandler 支持精确 Origin 或显式配置的 *，保持固定的方法/请求头范围。
+// 通配模式不启用跨站 Cookie 凭据；JWT、MCP 和分享令牌仍由各自中间件校验。
 func CorsDomainHandler(allowedOrigins ...string) gin.HandlerFunc {
 	allowed := make(map[string]struct{}, len(allowedOrigins))
+	allowAll := false
 	for _, origin := range allowedOrigins {
-		if normalized := strings.TrimSpace(strings.TrimSuffix(origin, "/")); normalized != "" && normalized != "*" {
+		normalized := strings.TrimSpace(strings.TrimSuffix(origin, "/"))
+		if normalized == "*" {
+			allowAll = true
+		} else if normalized != "" {
 			allowed[normalized] = struct{}{}
 		}
 	}
@@ -27,7 +30,7 @@ func CorsDomainHandler(allowedOrigins ...string) gin.HandlerFunc {
 		method := c.Request.Method
 		origin := strings.TrimSpace(c.Request.Header.Get("Origin"))
 		if origin != "" {
-			if _, ok := allowed[origin]; !ok {
+			if _, ok := allowed[origin]; !ok && !allowAll {
 				if method == http.MethodOptions {
 					c.AbortWithStatus(http.StatusForbidden)
 					return
@@ -35,8 +38,12 @@ func CorsDomainHandler(allowedOrigins ...string) gin.HandlerFunc {
 				c.Next()
 				return
 			}
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Vary", "Origin")
+			if allowAll {
+				c.Header("Access-Control-Allow-Origin", "*")
+			} else {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Vary", "Origin")
+			}
 			c.Header("Access-Control-Allow-Methods", corsAllowedMethods)
 			c.Header("Access-Control-Allow-Headers", corsAllowedHeaders)
 			c.Header("Access-Control-Expose-Headers", corsExposedHeaders)

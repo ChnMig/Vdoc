@@ -175,7 +175,7 @@ func validateTrustedProxies(proxies []string) error {
 func validateCORSOrigins(origins []string) error {
 	for _, origin := range origins {
 		if origin == "*" {
-			return fmt.Errorf("server.cors_allowed_origins must not contain wildcard origins")
+			continue
 		}
 		parsed, err := url.Parse(origin)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
