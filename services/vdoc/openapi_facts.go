@@ -37,7 +37,7 @@ func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
 		s.cacheDraftPreviewLocked(draft, nil)
 		return nil
 	}
-	if previous != nil && previous.FromVersionID == baseline.ID && draftPreviewHasDetails(previous) && (markdown || previous.Summary.ParserVersion >= openAPIParserVersion) {
+	if previous != nil && previous.FromVersionID == baseline.ID && previous.Summary.DocumentFormat == draft.SchemaFormat && draftPreviewHasDetails(previous) && (markdown || previous.Summary.ParserVersion >= openAPIParserVersion) {
 		return nil
 	}
 	if err := s.hydrateDraftContentLocked(s.requestContext(), draft, "raw"); err != nil {
@@ -57,7 +57,7 @@ func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
 		if err != nil {
 			return err
 		}
-		updated = s.diffEndpointSetsLocked(draft.ServiceID, baseline.ID, "draft", s.endpointsForVersionLocked(baseline.ID), parsed.Endpoints)
+		updated = s.diffEndpointSetsLocked(draft.ServiceID, baseline.ID, "draft", parsed.SchemaFormat, s.endpointsForVersionLocked(baseline.ID), parsed.Endpoints)
 	}
 	if previous != nil {
 		updated.ID, updated.CreatedAt, updated.UpdatedAt = previous.ID, previous.CreatedAt, previous.UpdatedAt
@@ -153,7 +153,7 @@ func (s *Store) ensureVersionEndpointFactsLocked(versionID string) error {
 }
 
 func (s *Store) ensureDiffFactsLocked(diff *Diff) error {
-	if diff == nil || diff.Summary.ParserVersion >= openAPIParserVersion {
+	if diff == nil {
 		return nil
 	}
 	from, to := s.versions[diff.FromVersionID], s.versions[diff.ToVersionID]
@@ -161,6 +161,10 @@ func (s *Store) ensureDiffFactsLocked(diff *Diff) error {
 		return nil
 	}
 	if from.SchemaFormat == 0 || to.SchemaFormat == 0 {
+		return nil
+	}
+	// 已有 v8 对比可能只写错格式；不升级解析器版本，按需修复该对比快照。
+	if diff.Summary.ParserVersion >= openAPIParserVersion && diff.Summary.DocumentFormat == to.SchemaFormat {
 		return nil
 	}
 	for _, version := range []*ContractVersion{from, to} {

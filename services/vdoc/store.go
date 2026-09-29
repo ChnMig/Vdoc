@@ -2335,7 +2335,7 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	updated.RawSchemaObjectKey = rawKey
 	updated.NormalizedObjectKey = normalizedKey
 	updated.Status = DraftStatusDraft
-	updated.DiffPreview = s.previewDiffLocked(serviceID, updated.BranchID, parsed.Endpoints)
+	updated.DiffPreview = s.previewDiffLocked(serviceID, updated.BranchID, parsed.SchemaFormat, parsed.Endpoints)
 	updated.UpdatedAt = time.Now()
 	s.drafts[draftID] = &updated
 	s.auditLocked(ctx, AuditActorUser, actorID, "contract_draft.update", "contract_draft", draftID, projectID, serviceID, auditMetadata("result", "success", "branch_id", updated.BranchID, "version_name", updated.VersionName, "raw_schema_hash", updated.RawSchemaHash, "normalized_schema_hash", updated.NormalizedSchemaHash))
@@ -3183,7 +3183,7 @@ func (s *Store) createDraftLocked(actorID, projectID, serviceID string, input Dr
 	}
 	d.RawSchemaObjectKey = rawKey
 	d.NormalizedObjectKey = normalizedKey
-	d.DiffPreview = s.previewDiffLocked(serviceID, input.BranchID, parsed.Endpoints)
+	d.DiffPreview = s.previewDiffLocked(serviceID, input.BranchID, parsed.SchemaFormat, parsed.Endpoints)
 	s.drafts[d.ID] = d
 	action := "contract_draft.create"
 	if sourceType == SourceTypePromote {
@@ -3330,7 +3330,7 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 	previous := s.previousVersionLocked(v)
 	var diff *Diff
 	if previous != nil {
-		diff = s.diffEndpointSetsLocked(d.ServiceID, previous.ID, v.ID, s.endpointsForVersionLocked(previous.ID), newEndpoints)
+		diff = s.diffEndpointSetsLocked(d.ServiceID, previous.ID, v.ID, v.SchemaFormat, s.endpointsForVersionLocked(previous.ID), newEndpoints)
 		diffRef, err := s.persistDiffSnapshotLocked(v.ProjectID, v.ServiceID, v.BranchID, diff)
 		if err != nil {
 			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
@@ -3458,19 +3458,19 @@ func (s *Store) previousVersionLocked(v *ContractVersion) *ContractVersion {
 	return prev
 }
 
-func (s *Store) previewDiffLocked(serviceID, branchID string, endpoints []Endpoint) *Diff {
+func (s *Store) previewDiffLocked(serviceID, branchID string, format int, endpoints []Endpoint) *Diff {
 	latest := s.latestVersionLocked(serviceID, branchID)
 	if latest == nil {
 		return nil
 	}
 	temp := &ContractVersion{ID: "draft"}
-	return s.diffEndpointSetsLocked(serviceID, latest.ID, temp.ID, s.endpointsForVersionLocked(latest.ID), endpoints)
+	return s.diffEndpointSetsLocked(serviceID, latest.ID, temp.ID, format, s.endpointsForVersionLocked(latest.ID), endpoints)
 }
 func (s *Store) diffVersionsLocked(serviceID string, from, to *ContractVersion) *Diff {
 	if from.SchemaFormat == DocumentFormatMarkdown || to.SchemaFormat == DocumentFormatMarkdown {
 		return markdownDiff(serviceID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
 	}
-	return s.diffEndpointSetsLocked(serviceID, from.ID, to.ID, s.endpointsForVersionLocked(from.ID), s.endpointsForVersionLocked(to.ID))
+	return s.diffEndpointSetsLocked(serviceID, from.ID, to.ID, to.SchemaFormat, s.endpointsForVersionLocked(from.ID), s.endpointsForVersionLocked(to.ID))
 }
 
 func (s *Store) previewMarkdownDiffLocked(documentID, branchID, content string) (*Diff, error) {
@@ -3711,9 +3711,10 @@ func (s *Store) endpointsForVersionLocked(versionID string) []Endpoint {
 	}
 	return out
 }
-func (s *Store) diffEndpointSetsLocked(serviceID, fromID, toID string, from, to []Endpoint) *Diff {
+func (s *Store) diffEndpointSetsLocked(serviceID, fromID, toID string, format int, from, to []Endpoint) *Diff {
 	now := time.Now()
-	d := &Diff{ID: id.GenerateID(), DocumentID: serviceID, ServiceID: serviceID, FromVersionID: fromID, ToVersionID: toID, DiffStatus: DiffStatusSucceeded, Summary: DiffSummary{DocumentFormat: DocumentFormatOpenAPI30, ParserVersion: openAPIParserVersion}, CreatedAt: now, UpdatedAt: now}
+	// 跨方言比较也使用目标版本的格式，与草稿预览的目标内容保持一致。
+	d := &Diff{ID: id.GenerateID(), DocumentID: serviceID, ServiceID: serviceID, FromVersionID: fromID, ToVersionID: toID, DiffStatus: DiffStatusSucceeded, Summary: DiffSummary{DocumentFormat: format, ParserVersion: openAPIParserVersion}, CreatedAt: now, UpdatedAt: now}
 	fm := map[string]Endpoint{}
 	tm := map[string]Endpoint{}
 	for _, e := range from {
