@@ -5,7 +5,7 @@ import (
 	domain "vdoc/domain/vdoc"
 )
 
-const openAPIParserVersion = 8
+const openAPIParserVersion = 9
 
 // 待发布草稿始终对比当前分支 latest；已发布草稿保留当时审核基线。
 func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
@@ -163,7 +163,7 @@ func (s *Store) ensureDiffFactsLocked(diff *Diff) error {
 	if from.SchemaFormat == 0 || to.SchemaFormat == 0 {
 		return nil
 	}
-	// 已有 v8 对比可能只写错格式；不升级解析器版本，按需修复该对比快照。
+	// 旧解析结果或目标格式不匹配时，按需修复对比快照。
 	if diff.Summary.ParserVersion >= openAPIParserVersion && diff.Summary.DocumentFormat == to.SchemaFormat {
 		return nil
 	}

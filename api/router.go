@@ -37,25 +37,20 @@ func InitApi() *gin.Engine {
 	router.Use(middleware.AccessLog())
 	router.Use(middleware.Recovery())
 
-	// 1. 全局限流（如果启用）
+	// 提前设置安全与跨域响应头，让限流等提前终止的响应仍可被浏览器读取。
+	router.Use(middleware.SecurityHeaders())
+	// 预检在此结束，不占用业务请求的限流额度。
+	router.Use(middleware.CorsDomainHandler(config.CORSAllowedOrigins...))
+
+	// 全局限流（如果启用）
 	if config.EnableRateLimit {
 		router.Use(middleware.IPRateLimit(config.GlobalRateLimit, config.GlobalRateBurst))
 	}
 
-	// 2. 安全响应头
-	router.Use(middleware.SecurityHeaders())
-
-	// 4. 取消 Prometheus 监控中间件（不需要 metrics）
-
-	// 5. 请求体大小限制 - 使用配置值
+	// 请求体大小限制 - 使用配置值
 	router.Use(middleware.BodySizeLimit(config.MaxBodySize))
 
-	// 6. 跨域处理 - 在业务逻辑前处理
-	router.Use(middleware.CorsDomainHandler(config.CORSAllowedOrigins...))
-
 	// 健康检查端点已移动到 openRouter（/api/v1/open/health）
-
-	// 移除 Prometheus metrics 端点（不需要 metrics）
 
 	// 静态目录可按部署需要覆盖或关闭，避免无意暴露进程工作目录。
 	if staticDir := strings.TrimSpace(config.StaticDir); staticDir != "" {

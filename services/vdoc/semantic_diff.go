@@ -213,8 +213,8 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 }
 
 func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
-	oldFields := schemaFields(oldSchema)
-	newFields := schemaFields(newSchema)
+	oldFields := schemaFieldsForDirection(oldSchema, response)
+	newFields := schemaFieldsForDirection(newSchema, response)
 	for _, path := range sortedStringKeys(newFields) {
 		newField := newFields[path]
 		oldField, ok := oldFields[path]
@@ -504,6 +504,10 @@ func responseSchemas(responses any) map[string]any {
 
 type schemaField struct {
 	arrayItem bool
+	defined   bool
+	parent    string
+	readOnly  bool
+	writeOnly bool
 	Type      string   `json:"type,omitempty"`
 	Required  bool     `json:"required"`
 	Enum      []string `json:"enum,omitempty"`
@@ -519,6 +523,39 @@ func schemaFields(schema any) map[string]schemaField {
 	return out
 }
 
+func schemaFieldsForDirection(schema any, response bool) map[string]schemaField {
+	fields := schemaFields(schema)
+	// 先合并全部 allOf 字段，再按父路径优先的顺序传播访问注解；注解与定义
+	// 可能分处不同分支。仅调整派生的 required，不改动存储的原始 schema。
+	for _, path := range sortedStringKeys(fields) {
+		field := fields[path]
+		parent := fields[field.parent]
+		field.readOnly = field.readOnly || parent.readOnly
+		field.writeOnly = field.writeOnly || parent.writeOnly
+		if (!response && field.readOnly) || (response && field.writeOnly) {
+			// required 可以单独提及未定义的属性；方向不适用时不应凭空
+			// 生成字段，否则移除 required 会被误判为响应字段删除。
+			if !field.defined && !field.arrayItem {
+				delete(fields, path)
+				continue
+			}
+			field.Required = false
+		}
+		fields[path] = field
+	}
+	return fields
+}
+
+func schemaAccess(schema any) (readOnly, writeOnly bool) {
+	if schemaMap, ok := schema.(map[string]any); ok {
+		for _, fragment := range schemaFragments(schemaMap) {
+			readOnly = readOnly || boolValue(fragment["readOnly"])
+			writeOnly = writeOnly || boolValue(fragment["writeOnly"])
+		}
+	}
+	return
+}
+
 func collectSchemaFields(out map[string]schemaField, prefix string, schema any) {
 	schemaMap, ok := schema.(map[string]any)
 	if !ok {
@@ -532,20 +569,21 @@ func collectSchemaFields(out map[string]schemaField, prefix string, schema any) 
 		}
 	}
 	for name := range required {
-		mergeSchemaField(out, schemaPath(prefix, "properties."+schemaPropertyName(name)), schemaField{Required: true})
+		mergeSchemaField(out, schemaPath(prefix, "properties."+schemaPropertyName(name)), schemaField{parent: prefix, Required: true})
 	}
 	for _, fragment := range fragments {
 		properties, _ := fragment["properties"].(map[string]any)
 		for _, name := range sortedStringKeys(properties) {
 			property := properties[name]
 			path := schemaPath(prefix, "properties."+schemaPropertyName(name))
-			mergeSchemaField(out, path, schemaField{Type: schemaType(property), Required: required[name], Enum: enumIdentities(property)})
+			readOnly, writeOnly := schemaAccess(property)
+			mergeSchemaField(out, path, schemaField{parent: prefix, defined: true, readOnly: readOnly, writeOnly: writeOnly, Type: schemaType(property), Required: required[name], Enum: enumIdentities(property)})
 			collectSchemaFields(out, path, property)
 		}
 		if items := fragment["items"]; items != nil {
 			path := schemaPath(prefix, "items")
 			// items 本身也有类型和枚举，不能只收集其下的对象属性。
-			mergeSchemaField(out, path, schemaField{Type: schemaType(items), Enum: enumIdentities(items), arrayItem: true})
+			mergeSchemaField(out, path, schemaField{parent: prefix, Type: schemaType(items), Enum: enumIdentities(items), arrayItem: true})
 			collectSchemaFields(out, path, items)
 		}
 	}
@@ -585,6 +623,9 @@ func mergeSchemaField(out map[string]schemaField, path string, next schemaField)
 	current.Type = intersectSchemaTypes(current.Type, next.Type)
 	current.Required = current.Required || next.Required
 	current.arrayItem = current.arrayItem || next.arrayItem
+	current.defined = current.defined || next.defined
+	current.readOnly = current.readOnly || next.readOnly
+	current.writeOnly = current.writeOnly || next.writeOnly
 	if current.Enum == nil {
 		current.Enum = next.Enum
 	} else if next.Enum != nil {
