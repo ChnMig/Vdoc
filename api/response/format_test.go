@@ -291,7 +291,7 @@ func TestLogErrorResponseUsesSeverityBySemanticCode(t *testing.T) {
 				zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&output), zap.DebugLevel,
 			))
 
-			logErrorResponse(logger, "response failed", tt.data)
+			logErrorResponse(logger, nil, "response failed", tt.data)
 
 			var entry map[string]any
 			if err := json.Unmarshal(output.Bytes(), &entry); err != nil {

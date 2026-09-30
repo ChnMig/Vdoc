@@ -14,6 +14,10 @@ Handler 使用 `log.FromContext(c)`，需要请求摘要时使用 `log.WithReque
 
 绑定失败及 JWT 验证失败由统一响应 helper 输出一次带追踪 ID 的诊断；客户端错误使用 Warn，服务端错误使用 Error。使用带自定义消息的参数检查 helper 时，对外和日志中的错误消息均保留调用方指定的安全文本。成功绑定对象存放在 `contextkey.BoundParams`，每次重新绑定前都会清除旧值，即使新的绑定失败也不会保留过期对象。
 
+响应为 `CANCELLED`，或请求 context 已被取消时，响应诊断降为 Debug；响应包裹和访问日志中的业务状态仍保持原值。`context.DeadlineExceeded` 不作为客户端取消，仍按业务错误码记录 Warn/Error。
+
+开发和生产 logger 在统一输出边界过滤仅由取消导致的 Warn/Error：通过 `zap.Error`、`zap.NamedError`、`Logger.With` 或结构化 `Errorw` 携带的错误，其包装/组合内每个非 nil 原因都必须是取消。组合中含真实异常、提交结果未知或超时的日志仍会输出；类型化 nil 和分类异常也保留。普通字符串不参与取消判断，Debug/Info 和 DPanic/Panic/Fatal 不过滤，日志阈值与采样策略保持原样。
+
 ## 访问日志与异常
 
 访问日志同时记录 HTTP 状态和 `app_code/app_status`。Vdoc 已完成的 API 请求仍按 HTTP 200 加业务响应包裹表示结果，排查时应查看业务状态。

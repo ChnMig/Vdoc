@@ -6,15 +6,27 @@ Vdoc started from the [`go-template/http-services`](https://github.com/ChnMig/go
 
 - Repository: `https://github.com/ChnMig/go-template.git`
 - Path: `http-services/`
-- Upstream commit: [`f8ab23762a9ddff028bf309f5f7ceb5de7685eb5`](https://github.com/ChnMig/go-template/commit/f8ab23762a9ddff028bf309f5f7ceb5de7685eb5)
-- Reviewed on: 2026-09-28
-- Previous snapshot: [`4526389ed6b432b09b18404e5826a937f2255ba4`](https://github.com/ChnMig/go-template/commit/4526389ed6b432b09b18404e5826a937f2255ba4), reviewed on 2026-08-27
+- Upstream commit: [`b6def4ece2e5dfee2be33d4c6f3bf2765f3a0c7c`](https://github.com/ChnMig/go-template/commit/b6def4ece2e5dfee2be33d4c6f3bf2765f3a0c7c)
+- Reviewed on: 2026-09-30
+- Previous snapshot: [`f8ab23762a9ddff028bf309f5f7ceb5de7685eb5`](https://github.com/ChnMig/go-template/commit/f8ab23762a9ddff028bf309f5f7ceb5de7685eb5), reviewed on 2026-09-28
 
 The comparison covered the entrypoint, configuration, middleware, response/logging helpers, PID ownership, Make targets, dependencies, database adapters, and utility packages.
 
-## September 2026 delta
+## September 30, 2026 delta
 
-Two upstream commits changed `http-services/` since the previous snapshot:
+One upstream commit changed `http-services/` since the previous snapshot:
+
+- [`b6def4e`](https://github.com/ChnMig/go-template/commit/b6def4ece2e5dfee2be33d4c6f3bf2765f3a0c7c): added cancellation classification and logging suppression. Vdoc integrates the shared error-tree classifier, the Zap core filter in both development and production loggers, and request-context cancellation severity in both error-response helpers.
+
+Warn/Error entries carrying typed error fields are suppressed only when every non-nil cause is cancellation. Wrapped and joined cancellation errors, `Logger.With`, and structured sugared errors are covered. Deadlines, mixed real failures, typed nils, and errors that panic during classification remain visible; Debug/Info and DPanic/Panic/Fatal entries are retained. Sampling and configured log thresholds are unchanged. This applies to business and Gin loggers, including cancellation during background-worker shutdown.
+
+Error-response diagnostics use Debug for a `CANCELLED` response or a canceled request context. The original HTTP 200 envelope, business outcome, response detail, timestamp, and trace ID remain unchanged. Vdoc continues to remove response detail and sensitive query values from diagnostics. Deadline-exceeded contexts retain the usual semantic-code severity. Factory tests verify both logger modes, and response tests verify severity, safe metadata, unchanged outcomes, and detail redaction.
+
+This delta does not change dependencies, persistence, migrations, middleware order, or REST/MCP response contracts. No new upstream request-body or parameter-value logging is introduced.
+
+## September 28, 2026 delta
+
+Two upstream commits changed `http-services/` since [`4526389`](https://github.com/ChnMig/go-template/commit/4526389ed6b432b09b18404e5826a937f2255ba4), reviewed on 2026-08-27:
 
 - [`0216ab6`](https://github.com/ChnMig/go-template/commit/0216ab67a706784890c36aae08b14bcbe6f59699): added cryptographically random, unpadded Base64URL strings. The helper and length/encoding/invalid-size tests are integrated. Existing MCP and document-share token formats stay compatible.
 - [`f8ab237`](https://github.com/ChnMig/go-template/commit/f8ab23762a9ddff028bf309f5f7ceb5de7685eb5): improved request logging and recovery. Vdoc integrates centralized request metadata, standard-context trace fallback with an injected base logger, and clearing stale parameters before rebinding. Connection-abort panics now record a `CANCELLED` outcome without a server-error envelope.

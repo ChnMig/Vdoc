@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"vdoc/utils/apperrors"
 	"vdoc/utils/contextkey"
 	"vdoc/utils/log"
 
@@ -35,7 +36,7 @@ func ReturnErrorWithData(c *gin.Context, data responseData, result any) {
 	data.Detail = result
 	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
-	logErrorResponse(l, "Returning error response with data", responseForLog(data))
+	logErrorResponse(l, c, "Returning error response with data", responseForLog(data))
 	// Return directly
 	c.Abort()
 }
@@ -79,7 +80,7 @@ func ReturnError(c *gin.Context, data responseData, message string) {
 	}
 	SetOutcome(c, data.Code, data.Status)
 	c.JSON(http.StatusOK, data)
-	logErrorResponse(l, "Returning error response", responseForLog(data))
+	logErrorResponse(l, c, "Returning error response", responseForLog(data))
 	// Return directly
 	c.Abort()
 }
@@ -97,13 +98,13 @@ func ReturnSuccess(c *gin.Context) {
 	c.Abort()
 }
 
-func logErrorResponse(logger *zap.Logger, message string, data responseData) {
+func logErrorResponse(logger *zap.Logger, c *gin.Context, message string, data responseData) {
 	if logger == nil {
 		logger = zap.L()
 	}
 	field := zap.Any("response", data)
 	switch {
-	case data.Code == CANCELLED.Code:
+	case data.Code == CANCELLED.Code || (c != nil && c.Request != nil && apperrors.IsClientCancellation(c.Request.Context().Err())):
 		logger.Debug(message, field)
 	case data.Code >= INTERNAL.Code:
 		logger.Error(message, field)
