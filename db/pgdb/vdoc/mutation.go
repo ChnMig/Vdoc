@@ -9,7 +9,7 @@ import (
 	domain "vdoc/domain/vdoc"
 )
 
-// 调用方必须在同一事务中完成校验和写入；顺序为用户、项目、成员、文档、分支、草稿、令牌。
+// 调用方必须在同一事务中完成校验和写入；顺序为用户、团队、项目、成员、文档、分支、草稿、令牌。
 func (r *Repository) LockMutationContext(ctx context.Context, guard domain.MutationGuard) (*domain.State, error) {
 	state := domain.NewState()
 	locked := func(strength string, query *gorm.DB) *Repository {
@@ -19,6 +19,15 @@ func (r *Repository) LockMutationContext(ctx context.Context, guard domain.Mutat
 	slices.Sort(userIDs)
 	if err := locked("SHARE", r.database.Where("id IN ?", slices.Compact(userIDs)).Order("id ASC")).loadUsers(ctx, state); err != nil {
 		return nil, err
+	}
+	if guard.TeamID != "" {
+		strength := "SHARE"
+		if guard.TeamWrite {
+			strength = "UPDATE"
+		}
+		if err := locked(strength, r.database.Where("id = ?", guard.TeamID)).loadTeams(ctx, state); err != nil {
+			return nil, err
+		}
 	}
 	if guard.ProjectID != "" {
 		strength := "SHARE"

@@ -215,13 +215,20 @@ func (b *semanticDiffBuilder) compareSchemaFields(change int, endpoint Endpoint,
 func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoint, prefix string, oldSchema, newSchema any, response bool) {
 	oldFields := schemaFieldsForDirection(oldSchema, response)
 	newFields := schemaFieldsForDirection(newSchema, response)
+	oldNodes, newNodes := schemaObjectNodes(oldSchema), schemaObjectNodes(newSchema)
 	for _, path := range sortedStringKeys(newFields) {
 		newField := newFields[path]
 		oldField, ok := oldFields[path]
 		location := prefix + "." + path
-		if !ok {
+		if ok && oldField.defined && !newField.defined {
+			continue
+		}
+		if !ok || (!oldField.defined && newField.defined) {
 			itemConstrained := newField.arrayItem && (newField.Type != "" || newField.Enum != nil)
-			breaking := !response && (newField.Required || itemConstrained) && newFieldAffectsExistingInput(path, oldFields, newFields)
+			requiredAdded := newField.Required && (!ok || !oldField.Required)
+			breaking := (!response && (requiredAdded || itemConstrained) && newFieldAffectsExistingInput(path, oldFields, newFields)) || (response && ok && oldField.Required && !newField.Required)
+			propertyBreaking, manual := changedPropertyCompatibility(newField, oldNodes, newNodes, response)
+			breaking = breaking || propertyBreaking
 			severity := SeverityInfo
 			message := "Response field added"
 			if !response {
@@ -229,13 +236,18 @@ func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoin
 				if change == ChangeParameterChanged {
 					message = "Parameter field added"
 				}
-				if breaking {
-					severity = SeverityBreaking
-				}
+			}
+			if breaking {
+				severity = SeverityBreaking
+			} else if manual {
+				severity = SeverityWarning
+				message += "; compatibility requires manual review"
 			}
 			b.add(change, severity, endpoint, location, message, breaking, nil, newField.diffValue())
+			b.items[len(b.items)-1].MustHandle = breaking || manual
 			continue
 		}
+		previousItems := len(b.items)
 		if oldField.Type != newField.Type {
 			message := fieldTypeChangeMessage(response)
 			if change == ChangeParameterChanged {
@@ -257,20 +269,45 @@ func (b *semanticDiffBuilder) compareSchemaChildren(change int, endpoint Endpoin
 			b.add(change, severity, endpoint, location, message, breaking, oldField.Required, newField.Required)
 		}
 		b.compareEnumValueLists(change, endpoint, location, oldField.Enum, newField.Enum, "Enum value removed")
+		if newField.defined && propertyDeclarationScopesChanged(newField, oldNodes, newNodes) {
+			breaking, manual := changedPropertyCompatibility(newField, oldNodes, newNodes, response)
+			handled := false
+			for _, item := range b.items[previousItems:] {
+				handled = handled || item.MustHandle
+			}
+			if (breaking || manual) && !handled {
+				message := "Property declaration scope changed"
+				severity := SeverityBreaking
+				if !breaking {
+					message += "; compatibility requires manual review"
+					severity = SeverityWarning
+				}
+				b.add(change, severity, endpoint, location, message, breaking, oldField.diffValue(), newField.diffValue())
+				b.items[len(b.items)-1].MustHandle = true
+			}
+		}
 	}
 	for _, path := range sortedStringKeys(oldFields) {
-		if _, ok := newFields[path]; !ok {
-			breaking := response
+		newField, ok := newFields[path]
+		if !ok || (oldFields[path].defined && !newField.defined) {
+			breaking := response || (ok && !oldFields[path].Required && newField.Required)
+			propertyBreaking, manual := changedPropertyCompatibility(oldFields[path], oldNodes, newNodes, response)
+			breaking = breaking || propertyBreaking
 			severity := SeverityWarning
 			message := "Request body field removed"
 			if change == ChangeParameterChanged {
 				message = "Parameter field removed"
 			}
 			if response {
-				severity = SeverityBreaking
 				message = "Response field removed"
 			}
+			if breaking {
+				severity = SeverityBreaking
+			} else if manual {
+				message += "; compatibility requires manual review"
+			}
 			b.add(change, severity, endpoint, prefix+"."+path, message, breaking, oldFields[path].diffValue(), nil)
+			b.items[len(b.items)-1].MustHandle = breaking || manual
 		}
 	}
 }
@@ -506,6 +543,7 @@ type schemaField struct {
 	arrayItem bool
 	defined   bool
 	parent    string
+	name      string
 	readOnly  bool
 	writeOnly bool
 	Type      string   `json:"type,omitempty"`
@@ -577,7 +615,7 @@ func collectSchemaFields(out map[string]schemaField, prefix string, schema any) 
 			property := properties[name]
 			path := schemaPath(prefix, "properties."+schemaPropertyName(name))
 			readOnly, writeOnly := schemaAccess(property)
-			mergeSchemaField(out, path, schemaField{parent: prefix, defined: true, readOnly: readOnly, writeOnly: writeOnly, Type: schemaType(property), Required: required[name], Enum: enumIdentities(property)})
+			mergeSchemaField(out, path, schemaField{parent: prefix, name: name, defined: true, readOnly: readOnly, writeOnly: writeOnly, Type: schemaType(property), Required: required[name], Enum: enumIdentities(property)})
 			collectSchemaFields(out, path, property)
 		}
 		if items := fragment["items"]; items != nil {
@@ -624,6 +662,9 @@ func mergeSchemaField(out map[string]schemaField, path string, next schemaField)
 	current.Required = current.Required || next.Required
 	current.arrayItem = current.arrayItem || next.arrayItem
 	current.defined = current.defined || next.defined
+	if next.defined {
+		current.name = next.name
+	}
 	current.readOnly = current.readOnly || next.readOnly
 	current.writeOnly = current.writeOnly || next.writeOnly
 	if current.Enum == nil {

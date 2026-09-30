@@ -5,7 +5,7 @@ import (
 	domain "vdoc/domain/vdoc"
 )
 
-const openAPIParserVersion = 9
+const openAPIParserVersion = 10
 
 // 待发布草稿始终对比当前分支 latest；已发布草稿保留当时审核基线。
 func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {

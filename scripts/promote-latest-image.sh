@@ -2,7 +2,9 @@
 set -euo pipefail
 
 tag="${1:?Usage: promote-latest-image.sh RELEASE_TAG}"
-[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || exit 1
+# SemVer without build metadata: '+' is not valid in a Docker image tag.
+release_version_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+[[ "$tag" =~ $release_version_pattern ]] || exit 1
 if [[ "$tag" == *-* ]]; then
   printf 'Skipping latest for prerelease %s\n' "$tag"
   exit 0
@@ -14,7 +16,7 @@ fi
 
 # 与发布 job 的仓库级串行锁配合，旧版补发或重跑不能让 latest 倒退。
 releases="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases")"
-stable="$(jq '[.[][] | select(.draft == false and .prerelease == false) | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]' <<<"$releases")"
+stable="$(jq '[.[][] | select(.draft == false and .prerelease == false) | select(.tag_name | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))]' <<<"$releases")"
 jq -e --arg tag "$tag" 'any(.[]; .tag_name == $tag)' <<<"$stable" >/dev/null || {
   echo 'Only an already published stable release can become latest' >&2
   exit 1

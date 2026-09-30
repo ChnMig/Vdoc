@@ -5,7 +5,9 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 tag="${1:?Usage: publish-image.sh TAG RELEASE_DIRECTORY}"
 assets="${2:?Usage: publish-image.sh TAG RELEASE_DIRECTORY}"
-[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || exit 1
+# SemVer without build metadata: '+' is not valid in a Docker image tag.
+release_version_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+[[ "$tag" =~ $release_version_pattern ]] || exit 1
 [[ -n "${GH_TOKEN:-}" && -n "${GITHUB_ACTOR:-}" && -n "${GITHUB_REPOSITORY:-}" ]] || {
   echo 'Registry publishing requires the release workflow credentials' >&2
   exit 1

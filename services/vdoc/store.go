@@ -1091,6 +1091,8 @@ func (s *Store) UpdateTeam(actorID, teamID string, input NameDescriptionPatch, a
 
 func (s *Store) ArchiveTeam(actorID, teamID string, auditCtx ...AuditContext) (*Team, error) {
 	s = s.withMutationGuard(actorID, "", "", domainvdoc.MutationPermissionSuperAdmin)
+	s.mutationGuard.TeamID = teamID
+	s.mutationGuard.TeamWrite = true
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
@@ -1128,6 +1130,7 @@ func (s *Store) ArchiveTeam(actorID, teamID string, auditCtx ...AuditContext) (*
 
 func (s *Store) CreateProject(actorID, teamID, name, description, adminUserID string, auditCtx ...AuditContext) (*Project, error) {
 	s = s.withMutationGuard(actorID, "", "", domainvdoc.MutationPermissionSuperAdmin)
+	s.mutationGuard.TeamID = teamID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)

@@ -14,6 +14,8 @@ import (
 type MutationGuard struct {
 	ActorID                   string
 	ActiveUserIDs             []string
+	TeamID                    string
+	TeamWrite                 bool
 	ProjectID                 string
 	DocumentID                string
 	BranchIDs                 []string
@@ -73,6 +75,9 @@ func ValidateMutationContext(guard MutationGuard, state *State, now time.Time) e
 		if value == nil || value.Status != UserStatusActive {
 			return fmt.Errorf("%w: project admin must be active", ErrFailedPrecondition)
 		}
+	}
+	if guard.TeamID != "" && state.Teams[guard.TeamID] == nil {
+		return ErrNotFound
 	}
 	if guard.ProjectID != "" {
 		value := state.Projects[guard.ProjectID]
