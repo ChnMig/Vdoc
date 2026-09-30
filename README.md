@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The current release is v0.3.9.
+This repository contains the Go/Gin backend for Vdoc. The current release is v0.3.10.
 
 API documentation:
 
@@ -98,7 +98,7 @@ Push a version tag such as `v0.1.1` or `v0.1.1-rc.1` after committing the releas
 
 CI uploads the verified artifacts and then creates a [GitHub Release](https://github.com/ChnMig/Vdoc/releases) from the existing tag. Prerelease tags create prereleases. Ordinary branch pushes and pull requests run checks only. The publish job reuses the verified artifacts and does not overwrite an existing release.
 
-For a local packaging check, run `make release-package RELEASE_TAG=v0.3.9` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
+For a local packaging check, run `make release-package RELEASE_TAG=v0.3.10` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
 
 ## Product Concepts
 

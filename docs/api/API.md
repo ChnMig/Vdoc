@@ -169,7 +169,7 @@ Endpoint details resolve local references and apply operation-level parameter ov
 
 On upgraded backends, legacy published endpoint indexes are refreshed from hash-verified immutable source content when read. Cached OpenAPI version comparisons are recalculated and persisted on first access, retaining the version, endpoint, and diff IDs. The original published document is unchanged; object storage must remain available for this refresh.
 
-Creating a comparison requires an active Project and Document, and `from_version_id` must differ from `to_version_id`. Previously stored Diff records and summaries remain readable after their Project, Document, or target Branch is archived; only creation of a new comparison is blocked.
+Calling Compare requires an active Project and Document, and `from_version_id` must differ from `to_version_id`. Any two immutable published versions within that Document may be compared across branches, including archived Branches. Branch archive blocks new draft and AI work in that Branch but permits version comparisons. Project or Document archive blocks Compare requests; previously stored Diff records and summaries remain readable after their Project, Document, or Branch is archived.
 
 ### 4. MCP Tokens And Tools
 
@@ -235,7 +235,8 @@ This produces the following archive boundary across the private APIs:
 
 | Resource after parent archive | Read/list | New work | Remaining lifecycle action |
 |---|---|---|---|
-| Draft, Version, stored Diff | Allowed | Draft mutation and Compare blocked | None |
+| Draft | Allowed | Mutation blocked after Project, Document, or target Branch archive | None |
+| Version, stored Diff | Allowed | Compare blocked after Project or Document archive; allowed after Branch archive | None |
 | AI provider/prompts | Project Admin/SuperAdmin only | Update and provider test blocked | None |
 | AI Summary/Chat | Allowed | Regenerate, create session, and send blocked | None |
 | Document share | List allowed | Create and reveal blocked | Revoke allowed |

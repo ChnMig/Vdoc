@@ -65,21 +65,24 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	if err := json.Unmarshal(body, &out); err != nil {
 		return aiCompletionResult{}, fmt.Errorf("parse chat completions response: %w", err)
 	}
+	// 文本被拒收也可能已消耗 token；仅保留上游明确返回的用量。
+	result := aiCompletionResult{Usage: aiTokenUsage{PromptTokens: out.Usage.PromptTokens, CompletionTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}}
 	if len(out.Choices) == 0 {
-		return aiCompletionResult{}, fmt.Errorf("%w: provider returned no choices", ErrFailedPrecondition)
+		return result, fmt.Errorf("%w: provider returned no choices", ErrFailedPrecondition)
 	}
 	switch out.Choices[0].FinishReason {
 	case "", "stop": // 部分兼容服务省略完成原因。
 	case "length":
-		return aiCompletionResult{}, truncatedAIOutputError()
+		return result, truncatedAIOutputError()
 	default:
-		return aiCompletionResult{}, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
+		return result, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
 	}
 	content := strings.TrimSpace(out.Choices[0].Message.Content)
 	if content == "" {
-		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
+		return result, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
-	return aiCompletionResult{Content: content, Usage: aiTokenUsage{PromptTokens: out.Usage.PromptTokens, CompletionTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}}, nil
+	result.Content = content
+	return result, nil
 }
 
 func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
@@ -92,18 +95,19 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 	if err := json.Unmarshal(body, &out); err != nil {
 		return aiCompletionResult{}, fmt.Errorf("parse responses response: %w", err)
 	}
+	result := aiCompletionResult{Usage: aiTokenUsage{InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, TotalTokens: out.Usage.TotalTokens}}
 	if out.Status == "incomplete" {
 		if out.IncompleteDetails.Reason == "max_output_tokens" {
-			return aiCompletionResult{}, truncatedAIOutputError()
+			return result, truncatedAIOutputError()
 		}
-		return aiCompletionResult{}, fmt.Errorf("%w: provider returned incomplete output", ErrFailedPrecondition)
+		return result, fmt.Errorf("%w: provider returned incomplete output", ErrFailedPrecondition)
 	}
 	if out.Status != "" && out.Status != "completed" {
-		return aiCompletionResult{}, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
+		return result, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
 	}
 	for _, output := range out.Output {
 		if output.Status != "" && output.Status != "completed" {
-			return aiCompletionResult{}, fmt.Errorf("%w: provider returned an incomplete output item", ErrFailedPrecondition)
+			return result, fmt.Errorf("%w: provider returned an incomplete output item", ErrFailedPrecondition)
 		}
 	}
 	content := strings.TrimSpace(out.OutputText)
@@ -111,9 +115,10 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 		content = strings.TrimSpace(out.JoinedText())
 	}
 	if content == "" {
-		return aiCompletionResult{}, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
+		return result, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
-	return aiCompletionResult{Content: content, Usage: aiTokenUsage{InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, TotalTokens: out.Usage.TotalTokens}}, nil
+	result.Content = content
+	return result, nil
 }
 
 func truncatedAIOutputError() error {

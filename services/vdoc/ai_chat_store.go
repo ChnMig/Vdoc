@@ -231,7 +231,7 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 		return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, err)
 	}
 	if callErr != nil {
-		audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", callErr, aiTokenUsage{})
+		audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", callErr, result.Usage)
 		if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit, request.Guard); err != nil {
 			if isAICompletionContextError(err) {
 				return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, staleAIChatRequestError())

@@ -807,7 +807,7 @@ paths:
     post:
       tags: [Diffs]
       summary: Compare document versions.
-      description: Creates or returns a comparison only when the Project and Document are active and the two version IDs differ. Stored Diff history remains readable after archive.
+      description: Creates or returns a comparison only when the Project and Document are active and the two version IDs differ. Any two immutable published versions within the Document may be compared across branches, including archived Branches. Branch archive blocks new draft and AI work in that Branch but permits version comparisons. Stored Diff history remains readable after Project, Document, or Branch archive.
       operationId: createDocumentDiff
       security: [{ JWTAuth: [] }]
       requestBody:
