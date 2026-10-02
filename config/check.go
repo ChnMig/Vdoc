@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 	"time"
 
@@ -75,7 +74,7 @@ func CheckConfig(
 		MCPTokenCipherKey:     MCPTokenCipherKey,
 		MCPTokenCipherKID:     MCPTokenCipherKID,
 		MCPTokenCipherKeyring: cloneCipherKeyring(MCPTokenCipherKeyring),
-		CORSAllowedOrigins:    append([]string(nil), CORSAllowedOrigins...),
+		EnableCORS:            EnableCORS,
 		TrustedProxies:        append([]string(nil), TrustedProxies...),
 		StaticDir:             StaticDir,
 	}
@@ -98,9 +97,6 @@ func validateConfig(cfg loadedConfig) error {
 		return err
 	}
 	if err := validateInitialAdminConfig(cfg); err != nil {
-		return err
-	}
-	if err := validateCORSOrigins(cfg.CORSAllowedOrigins); err != nil {
 		return err
 	}
 	if err := validateTrustedProxies(cfg.TrustedProxies); err != nil {
@@ -170,27 +166,6 @@ func validateTrustedProxies(proxies []string) error {
 		}
 	}
 	return nil
-}
-
-func validateCORSOrigins(origins []string) error {
-	for _, origin := range origins {
-		if origin == "*" {
-			continue
-		}
-		parsed, err := url.Parse(origin)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return fmt.Errorf("server.cors_allowed_origins contains invalid origin %q", origin)
-		}
-		if parsed.Scheme == "http" && !isLocalDevelopmentHost(parsed.Hostname()) {
-			return fmt.Errorf("server.cors_allowed_origins must use HTTPS outside local development: %q", origin)
-		}
-	}
-	return nil
-}
-
-func isLocalDevelopmentHost(host string) bool {
-	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
-	return normalized == "localhost" || strings.HasSuffix(normalized, ".localhost") || normalized == "127.0.0.1" || normalized == "::1"
 }
 
 func validateJWTConfig(JWTKey string, JWTExpiration int64) error {

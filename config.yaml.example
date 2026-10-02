@@ -40,10 +40,11 @@ server:
   # 静态文件目录；相对路径基于工作目录，设为空字符串可关闭 /static。
   static_dir: "./static"
 
-  # 可设为 ["*"] 允许任意浏览器来源，或精确列出 HTTP(S) Origin；不启用跨站 Cookie。
-  cors_allowed_origins:
-    - "http://localhost:5173"
-    - "http://127.0.0.1:5173"
+  # 默认启用通配 CORS：Origin、Method、Header、Expose-Headers 均为 *。
+  # OPTIONS 直接返回 HTTP 200 text/plain：Options Request!；不启用跨站 Cookie。
+  # 旧 server.cors_allowed_origins / VDOC_SERVER_CORS_ALLOWED_ORIGINS 不再控制行为。
+  # 按 Fetch 规范 Header * 不包含 Authorization；跨浏览器鉴权请用同源代理，或关闭此项并在网关显式允许 Authorization。
+  enable_cors: true
 
   # 仅在 Caddy/Nginx/Ingress 反向代理 backend 时填写其精确 IP/CIDR。
   # 直连部署保持为空；禁止信任 0.0.0.0/0 或 ::/0。

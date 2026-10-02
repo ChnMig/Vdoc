@@ -40,7 +40,9 @@ func InitApi() *gin.Engine {
 	// 提前设置安全与跨域响应头，让限流等提前终止的响应仍可被浏览器读取。
 	router.Use(middleware.SecurityHeaders())
 	// 预检在此结束，不占用业务请求的限流额度。
-	router.Use(middleware.CorsDomainHandler(config.CORSAllowedOrigins...))
+	if config.EnableCORS {
+		router.Use(middleware.CorssDomainHandler())
+	}
 
 	// 全局限流（如果启用）
 	if config.EnableRateLimit {

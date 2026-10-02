@@ -32,7 +32,7 @@ type loadedConfig struct {
 	EnableRateLimit       bool
 	GlobalRateLimit       int
 	GlobalRateBurst       int
-	CORSAllowedOrigins    []string
+	EnableCORS            bool
 	TrustedProxies        []string
 	PidFile               string
 	StaticDir             string
@@ -119,12 +119,7 @@ func setDefaults() {
 	v.SetDefault("server.enable_rate_limit", false)
 	v.SetDefault("server.global_rate_limit", 100)
 	v.SetDefault("server.global_rate_burst", 200)
-	v.SetDefault("server.cors_allowed_origins", []string{
-		"http://localhost:5173",
-		"http://127.0.0.1:5173",
-		"http://localhost:4173",
-		"http://127.0.0.1:4173",
-	})
+	v.SetDefault("server.enable_cors", true)
 	v.SetDefault("server.trusted_proxies", []string{})
 	v.SetDefault("server.pid_file", "vdoc.pid")
 	v.SetDefault("server.static_dir", "./static")
@@ -217,7 +212,7 @@ func readConfig() (loadedConfig, error) {
 	cfg.EnableRateLimit = v.GetBool("server.enable_rate_limit")
 	cfg.GlobalRateLimit = v.GetInt("server.global_rate_limit")
 	cfg.GlobalRateBurst = v.GetInt("server.global_rate_burst")
-	cfg.CORSAllowedOrigins = splitConfigValues(v.GetStringSlice("server.cors_allowed_origins"))
+	cfg.EnableCORS = v.GetBool("server.enable_cors")
 	cfg.TrustedProxies = splitConfigValues(v.GetStringSlice("server.trusted_proxies"))
 
 	// pid 文件与静态目录的相对路径均基于进程工作目录。
@@ -309,7 +304,7 @@ func applyLoadedConfig(cfg loadedConfig) {
 	EnableRateLimit = cfg.EnableRateLimit
 	GlobalRateLimit = cfg.GlobalRateLimit
 	GlobalRateBurst = cfg.GlobalRateBurst
-	CORSAllowedOrigins = append([]string(nil), cfg.CORSAllowedOrigins...)
+	EnableCORS = cfg.EnableCORS
 	TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
 	PidFile = cfg.PidFile
 	StaticDir = cfg.StaticDir

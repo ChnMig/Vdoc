@@ -59,10 +59,11 @@ func TestOpenHealth(t *testing.T) {
 
 func TestInitApiMiddlewareOrder(t *testing.T) {
 	preserveRouterGlobals(t)
+	config.EnableCORS = true
 	for _, enabled := range []bool{false, true} {
 		config.EnableRateLimit = enabled
 		router := InitApi()
-		want := []string{".TraceID.func", ".AccessLog.func", ".Recovery.func", ".SecurityHeaders.func", ".CorsDomainHandler.func"}
+		want := []string{".TraceID.func", ".AccessLog.func", ".Recovery.func", ".SecurityHeaders.func", ".CorssDomainHandler.func"}
 		if enabled {
 			want = append(want, ".IPRateLimit.func")
 		}
@@ -82,11 +83,11 @@ func TestInitApiMiddlewareOrder(t *testing.T) {
 func preserveRouterGlobals(t *testing.T) {
 	t.Helper()
 	enabled, rate, burst := config.EnableRateLimit, config.GlobalRateLimit, config.GlobalRateBurst
-	origins, maxBody := config.CORSAllowedOrigins, config.MaxBodySize
+	cors, maxBody := config.EnableCORS, config.MaxBodySize
 	mode, writer, errorWriter := gin.Mode(), gin.DefaultWriter, gin.DefaultErrorWriter
 	t.Cleanup(func() {
 		config.EnableRateLimit, config.GlobalRateLimit, config.GlobalRateBurst = enabled, rate, burst
-		config.CORSAllowedOrigins, config.MaxBodySize = origins, maxBody
+		config.EnableCORS, config.MaxBodySize = cors, maxBody
 		gin.SetMode(mode)
 		gin.DefaultWriter, gin.DefaultErrorWriter = writer, errorWriter
 		middleware.CleanupAllLimiters()
@@ -95,21 +96,20 @@ func preserveRouterGlobals(t *testing.T) {
 
 func TestInitApiRateLimitPreservesCORSAndPreflightQuota(t *testing.T) {
 	preserveRouterGlobals(t)
+	config.EnableCORS = true
 	for _, tc := range []struct {
 		name, origin, wantOrigin string
-		allowed                  []string
-		preflightStatus          int
 	}{
-		{"wildcard", "https://admin.example.test", "*", []string{"*"}, http.StatusNoContent},
-		{"exact", "https://admin.example.test", "https://admin.example.test", []string{"https://admin.example.test"}, http.StatusNoContent},
-		{"disallowed", "https://other.example.test", "", []string{"https://admin.example.test"}, http.StatusForbidden},
-		{"no origin", "", "", []string{"*"}, http.StatusNoContent},
+		{"admin", "https://admin.example.test", "*"},
+		{"other client", "https://other.example.test", "*"},
+		{"opaque origin", "null", "*"},
+		{"no origin", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			middleware.CleanupAllLimiters()
 			// 零补充速率让测试不依赖执行时间；初始桶容量仍为 1。
 			config.EnableRateLimit, config.GlobalRateLimit, config.GlobalRateBurst = true, 0, 1
-			config.CORSAllowedOrigins, config.MaxBodySize = tc.allowed, 10<<20
+			config.MaxBodySize = 10 << 20
 			router := InitApi()
 			calls := 0
 			router.GET("/_test/cors", func(c *gin.Context) {
@@ -141,11 +141,14 @@ func TestInitApiRateLimitPreservesCORSAndPreflightQuota(t *testing.T) {
 			preflight := func() {
 				t.Helper()
 				w := request(http.MethodOptions)
-				if w.Code != tc.preflightStatus || w.Body.Len() != 0 {
-					t.Fatalf("preflight=%d %s, want %d", w.Code, w.Body.String(), tc.preflightStatus)
+				if w.Code != http.StatusOK || w.Body.String() != "Options Request!" {
+					t.Fatalf("preflight=%d %s, want HTTP 200 Options Request!", w.Code, w.Body.String())
 				}
-				if tc.wantOrigin != "" && !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "Authorization") {
-					t.Fatal("preflight did not permit token authentication")
+				if got := w.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+					t.Fatalf("preflight content type = %q, want text/plain; charset=utf-8", got)
+				}
+				if tc.wantOrigin != "" && w.Header().Get("Access-Control-Allow-Headers") != "*" {
+					t.Fatal("preflight must use the scaffold wildcard request headers")
 				}
 			}
 			preflight()
@@ -163,6 +166,24 @@ func TestInitApiRateLimitPreservesCORSAndPreflightQuota(t *testing.T) {
 			}
 			preflight()
 		})
+	}
+}
+
+func TestInitApiCanDisableCORS(t *testing.T) {
+	preserveRouterGlobals(t)
+	config.EnableCORS, config.EnableRateLimit, config.MaxBodySize = false, false, 10<<20
+	router := InitApi()
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/open/health", nil)
+	request.Header.Set("Origin", "https://admin.example.test")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound || recorder.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("disabled CORS still handled preflight: status=%d headers=%v", recorder.Code, recorder.Header())
+	}
+	for _, handler := range router.Handlers {
+		if name := runtime.FuncForPC(reflect.ValueOf(handler).Pointer()).Name(); strings.Contains(name, ".CorssDomainHandler.func") {
+			t.Fatal("disabled CORS middleware is still registered")
+		}
 	}
 }
 

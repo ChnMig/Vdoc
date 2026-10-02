@@ -2,59 +2,30 @@ package middleware
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	corsAllowedMethods = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
-	corsAllowedHeaders = "Authorization, Content-Type, X-Trace-ID, X-Vdoc-Share-Unlock"
-	corsExposedHeaders = "Content-Disposition, Content-Type, X-Trace-ID"
-)
-
-// CorsDomainHandler 支持精确 Origin 或显式配置的 *，保持固定的方法/请求头范围。
-// 通配模式不启用跨站 Cookie 凭据；JWT、MCP 和分享令牌仍由各自中间件校验。
-func CorsDomainHandler(allowedOrigins ...string) gin.HandlerFunc {
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	allowAll := false
-	for _, origin := range allowedOrigins {
-		normalized := strings.TrimSpace(strings.TrimSuffix(origin, "/"))
-		if normalized == "*" {
-			allowAll = true
-		} else if normalized != "" {
-			allowed[normalized] = struct{}{}
-		}
-	}
+// CorssDomainHandler consent cross-domain middleware
+func CorssDomainHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		method := c.Request.Method
-		origin := strings.TrimSpace(c.Request.Header.Get("Origin"))
+		method := c.Request.Method               // method
+		origin := c.Request.Header.Get("Origin") // header
 		if origin != "" {
-			if _, ok := allowed[origin]; !ok && !allowAll {
-				if method == http.MethodOptions {
-					c.AbortWithStatus(http.StatusForbidden)
-					return
-				}
-				c.Next()
-				return
-			}
-			if allowAll {
-				c.Header("Access-Control-Allow-Origin", "*")
-			} else {
-				c.Header("Access-Control-Allow-Origin", origin)
-				c.Header("Vary", "Origin")
-			}
-			c.Header("Access-Control-Allow-Methods", corsAllowedMethods)
-			c.Header("Access-Control-Allow-Headers", corsAllowedHeaders)
-			c.Header("Access-Control-Expose-Headers", corsExposedHeaders)
+			c.Header("Access-Control-Allow-Origin", "*")  // This is to allow access to all domains
+			c.Header("Access-Control-Allow-Methods", "*") // All cross-domain request methods supported by the server, in order to avoid multiple'pre-check' requests for browsing requests
+			// header
+			c.Header("Access-Control-Allow-Headers", "*")
+			c.Header("Access-Control-Expose-Headers", "*")
 			c.Header("Access-Control-Max-Age", "172800")
 		}
-
+		// Release all OPTIONS methods
 		if method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent)
+			c.String(http.StatusOK, "Options Request!")
+			c.Abort()
 			return
 		}
-
+		// Processing request
 		c.Next()
 	}
 }

@@ -190,7 +190,7 @@ func newE2EFixture(t *testing.T, opts e2eFixtureOptions) *e2eFixture {
 	router.Use(middleware.Recovery())
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.BodySizeLimit(config.MaxBodySize))
-	router.Use(middleware.CorsDomainHandler())
+	router.Use(middleware.CorssDomainHandler())
 	open.RegisterRoutes(router.Group("/api/v1/open"))
 	private.RegisterRoutes(router.Group("/api/v1/private"))
 

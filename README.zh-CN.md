@@ -32,7 +32,7 @@ Go 后端基于 [ChnMig/go-template](https://github.com/ChnMig/go-template) 的 
 
 ## 当前状态
 
-这个仓库是 Vdoc 的 Go/Gin 后端，当前发行版本为 v0.3.11。
+这个仓库是 Vdoc 的 Go/Gin 后端，当前发行版本为 v0.3.12。
 
 API 文档：
 
@@ -77,7 +77,7 @@ scripts/vdoc-release-dry-run.sh
 
 随后自动创建 [GitHub Release](https://github.com/ChnMig/Vdoc/releases) 并上传同一份已验证产物；带预发布后缀的 tag 会标记为预发布。普通分支提交和 PR 只运行检查。发布任务不会覆盖已有 Release。
 
-本地可用 `make release-package RELEASE_TAG=v0.3.11` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
+本地可用 `make release-package RELEASE_TAG=v0.3.12` 验证打包，将版本号替换为准备发布的版本；产物保存在已忽略的 `dist/`。组件发布后，需要更新 workspace lock，再发布选用这些版本的 Site/Compose 包。
 
 ## 已实现能力
 
@@ -301,13 +301,19 @@ make build CROSS=1
 
 完整 v0.1 路由列表维护在 [docs/api/API.md](docs/api/API.md) 和 [docs/api/openapi.yaml](docs/api/openapi.yaml)。当前已经实现公开 health/auth/docs/MCP 路由，以及私有 identity、user、team、project、member、document、branch、draft、version、endpoint、diff 和 MCP token 路由。
 
-当前响应使用统一包裹。HTTP status 固定为 `200`，业务成功或失败由 JSON 中的 `code` 和 `status` 表达。
+业务 API 响应使用统一包裹。HTTP status 固定为 `200`，业务成功或失败由 JSON 中的 `code` 和 `status` 表达。
 
 ## 配置
 
 配置来自 `config.yaml`、默认值和 `VDOC_` 环境变量。Backend 进程不会自动加载 `.env`；原生运行时请由 shell 或进程管理器导出变量，官方 workspace 部署则由根 Docker Compose 读取根目录 `.env`。
 
 `server.host` 默认是 `0.0.0.0`；只允许本机直连时改为 `127.0.0.1`。`server.static_dir` 默认是相对工作目录的 `./static`，设为空字符串即可关闭 `/static`。原生进程管理器部署可以显式设置 `VDOC_SERVER_PID_FILE`；Docker 镜像和官方 Compose 会把它设为空，因为进程监督由 Docker 负责。这样 OOM 或 `SIGKILL` 不会遗留 writable-layer PID 文件并阻断容器重启策略。
+
+### CORS 配置与迁移
+
+`server.enable_cors` 默认是 `true`，行为与最新示例项目一致。带 `Origin` 的请求会得到通配的 Origin、Method、Allow-Headers 和 Expose-Headers，不启用跨站 Cookie。所有 OPTIONS 请求在业务 handler 前直接返回 HTTP `200`，响应类型为 `text/plain`，内容为 `Options Request!`。设置 `VDOC_SERVER_ENABLE_CORS=false` 可关闭此中间件。旧的 `server.cors_allowed_origins` 和 `VDOC_SERVER_CORS_ALLOWED_ORIGINS` 配置不再生效。
+
+按 Fetch CORS 规范，`Access-Control-Allow-Headers: *` 不包含 `Authorization`；浏览器实现可能存在差异。为保持跨浏览器行为一致，使用请求头鉴权的客户端应通过同源反向代理访问，或关闭内置 CORS 后由网关显式允许 `Authorization`。
 
 示例：
 

@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The current release is v0.3.11.
+This repository contains the Go/Gin backend for Vdoc. The current release is v0.3.12.
 
 API documentation:
 
@@ -98,7 +98,7 @@ Push a version tag such as `v0.1.1` or `v0.1.1-rc.1` after committing the releas
 
 CI uploads the verified artifacts and then creates a [GitHub Release](https://github.com/ChnMig/Vdoc/releases) from the existing tag. Prerelease tags create prereleases. Ordinary branch pushes and pull requests run checks only. The publish job reuses the verified artifacts and does not overwrite an existing release.
 
-For a local packaging check, run `make release-package RELEASE_TAG=v0.3.11` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
+For a local packaging check, run `make release-package RELEASE_TAG=v0.3.12` with the intended version; output stays in the ignored `dist/` directory. After component releases, update the workspace lock before publishing a Site/Compose release that selects those versions.
 
 ## Product Concepts
 
@@ -318,13 +318,19 @@ make build CROSS=1
 
 The full v0.1 route list is maintained in [docs/api/API.md](docs/api/API.md) and [docs/api/openapi.yaml](docs/api/openapi.yaml). The implemented surfaces include public health/auth/docs/MCP routes and private identity, user, team, project, member, document, branch, draft, version, endpoint, diff, and MCP token routes.
 
-Responses use a project envelope. HTTP status is currently always `200`; semantic success or failure is represented by the JSON `code` and `status` fields.
+Business API responses use a project envelope. HTTP status is currently always `200`; semantic success or failure is represented by the JSON `code` and `status` fields.
 
 ## Configuration
 
 Configuration is loaded from `config.yaml`, defaults, and `VDOC_` environment variables. The backend process does not auto-load `.env`; export variables through the shell or process manager. In the supported workspace deployment, root Docker Compose reads the root `.env` file.
 
 `server.host` defaults to `0.0.0.0`; use `127.0.0.1` for direct local-only access. `server.static_dir` defaults to `./static` relative to the working directory and can be set to an empty string to disable `/static`. Native process-manager deployments may set `VDOC_SERVER_PID_FILE` explicitly; the Docker image and supported Compose stack set it to an empty value because Docker owns process supervision. This prevents an OOM or `SIGKILL` from leaving a writable-layer PID file that blocks the container restart policy.
+
+### CORS configuration and migration
+
+`server.enable_cors` defaults to `true` and follows the latest scaffold example. Requests with an `Origin` header receive `*` for allowed origins, methods, request headers, and exposed headers, without credentialed cookies. All OPTIONS requests return HTTP `200` with the `text/plain` body `Options Request!` before business handlers. Set `VDOC_SERVER_ENABLE_CORS=false` to disable this middleware. The old `server.cors_allowed_origins` and `VDOC_SERVER_CORS_ALLOWED_ORIGINS` settings have no effect.
+
+The Fetch CORS standard does not include `Authorization` in `Access-Control-Allow-Headers: *`; browser implementations may differ. For consistent behavior across browsers, header-authenticated clients should use a same-origin reverse proxy, or disable built-in CORS and configure explicit `Authorization` allowance at the gateway.
 
 Examples:
 

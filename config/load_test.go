@@ -44,6 +44,8 @@ func TestParseSize(t *testing.T) {
 }
 
 func TestSetDefaults(t *testing.T) {
+	originalEnableCORS := EnableCORS
+	t.Cleanup(func() { EnableCORS = originalEnableCORS })
 	// 创建新的 viper 实例用于测试
 	LoadConfig() // 初始化 v
 
@@ -61,6 +63,7 @@ func TestSetDefaults(t *testing.T) {
 		{"jwt expiration", "jwt.expiration", "12h"},
 		{"log max size", "log.max_size", 50},
 		{"enable rate limit", "server.enable_rate_limit", false},
+		{"enable cors", "server.enable_cors", true},
 		{"trusted proxies", "server.trusted_proxies", []string{}},
 		{"database enabled", "database.enabled", false},
 		{"database max open conns", "database.max_open_conns", 20},
@@ -85,6 +88,8 @@ func TestSetDefaults(t *testing.T) {
 }
 
 func TestApplyConfig(t *testing.T) {
+	originalEnableCORS := EnableCORS
+	t.Cleanup(func() { EnableCORS = originalEnableCORS })
 	// 初始化配置
 	err := LoadConfig()
 	if err != nil {
@@ -115,13 +120,15 @@ func TestApplyConfig(t *testing.T) {
 		t.Errorf("LogMaxSize = %d, want 50", LogMaxSize)
 	}
 
-	if len(CORSAllowedOrigins) != 4 {
-		t.Errorf("CORSAllowedOrigins = %v, want four local development origins", CORSAllowedOrigins)
+	if !EnableCORS {
+		t.Error("EnableCORS = false, want true")
 	}
 
 }
 
 func TestLoadConfigWithEnv(t *testing.T) {
+	originalEnableCORS := EnableCORS
+	t.Cleanup(func() { EnableCORS = originalEnableCORS })
 	// 设置环境变量
 	t.Setenv("VDOC_SERVER_HOST", "127.0.0.2")
 	t.Setenv("VDOC_SERVER_PORT", "9090")
@@ -145,7 +152,7 @@ func TestLoadConfigWithEnv(t *testing.T) {
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KID", "prod-2026-08")
 	t.Setenv("VDOC_MCP_TOKEN_CIPHER_KEYRING", `{"local-aes-gcm-v1":"fedcba9876543210fedcba9876543210"}`)
-	t.Setenv("VDOC_SERVER_CORS_ALLOWED_ORIGINS", "https://admin.example.test,https://share.example.test")
+	t.Setenv("VDOC_SERVER_ENABLE_CORS", "false")
 	t.Setenv("VDOC_SERVER_TRUSTED_PROXIES", "127.0.0.1,10.0.0.0/8")
 
 	// 重新加载配置
@@ -196,8 +203,8 @@ func TestLoadConfigWithEnv(t *testing.T) {
 		t.Errorf("auth rate limit env override failed: %d/%d", AuthRateLimit, AuthRateBurst)
 	}
 
-	if len(CORSAllowedOrigins) != 2 || CORSAllowedOrigins[0] != "https://admin.example.test" || CORSAllowedOrigins[1] != "https://share.example.test" {
-		t.Errorf("cors origins env override failed: %v", CORSAllowedOrigins)
+	if EnableCORS {
+		t.Error("EnableCORS = true, want false (from env)")
 	}
 	if len(TrustedProxies) != 2 || TrustedProxies[0] != "127.0.0.1" || TrustedProxies[1] != "10.0.0.0/8" {
 		t.Errorf("trusted proxies env override failed: %v", TrustedProxies)
@@ -207,7 +214,11 @@ func TestLoadConfigWithEnv(t *testing.T) {
 
 func TestLoadConfigAllowsEmptyStaticDirEnv(t *testing.T) {
 	originalStaticDir := StaticDir
-	t.Cleanup(func() { StaticDir = originalStaticDir })
+	originalEnableCORS := EnableCORS
+	t.Cleanup(func() {
+		StaticDir = originalStaticDir
+		EnableCORS = originalEnableCORS
+	})
 	t.Setenv("VDOC_SERVER_STATIC_DIR", "")
 
 	if err := LoadConfig(); err != nil {
@@ -219,6 +230,8 @@ func TestLoadConfigAllowsEmptyStaticDirEnv(t *testing.T) {
 }
 
 func TestGetViper(t *testing.T) {
+	originalEnableCORS := EnableCORS
+	t.Cleanup(func() { EnableCORS = originalEnableCORS })
 	LoadConfig()
 	viper := GetViper()
 	if viper == nil {
@@ -238,13 +251,17 @@ func TestWatchConfigWithoutLoadedFileIsNoop(t *testing.T) {
 }
 
 func TestValidatedReloadCandidateDoesNotMutateRunningConfig(t *testing.T) {
+	initialEnableCORS := EnableCORS
+	t.Cleanup(func() { EnableCORS = initialEnableCORS })
 	if err := LoadConfig(); err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
 	originalPort := ListenPort
 	originalJWTKey := JWTKey
+	originalEnableCORS := EnableCORS
 	v.Set("server.port", originalPort+1)
 	v.Set("jwt.key", "abcdef0123456789abcdef0123456789")
+	v.Set("server.enable_cors", !originalEnableCORS)
 
 	candidate, err := validatedReloadCandidate()
 	if err != nil {
@@ -253,7 +270,10 @@ func TestValidatedReloadCandidateDoesNotMutateRunningConfig(t *testing.T) {
 	if candidate.ListenPort != originalPort+1 {
 		t.Fatalf("candidate port = %d, want %d", candidate.ListenPort, originalPort+1)
 	}
-	if ListenPort != originalPort || JWTKey != originalJWTKey {
-		t.Fatalf("running config changed: port=%d jwt_changed=%v", ListenPort, JWTKey != originalJWTKey)
+	if candidate.EnableCORS == originalEnableCORS {
+		t.Fatalf("candidate CORS = %v, want %v", candidate.EnableCORS, !originalEnableCORS)
+	}
+	if ListenPort != originalPort || JWTKey != originalJWTKey || EnableCORS != originalEnableCORS {
+		t.Fatalf("running config changed: port=%d jwt_changed=%v cors=%v", ListenPort, JWTKey != originalJWTKey, EnableCORS)
 	}
 }

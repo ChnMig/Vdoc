@@ -88,12 +88,6 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "valid cors origins",
-			mutate: func(cfg *loadedConfig) {
-				cfg.CORSAllowedOrigins = []string{"https://admin.example.test", "http://127.0.0.1:5173"}
-			},
-		},
-		{
 			name: "valid trusted proxy addresses",
 			mutate: func(cfg *loadedConfig) {
 				cfg.TrustedProxies = []string{"127.0.0.1", "10.0.0.0/8", "2001:db8::/32"}
@@ -117,26 +111,6 @@ func TestValidateConfig(t *testing.T) {
 			name: "trust all IPv6 proxy range",
 			mutate: func(cfg *loadedConfig) {
 				cfg.TrustedProxies = []string{"::/0"}
-			},
-			wantErr: true,
-		},
-		{
-			name: "wildcard cors origin",
-			mutate: func(cfg *loadedConfig) {
-				cfg.CORSAllowedOrigins = []string{"*"}
-			},
-		},
-		{
-			name: "cors origin with path",
-			mutate: func(cfg *loadedConfig) {
-				cfg.CORSAllowedOrigins = []string{"https://admin.example.test/path"}
-			},
-			wantErr: true,
-		},
-		{
-			name: "remote plaintext cors origin",
-			mutate: func(cfg *loadedConfig) {
-				cfg.CORSAllowedOrigins = []string{"http://admin.example.test"}
 			},
 			wantErr: true,
 		},
