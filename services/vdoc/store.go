@@ -62,6 +62,7 @@ type Store struct {
 type storeState struct {
 	mu                  sync.RWMutex
 	verifyLoginPassword func(password, hash string) bool
+	verifySharePassword func(share *DocumentShare, password string) bool
 	hashPassword        func(password []byte) (string, error)
 	users               map[string]*User
 	teams               map[string]*Team
@@ -103,6 +104,7 @@ func NewStore() *Store {
 	}
 	return &Store{storeState: &storeState{
 		verifyLoginPassword: encryption.VerifyBcryptPassword,
+		verifySharePassword: verifyPublicSharePassword,
 		hashPassword:        encryption.HashPasswordBytesWithBcrypt,
 		users:               map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
 		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},

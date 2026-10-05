@@ -186,7 +186,7 @@ func newAICompletionTransactionFixture(t *testing.T, markdown, chat bool) aiComp
 			t.Fatal(err)
 		}
 		fixture.finish = func() error {
-			_, err := store.finishAIChatMessage(fixture.actorID, projectID, session.ID, request, aiCompletionResult{Content: "current answer"}, nil)
+			_, err := store.finishAIChatMessage(fixture.actorID, projectID, session.ID, request, aiCompletionResult{Content: "current answer", Usage: aiTokenUsage{PromptTokens: 31, CompletionTokens: 9, TotalTokens: 40}}, nil)
 			return err
 		}
 	} else {
@@ -196,7 +196,7 @@ func newAICompletionTransactionFixture(t *testing.T, markdown, chat bool) aiComp
 			t.Fatalf("prepare summary skipped=%+v error=%v", skipped, err)
 		}
 		fixture.finish = func() error {
-			_, err := store.finishAISummary(run, aiSummaryCompletion{Request: request, Result: aiCompletionResult{Content: "current answer"}})
+			_, err := store.finishAISummary(run, aiSummaryCompletion{Request: request, Result: aiCompletionResult{Content: "current answer", Usage: aiTokenUsage{PromptTokens: 31, CompletionTokens: 9, TotalTokens: 40}}})
 			return err
 		}
 	}
@@ -231,6 +231,7 @@ func (f aiCompletionTransactionFixture) assertFailed(t *testing.T, expectedToken
 		if audit.Metadata["result"] != domainai.SummaryStatusFailed {
 			t.Fatalf("rejected generation committed success audit: %+v", audit)
 		}
+		assertAIFailureUsageMetadata(t, audit.Metadata, map[string]string{"prompt_tokens": "31", "completion_tokens": "9", "total_tokens": "40"})
 		failures++
 	}
 	if expectedToken == "" && failures != 1 {

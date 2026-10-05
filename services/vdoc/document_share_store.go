@@ -223,16 +223,33 @@ func (s *Store) UnlockPublicDocumentShare(shareID, secret, password string, audi
 		return unlockPersistentPublicShare(share, password)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
+		s.mu.Unlock()
 		return "", time.Time{}, publicShareUnavailable()
 	}
 	share, _, _, err := s.authorizePublicShareLocked(shareID, secret, "", false)
 	if err != nil || !share.PasswordProtected() {
+		s.mu.Unlock()
 		consumeDummyPublicSharePasswordCheck(password)
 		return "", time.Time{}, publicShareUnavailable()
 	}
-	if !verifyPublicSharePassword(share, password) {
+	snapshot := domainshare.Clone(share)
+	verify := s.verifySharePassword
+	if verify == nil {
+		verify = verifyPublicSharePassword
+	}
+	s.mu.Unlock()
+	// bcrypt 不占用共享锁；成功后重新检查撤销、父级归档和密码变化。
+	if !verify(snapshot, password) {
+		return "", time.Time{}, publicShareUnavailable()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return "", time.Time{}, publicShareUnavailable()
+	}
+	share, _, _, err = s.authorizePublicShareLocked(shareID, secret, "", false)
+	if err != nil || !share.PasswordProtected() || *share.PasswordVerifier != *snapshot.PasswordVerifier {
 		return "", time.Time{}, publicShareUnavailable()
 	}
 	proof, expiresAt, err := authentication.SignDocumentShareUnlockProof(share.ID, time.Now().UTC(), share.ExpiresAt)

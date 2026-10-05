@@ -170,6 +170,8 @@ type failureMatrixRow struct {
 func newE2EFixture(t *testing.T, opts e2eFixtureOptions) *e2eFixture {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	middleware.CleanupAllLimiters()
+	t.Cleanup(middleware.CleanupAllLimiters)
 	restoreConfig := configureE2EConfig()
 	t.Cleanup(restoreConfig)
 

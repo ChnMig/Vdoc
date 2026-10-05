@@ -128,7 +128,7 @@ func (s *Store) runAISummary(run aiSummaryRun) (*AISummary, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
 		defer cancel()
-		_, _ = s.WithContext(ctx).finishAISummary(run, aiSummaryCompletion{Request: request, Err: err})
+		_, _ = s.WithContext(ctx).finishAISummary(run, aiSummaryCompletion{Request: request, Result: aiCompletionResult{Usage: result.Usage}, Err: err})
 		return nil, err
 	}
 	return s.finishAISummary(run, aiSummaryCompletion{Request: request, Result: result, Err: callErr})
@@ -229,7 +229,7 @@ func (s *Store) finishAISummary(run aiSummaryRun, completion aiSummaryCompletion
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
 		if isAICancellation(err) {
-			return nil, s.failStaleAISummaryLocked(run, completion.Request, err)
+			return nil, s.failStaleAISummaryLocked(run, completion.Request, completion.Result.Usage, err)
 		}
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (s *Store) finishAISummary(run aiSummaryRun, completion aiSummaryCompletion
 		return nil, staleAISummaryRequestError()
 	}
 	if err := s.validateAISummaryCompletionLocked(run, completion.Request); err != nil {
-		return nil, s.failStaleAISummaryLocked(run, completion.Request, err)
+		return nil, s.failStaleAISummaryLocked(run, completion.Request, completion.Result.Usage, err)
 	}
 	status := domainai.SummaryStatusSucceeded
 	errorMessage := ""
@@ -250,10 +250,10 @@ func (s *Store) finishAISummary(run aiSummaryRun, completion aiSummaryCompletion
 	audit := s.auditAISummaryLocked(run, aiSummaryAuditInput{Summary: summary, PromptKey: completion.Request.Prompt.PromptKey, ProviderID: completion.Request.Provider.ID, APIMode: completion.Request.Provider.APIMode, Status: status, Usage: completion.Result.Usage})
 	if err := s.persistAISummaryCompletionLocked(summary, audit, completion.Request.GenerationToken, completion.Request.Guard); err != nil {
 		if isAICompletionContextError(err) {
-			return nil, s.failStaleAISummaryLocked(run, completion.Request, staleAISummaryRequestError())
+			return nil, s.failStaleAISummaryLocked(run, completion.Request, completion.Result.Usage, staleAISummaryRequestError())
 		}
 		if isAICancellation(err) {
-			return nil, s.failStaleAISummaryLocked(run, completion.Request, err)
+			return nil, s.failStaleAISummaryLocked(run, completion.Request, completion.Result.Usage, err)
 		}
 		return nil, err
 	}
@@ -435,7 +435,7 @@ func (s *Store) validateAISummaryCompletionLocked(run aiSummaryRun, request aiSu
 	return nil
 }
 
-func (s *Store) failStaleAISummaryLocked(run aiSummaryRun, request aiSummaryRequest, staleErr error) error {
+func (s *Store) failStaleAISummaryLocked(run aiSummaryRun, request aiSummaryRequest, usage aiTokenUsage, staleErr error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
 	defer cancel()
 	s = s.WithContext(ctx)
@@ -444,7 +444,7 @@ func (s *Store) failStaleAISummaryLocked(run aiSummaryRun, request aiSummaryRequ
 		return staleAISummaryRequestError()
 	}
 	summary := s.storeAISummaryLocked(run.ActorID, run.Target, request.Prompt.PromptKey, request.Provider.ID, domainai.SummaryStatusFailed, staleErr.Error(), "")
-	audit := s.auditAISummaryLocked(run, aiSummaryAuditInput{Summary: summary, PromptKey: request.Prompt.PromptKey, ProviderID: request.Provider.ID, APIMode: request.Provider.APIMode, Status: domainai.SummaryStatusFailed})
+	audit := s.auditAISummaryLocked(run, aiSummaryAuditInput{Summary: summary, PromptKey: request.Prompt.PromptKey, ProviderID: request.Provider.ID, APIMode: request.Provider.APIMode, Status: domainai.SummaryStatusFailed, Usage: usage})
 	if err := s.persistAISummaryCompletionLocked(summary, audit, request.GenerationToken, nil); err != nil {
 		if Is(err, ErrFailedPrecondition) {
 			return staleAISummaryRequestError()
