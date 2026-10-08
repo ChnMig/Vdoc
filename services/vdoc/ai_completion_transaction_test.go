@@ -82,6 +82,106 @@ func TestAICompletionCleanupPreservesNewerGeneration(t *testing.T) {
 	}
 }
 
+func TestAICompletionAuditsSupersededGenerationWithoutChangingContext(t *testing.T) {
+	for _, chat := range []bool{false, true} {
+		name := "summary"
+		if chat {
+			name = "chat"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newAICompletionTransactionFixture(t, false, chat)
+			fixture.repo.beforeTransaction = func(state *domain.State) {
+				if chat {
+					state.AIChats[fixture.sessionID].GenerationToken = "newer-generation"
+				} else {
+					state.AISummaries[aiSummaryKey(fixture.target)].GenerationToken = "newer-generation"
+				}
+			}
+			if err := fixture.finish(); !errors.Is(err, ErrFailedPrecondition) {
+				t.Fatalf("superseded completion error = %v", err)
+			}
+			fixture.assertFailed(t, "newer-generation")
+		})
+	}
+}
+
+func TestAICompletionAuditPreservesAlreadyCompletedNewerGeneration(t *testing.T) {
+	for _, chat := range []bool{false, true} {
+		name := "summary"
+		if chat {
+			name = "chat"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newAICompletionTransactionFixture(t, false, chat)
+			fixture.repo.beforeTransaction = func(state *domain.State) {
+				if chat {
+					state.AIChats[fixture.sessionID].GenerationToken = ""
+					state.AIMessages["new-assistant"] = &AIChatMessage{ID: "new-assistant", SessionID: fixture.sessionID, Role: domainai.ChatRoleAssistant, Content: "new answer"}
+				} else {
+					summary := state.AISummaries[aiSummaryKey(fixture.target)]
+					summary.GenerationToken, summary.Status, summary.Content = "", domainai.SummaryStatusSucceeded, "new answer"
+				}
+			}
+			if err := fixture.finish(); !errors.Is(err, ErrFailedPrecondition) {
+				t.Fatalf("superseded completion error = %v", err)
+			}
+			if chat {
+				if len(fixture.repo.state.AIMessages) != 1 || fixture.repo.state.AIMessages["new-assistant"].Content != "new answer" || fixture.repo.state.AIChats[fixture.sessionID].GenerationToken != "" {
+					t.Fatalf("newer chat changed: %+v", fixture.repo.state.AIMessages)
+				}
+			} else if summary := fixture.repo.state.AISummaries[aiSummaryKey(fixture.target)]; summary.GenerationToken != "" || summary.Status != domainai.SummaryStatusSucceeded || summary.Content != "new answer" {
+				t.Fatalf("newer summary changed: %+v", summary)
+			}
+			failed := 0
+			for _, audit := range fixture.repo.state.AuditLogs {
+				if audit.Action == "ai.chat.message" || audit.Action == "ai.summary.regenerate" {
+					if audit.Metadata["result"] != "failed" {
+						t.Fatalf("old request committed success audit: %+v", audit)
+					}
+					assertAIFailureUsageMetadata(t, audit.Metadata, map[string]string{"prompt_tokens": "31", "completion_tokens": "9", "total_tokens": "40"})
+					failed++
+				}
+			}
+			if failed != 1 {
+				t.Fatalf("old request failure audits=%d, want 1", failed)
+			}
+		})
+	}
+}
+
+func TestAISupersededAuditFailureDoesNotChangeNewerGeneration(t *testing.T) {
+	for _, chat := range []bool{false, true} {
+		name := "summary"
+		if chat {
+			name = "chat"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newAICompletionTransactionFixture(t, false, chat)
+			auditErr := errors.New("isolated audit insert failed")
+			fixture.repo.auditErr = auditErr
+			if chat {
+				fixture.repo.state.AIChats[fixture.sessionID].GenerationToken = "newer-generation"
+			} else {
+				fixture.repo.state.AISummaries[aiSummaryKey(fixture.target)].GenerationToken = "newer-generation"
+			}
+			beforeAudits := len(fixture.repo.state.AuditLogs)
+			if err := fixture.finish(); !errors.Is(err, auditErr) {
+				t.Fatalf("discarded audit failure = %v, want %v", err, auditErr)
+			}
+			if chat {
+				if fixture.repo.state.AIChats[fixture.sessionID].GenerationToken != "newer-generation" || len(fixture.repo.state.AIMessages) != 0 {
+					t.Fatal("failed audit changed newer chat")
+				}
+			} else if summary := fixture.repo.state.AISummaries[aiSummaryKey(fixture.target)]; summary.GenerationToken != "newer-generation" || summary.Status != domainai.SummaryStatusPending {
+				t.Fatalf("failed audit changed newer summary: %+v", summary)
+			}
+			if len(fixture.repo.state.AuditLogs) != beforeAudits || len(fixture.store.audits) != beforeAudits {
+				t.Fatal("failed audit leaked unpersisted evidence")
+			}
+		})
+	}
+}
+
 func TestAICompletionCommitsUnchangedRequest(t *testing.T) {
 	for _, chat := range []bool{false, true} {
 		name := "summary"
@@ -234,11 +334,8 @@ func (f aiCompletionTransactionFixture) assertFailed(t *testing.T, expectedToken
 		assertAIFailureUsageMetadata(t, audit.Metadata, map[string]string{"prompt_tokens": "31", "completion_tokens": "9", "total_tokens": "40"})
 		failures++
 	}
-	if expectedToken == "" && failures != 1 {
+	if failures != 1 {
 		t.Fatalf("failure audits = %d, want 1", failures)
-	}
-	if expectedToken != "" && failures != 0 {
-		t.Fatalf("superseded generation committed %d failure audits", failures)
 	}
 }
 

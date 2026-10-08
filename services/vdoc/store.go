@@ -84,6 +84,7 @@ type storeState struct {
 	aiHTTP              *http.Client
 	audits              map[string]*AuditLog
 	summaryJobs         map[string]*domainvdoc.AISummaryJob
+	backgroundMu        sync.Mutex
 	backgroundRunning   bool
 	backgroundCancel    context.CancelFunc
 	backgroundDone      chan struct{}
@@ -1734,6 +1735,9 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	if err := domaindraft.ValidateCreate(versionName, input.SchemaContent); err != nil {
 		return nil, err
 	}
+	if err := domaindraft.EnsureVersionNameAvailable(s.draftVersionIdentitiesLocked(documentID), documentID, d.BranchID, versionName); err != nil {
+		return nil, err
+	}
 	stableContent := input.SchemaContent
 	stableHash := sha(stableContent)
 	latest := s.latestVersionLocked(documentID, d.BranchID)
@@ -1757,17 +1761,25 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	updated.NormalizedSchema = stableContent
 	updated.RawSchemaHash = sha(input.SchemaContent)
 	updated.NormalizedSchemaHash = stableHash
-	rawKey, rawRef, err := s.persistMarkdownObjectLocked(projectID, documentID, updated.BranchID, "draft", updated.ID, "raw", updated.RawSchemaHash, updated.RawSchema)
-	if err != nil {
-		return nil, err
-	}
-	stableKey, stableRef, err := s.persistMarkdownObjectLocked(projectID, documentID, updated.BranchID, "draft", updated.ID, "stable", updated.NormalizedSchemaHash, updated.NormalizedSchema)
-	if err != nil {
-		return nil, s.cleanupNewObjectRefs(err, rawRef)
-	}
-	updated.RawSchemaObjectKey = rawKey
-	updated.NormalizedObjectKey = stableKey
 	updated.Status = DraftStatusDraft
+	var rawRef, stableRef domainvdoc.ObjectRef
+	if canReuseUnchangedDraftObjects(d, &updated) {
+		if err := validateStoredObjectWriteSize(len(updated.RawSchema)); err != nil {
+			return nil, err
+		}
+		if err := validateStoredObjectWriteSize(len(updated.NormalizedSchema)); err != nil {
+			return nil, err
+		}
+	} else {
+		updated.RawSchemaObjectKey, rawRef, err = s.persistMarkdownObjectLocked(projectID, documentID, updated.BranchID, "draft", updated.ID, "raw", updated.RawSchemaHash, updated.RawSchema)
+		if err != nil {
+			return nil, err
+		}
+		updated.NormalizedObjectKey, stableRef, err = s.persistMarkdownObjectLocked(projectID, documentID, updated.BranchID, "draft", updated.ID, "stable", updated.NormalizedSchemaHash, updated.NormalizedSchema)
+		if err != nil {
+			return nil, s.cleanupNewObjectRefs(err, rawRef)
+		}
+	}
 	updated.DiffPreview = diffPreview
 	updated.UpdatedAt = time.Now()
 	s.drafts[draftID] = &updated
@@ -1804,6 +1816,10 @@ func (s *Store) SubmitMarkdownDraft(actorID, projectID, documentID, draftID stri
 		return nil, err
 	}
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if err := domaindraft.EnsureVersionNameAvailable(s.draftVersionIdentitiesLocked(documentID), documentID, d.BranchID, d.VersionName); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -2303,6 +2319,9 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	if err := domaindraft.ValidateCreate(versionName, input.SchemaContent); err != nil {
 		return nil, err
 	}
+	if err := domaindraft.EnsureVersionNameAvailable(s.draftVersionIdentitiesLocked(serviceID), serviceID, d.BranchID, versionName); err != nil {
+		return nil, err
+	}
 	parsed, err := s.parseOpenAPI(input.SchemaContent)
 	if err != nil {
 		return nil, err
@@ -2329,17 +2348,25 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	updated.NormalizedSchema = parsed.Normalized
 	updated.RawSchemaHash = sha(input.SchemaContent)
 	updated.NormalizedSchemaHash = sha(parsed.Normalized)
-	rawKey, rawRef, err := s.persistSchemaObjectLocked(projectID, serviceID, updated.BranchID, "draft", updated.ID, "raw", updated.RawSchemaHash, updated.RawSchema)
-	if err != nil {
-		return nil, err
-	}
-	normalizedKey, normalizedRef, err := s.persistSchemaObjectLocked(projectID, serviceID, updated.BranchID, "draft", updated.ID, "normalized", updated.NormalizedSchemaHash, updated.NormalizedSchema)
-	if err != nil {
-		return nil, s.cleanupNewObjectRefs(err, rawRef)
-	}
-	updated.RawSchemaObjectKey = rawKey
-	updated.NormalizedObjectKey = normalizedKey
 	updated.Status = DraftStatusDraft
+	var rawRef, normalizedRef domainvdoc.ObjectRef
+	if canReuseUnchangedDraftObjects(d, &updated) {
+		if err := validateStoredObjectWriteSize(len(updated.RawSchema)); err != nil {
+			return nil, err
+		}
+		if err := validateStoredObjectWriteSize(len(updated.NormalizedSchema)); err != nil {
+			return nil, err
+		}
+	} else {
+		updated.RawSchemaObjectKey, rawRef, err = s.persistSchemaObjectLocked(projectID, serviceID, updated.BranchID, "draft", updated.ID, "raw", updated.RawSchemaHash, updated.RawSchema)
+		if err != nil {
+			return nil, err
+		}
+		updated.NormalizedObjectKey, normalizedRef, err = s.persistSchemaObjectLocked(projectID, serviceID, updated.BranchID, "draft", updated.ID, "normalized", updated.NormalizedSchemaHash, updated.NormalizedSchema)
+		if err != nil {
+			return nil, s.cleanupNewObjectRefs(err, rawRef)
+		}
+	}
 	updated.DiffPreview = s.previewDiffLocked(serviceID, updated.BranchID, parsed.SchemaFormat, parsed.Endpoints)
 	updated.UpdatedAt = time.Now()
 	s.drafts[draftID] = &updated
@@ -2349,6 +2376,15 @@ func (s *Store) UpdateDraft(actorID, projectID, serviceID, draftID string, input
 	}
 	return cloneDraft(&updated), nil
 }
+
+// 完整编辑快照未变时复用既有对象，保存仍走原事务和乐观并发校验。
+func canReuseUnchangedDraftObjects(previous, updated *ContractDraft) bool {
+	return previous.RawSchemaObjectKey != "" && previous.NormalizedObjectKey != "" &&
+		previous.SchemaFormat == updated.SchemaFormat &&
+		previous.NormalizedSchemaHash == updated.NormalizedSchemaHash &&
+		previous.Revision() == updated.Revision()
+}
+
 func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, auditCtx ...AuditContext) (*ContractDraft, error) {
 	s = s.withMutationGuard(actorID, projectID, serviceID, MemberRoleWriter)
 	s.mu.Lock()
@@ -2375,6 +2411,10 @@ func (s *Store) SubmitDraft(actorID, projectID, serviceID, draftID string, audit
 		return nil, err
 	}
 	if err := domaindraft.EnsureWriterCanChange(d.Status); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	if err := domaindraft.EnsureVersionNameAvailable(s.draftVersionIdentitiesLocked(serviceID), serviceID, d.BranchID, d.VersionName); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}

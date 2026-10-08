@@ -46,4 +46,27 @@ func TestConfigCheckDoesNotStartServicesOrWriteFiles(t *testing.T) {
 			t.Fatal("configuration check created runtime files")
 		}
 	}
+	for _, key := range []string{"VDOC_SERVER_ENABLE_RATE_LIMIT", "VDOC_SERVER_ENABLE_CORS", "VDOC_AUTH_ALLOW_REGISTRATION", "VDOC_DATABASE_ENABLED", "VDOC_STORAGE_ENABLED", "VDOC_STORAGE_USE_SSL", "VDOC_STORAGE_PATH_STYLE"} {
+		t.Run(key, func(t *testing.T) {
+			command := exec.Command(binary, "--check-config")
+			command.Dir = t.TempDir()
+			for _, entry := range os.Environ() {
+				if !strings.HasPrefix(entry, "VDOC_") {
+					command.Env = append(command.Env, entry)
+				}
+			}
+			command.Env = append(command.Env, "VDOC_JWT_KEY=0123456789abcdef0123456789abcdef", key+"=treu")
+			out, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatalf("invalid boolean passed config check: %s", out)
+			}
+			if !strings.Contains(string(out), "must be a boolean") || strings.Contains(string(out), "treu") {
+				t.Fatalf("boolean diagnostic is missing or leaks input: %s", out)
+			}
+			files, err := os.ReadDir(command.Dir)
+			if err != nil || len(files) != 0 {
+				t.Fatal("rejected config wrote runtime files")
+			}
+		})
+	}
 }

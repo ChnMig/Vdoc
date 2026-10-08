@@ -47,7 +47,8 @@ func OpenWithConfig(ctx context.Context, cfg Config) (*Client, error) {
 		IgnoreRecordNotFoundError: true,
 		Colorful:                  false,
 	})
-	database, err := gorm.Open(postgres.Open(cfg.DSN), &gorm.Config{Logger: gormLogger})
+	// GORM 的自动 Ping 不接收 context，首次连接也必须响应启动取消和超时。
+	database, err := gorm.Open(postgres.Open(cfg.DSN), &gorm.Config{Logger: gormLogger, DisableAutomaticPing: true})
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}

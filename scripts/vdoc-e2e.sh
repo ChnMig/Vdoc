@@ -186,16 +186,32 @@ require_compose_env() {
   fi
 }
 
+url_encode_credential() {
+  local LC_ALL=C
+  local value="$1" index character octet
+  for ((index = 0; index < ${#value}; index++)); do
+    character="${value:index:1}"
+    case "$character" in
+      [a-zA-Z0-9.~_-]) printf '%s' "$character" ;;
+      *)
+        printf -v octet '%d' "'$character"
+        printf '%%%02X' "$((octet & 255))"
+        ;;
+    esac
+  done
+}
+
 derive_live_env_from_compose() {
   require_compose_env
 
-  local postgres_host_port postgres_user rustfs_host_port
+  local postgres_host_port postgres_user postgres_password rustfs_host_port
   postgres_host_port="$(env_or_default VDOC_POSTGRES_HOST_PORT 5432)"
-  postgres_user="$(env_or_default VDOC_POSTGRES_USER vdoc)"
+  postgres_user="$(url_encode_credential "$(env_or_default VDOC_POSTGRES_USER vdoc)")"
+  postgres_password="$(url_encode_credential "$VDOC_POSTGRES_PASSWORD")"
   rustfs_host_port="$(env_or_default VDOC_RUSTFS_HOST_PORT 9000)"
   export VDOC_TEST_POSTGRES_DB="$(env_or_default VDOC_TEST_POSTGRES_DB vdoc_e2e)"
 
-  export VDOC_TEST_DATABASE_DSN="postgres://${postgres_user}:${VDOC_POSTGRES_PASSWORD}@127.0.0.1:${postgres_host_port}/${VDOC_TEST_POSTGRES_DB}?sslmode=disable"
+  export VDOC_TEST_DATABASE_DSN="postgres://${postgres_user}:${postgres_password}@127.0.0.1:${postgres_host_port}/${VDOC_TEST_POSTGRES_DB}?sslmode=disable"
   export VDOC_TEST_STORAGE_ENDPOINT="127.0.0.1:${rustfs_host_port}"
   export VDOC_TEST_STORAGE_BUCKET="$(env_or_default VDOC_STORAGE_BUCKET vdoc)"
   export VDOC_TEST_STORAGE_ACCESS_KEY="$VDOC_STORAGE_ACCESS_KEY"

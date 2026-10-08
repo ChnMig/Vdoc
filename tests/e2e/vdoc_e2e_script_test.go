@@ -1,11 +1,65 @@
 package e2e
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestVdocE2EScriptCLI_live_compose_preserves_literal_credentials(t *testing.T) {
+	for _, fixture := range []struct {
+		name, user, password string
+	}{
+		{"plain", "vdoc_user", "fixture-password"},
+		{"reserved", "user@/:?#", "fixture@/:?#[]$ &+="},
+		{"literal percent encoding", "user%40", "fixture%40%2F"},
+		{"unicode", "测试用户", "fixture-密码"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			dir := t.TempDir()
+			capture := filepath.Join(dir, "dsn")
+			fakeGo := filepath.Join(dir, "go")
+			if err := os.WriteFile(fakeGo, []byte("#!/bin/sh\nprintf '%s' \"$VDOC_TEST_DATABASE_DSN\" > \"$VDOC_SCRIPT_TEST_DSN_CAPTURE\"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			envPath := writeComposeEnv(t, []string{
+				"VDOC_POSTGRES_DB=vdoc",
+				"VDOC_TEST_POSTGRES_DB=vdoc_e2e",
+				"VDOC_POSTGRES_HOST_PORT=55432",
+				"VDOC_POSTGRES_USER='" + fixture.user + "'",
+				"VDOC_POSTGRES_PASSWORD='" + fixture.password + "'",
+				"VDOC_STORAGE_ACCESS_KEY=fixture-access",
+				"VDOC_STORAGE_SECRET_KEY=fixture-secret",
+			})
+			result := runVdocE2EScript(t, e2eScriptInvocation{
+				args: []string{"live-compose", "--env-file", envPath},
+				env: []string{
+					"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"VDOC_SCRIPT_TEST_DSN_CAPTURE=" + capture,
+				},
+			})
+			requireScriptExitCode(t, result, 0)
+			requireOutputOmitsText(t, result, fixture.password, "fixture-access", "fixture-secret")
+			data, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dsn, err := url.Parse(string(data))
+			if err != nil {
+				t.Fatalf("parse derived test DSN: %v", err)
+			}
+			password, ok := dsn.User.Password()
+			if !ok || dsn.User.Username() != fixture.user || password != fixture.password {
+				t.Fatal("derived DSN changed literal credentials")
+			}
+			if dsn.Scheme != "postgres" || dsn.Host != "127.0.0.1:55432" || dsn.Path != "/vdoc_e2e" || dsn.RawQuery != "sslmode=disable" {
+				t.Fatal("credentials changed disposable database target")
+			}
+		})
+	}
+}
 
 type e2eScriptInvocation struct {
 	args []string

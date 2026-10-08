@@ -2,12 +2,42 @@ package vdoc
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	domainvdoc "vdoc/domain/vdoc"
 	"vdoc/utils/encryption"
 )
+
+func TestInitDefaultStoreCancelledBeforeBootstrapPreservesDefault(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+	previous := DefaultStore()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := InitDefaultStore(ctx, RuntimeConfig{InitialAdminEmail: "synthetic@example.test", InitialAdminPassword: "SyntheticPassword123456"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled bootstrap: %v", err)
+	}
+	if DefaultStore() != previous {
+		t.Fatal("cancelled initialization published a new store")
+	}
+}
+
+func TestInitDefaultStoreReleasesStartupContext(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := InitDefaultStore(ctx, RuntimeConfig{InitialAdminEmail: "synthetic@example.test", InitialAdminPassword: "SyntheticPassword123456"}); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if _, err := DefaultStore().Login("synthetic@example.test", "SyntheticPassword123456"); err != nil {
+		t.Fatalf("startup cancellation affected running store: %v", err)
+	}
+}
 
 func TestInitDefaultStorePersistsCiphertextRotationBeforeServing(t *testing.T) {
 	ResetDefaultStoreForTest()

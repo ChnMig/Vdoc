@@ -34,3 +34,22 @@ func (s *Store) auditAIProviderTest(actorID, projectID string, provider *AIProvi
 	}
 	return nil
 }
+
+// 替代请求的业务状态必须保持不变，仅追加已经发生的上游调用证据。
+func (s *Store) persistDiscardedAIAuditLocked(audit *AuditLog) error {
+	if s.persistence == nil {
+		return nil
+	}
+	if err := s.persistence.recordAudit(s.requestContext(), audit); err != nil {
+		delete(s.audits, audit.ID)
+		return err
+	}
+	s.audits[audit.ID] = cloneAuditLog(audit)
+	if s.persisted != nil {
+		if s.persisted.AuditLogs == nil {
+			s.persisted.AuditLogs = map[string]*AuditLog{}
+		}
+		s.persisted.AuditLogs[audit.ID] = cloneAuditLog(audit)
+	}
+	return nil
+}

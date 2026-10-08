@@ -191,6 +191,32 @@ func readConfig() (loadedConfig, error) {
 		ListenHost: strings.TrimSpace(v.GetString("server.host")),
 		ListenPort: v.GetInt("server.port"),
 	}
+	// GetBool 会把转换错误静默变成 false；开关误拼不能关闭持久化或 TLS。
+	for _, setting := range []struct {
+		key   string
+		value *bool
+	}{
+		{"server.enable_rate_limit", &cfg.EnableRateLimit},
+		{"server.enable_cors", &cfg.EnableCORS},
+		{"auth.allow_registration", &cfg.AllowRegistration},
+		{"database.enabled", &cfg.DatabaseEnabled},
+		{"storage.enabled", &cfg.StorageEnabled},
+		{"storage.use_ssl", &cfg.StorageUseSSL},
+		{"storage.path_style", &cfg.StoragePathStyle},
+	} {
+		switch raw := v.Get(setting.key).(type) {
+		case bool:
+			*setting.value = raw
+		case string:
+			value, err := strconv.ParseBool(raw)
+			if err != nil {
+				return loadedConfig{}, fmt.Errorf("%s must be a boolean", setting.key)
+			}
+			*setting.value = value
+		default:
+			return loadedConfig{}, fmt.Errorf("%s must be a boolean", setting.key)
+		}
+	}
 
 	// 解析大小字符串
 	maxBodySizeStr := v.GetString("server.max_body_size")
@@ -209,10 +235,8 @@ func readConfig() (loadedConfig, error) {
 	cfg.IdleTimeout = v.GetDuration("server.idle_timeout")
 
 	// 限流配置
-	cfg.EnableRateLimit = v.GetBool("server.enable_rate_limit")
 	cfg.GlobalRateLimit = v.GetInt("server.global_rate_limit")
 	cfg.GlobalRateBurst = v.GetInt("server.global_rate_burst")
-	cfg.EnableCORS = v.GetBool("server.enable_cors")
 	cfg.TrustedProxies = splitConfigValues(v.GetStringSlice("server.trusted_proxies"))
 
 	// pid 文件与静态目录的相对路径均基于进程工作目录。
@@ -221,7 +245,6 @@ func readConfig() (loadedConfig, error) {
 		cfg.PidFile = filepath.Join(AbsPath, cfg.PidFile)
 	}
 	cfg.StaticDir = strings.TrimSpace(v.GetString("server.static_dir"))
-	cfg.AllowRegistration = v.GetBool("auth.allow_registration")
 	cfg.AuthRateLimit = v.GetInt("auth.rate_limit")
 	cfg.AuthRateBurst = v.GetInt("auth.rate_burst")
 
@@ -235,7 +258,6 @@ func readConfig() (loadedConfig, error) {
 	cfg.LogLevel = v.GetString("log.level")
 	cfg.GinLogLevel = v.GetString("log.gin_level")
 
-	cfg.DatabaseEnabled = v.GetBool("database.enabled")
 	cfg.DatabaseDSN = v.GetString("database.dsn")
 	if cfg.DatabaseEnabled && strings.TrimSpace(cfg.DatabaseDSN) == "" && v.GetString("database.host") != "" {
 		cfg.DatabaseDSN, err = structuredDatabaseDSN()
@@ -246,14 +268,11 @@ func readConfig() (loadedConfig, error) {
 	cfg.DatabaseMaxOpenConn = v.GetInt("database.max_open_conns")
 	cfg.DatabaseMaxIdleConn = v.GetInt("database.max_idle_conns")
 
-	cfg.StorageEnabled = v.GetBool("storage.enabled")
 	cfg.StorageEndpoint = v.GetString("storage.endpoint")
 	cfg.StorageBucket = v.GetString("storage.bucket")
 	cfg.StorageAccessKey = v.GetString("storage.access_key")
 	cfg.StorageSecretKey = v.GetString("storage.secret_key")
 	cfg.StorageRegion = v.GetString("storage.region")
-	cfg.StorageUseSSL = v.GetBool("storage.use_ssl")
-	cfg.StoragePathStyle = v.GetBool("storage.path_style")
 	cfg.InitialAdminEmail = v.GetString("initial_admin.email")
 	cfg.InitialAdminName = v.GetString("initial_admin.name")
 	cfg.InitialAdminPassword = v.GetString("initial_admin.password")

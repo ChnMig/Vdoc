@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"vdoc/api"
 	"vdoc/api/middleware"
@@ -41,6 +42,9 @@ var (
 	BuildTime = "unknown"
 	GitCommit = "unknown"
 )
+
+// 依赖初始化允许迁移和建桶，但不能在未就绪阶段无限等待。
+const runtimeStartupTimeout = 2 * time.Minute
 
 func main() {
 	if email, ok, err := parseResetAdminArgs(os.Args[1:]); err != nil {
@@ -128,8 +132,8 @@ func main() {
 	}
 
 	// 尽早接管停止信号并取得 PID 文件所有权，避免两个实例并行执行启动副作用。
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	stopCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	startupCtx, cancelStartup := context.WithTimeout(stopCtx, runtimeStartupTimeout)
 	pidFilePath := config.PidFile
 	pid := os.Getpid()
 	pidOwned := false
@@ -139,7 +143,8 @@ func main() {
 				zap.String("pid_file", pidFilePath),
 				zap.Error(err),
 			)
-			signal.Stop(quit)
+			cancelStartup()
+			stopSignals()
 			log.StopMonitor()
 			ctx.Exit(1)
 			return
@@ -150,7 +155,17 @@ func main() {
 			zap.Int("pid", pid),
 		)
 	}
+	var databaseClient *pgdb.Client
+	storeInitialized := false
 	cleanupStartup := func() {
+		cancelStartup()
+		if storeInitialized {
+			if err := vdocsvc.CloseDefaultStore(); err != nil {
+				zap.L().Warn("关闭启动中的 Vdoc 存储失败", zap.Error(err))
+			}
+		} else if databaseClient != nil {
+			_ = databaseClient.Close()
+		}
 		if pidOwned {
 			if err := pidfile.Remove(pidFilePath, pid); err != nil {
 				zap.L().Warn("启动失败后删除 pid 文件失败",
@@ -159,12 +174,10 @@ func main() {
 				)
 			}
 		}
-		signal.Stop(quit)
+		stopSignals()
 		log.StopMonitor()
 	}
 
-	startupCtx := context.Background()
-	var databaseClient *pgdb.Client
 	var databaseRepository domainvdoc.Repository
 	if config.DatabaseEnabled {
 		client, err := pgdb.Open(startupCtx)
@@ -205,14 +218,19 @@ func main() {
 		RequireBootstrapAccess: true,
 		CipherKeyring:          cipherKeyring,
 	}); err != nil {
-		if databaseClient != nil {
-			_ = databaseClient.Close()
-		}
 		zap.L().Error("初始化 Vdoc 运行依赖失败", zap.Error(err))
 		cleanupStartup()
 		ctx.Exit(1)
 		return
 	}
+	storeInitialized = true
+	if err := startupCtx.Err(); err != nil {
+		zap.L().Info("启动已取消，开始清理", zap.Error(err))
+		cleanupStartup()
+		ctx.Exit(1)
+		return
+	}
+	cancelStartup()
 	configureDependencyHealth(databaseClient)
 
 	addr := net.JoinHostPort(config.ListenHost, strconv.Itoa(config.ListenPort))
@@ -247,15 +265,15 @@ func main() {
 
 	exitCode := 0
 	select {
-	case sig := <-quit:
-		zap.L().Info("Received stop signal, shutting down gracefully", zap.String("signal", sig.String()))
+	case <-stopCtx.Done():
+		zap.L().Info("Received stop signal, shutting down gracefully")
 	case err := <-serverErrCh:
 		exitCode = 1
 		zap.L().Error("HTTP 服务异常退出，开始执行清理与退出",
 			zap.Error(err),
 		)
 	}
-	signal.Stop(quit)
+	stopSignals()
 
 	// 创建带超时的 context 用于优雅关闭（使用配置化的超时时间）
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)

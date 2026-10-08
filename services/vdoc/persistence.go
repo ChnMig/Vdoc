@@ -105,7 +105,7 @@ type objectStorage struct {
 }
 
 func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
-	store := NewStore()
+	store := NewStore().WithContext(ctx)
 	if cfg.CipherKeyring.ActiveKID() != "" {
 		store.cipherKeyring = cfg.CipherKeyring
 	}
@@ -159,6 +159,14 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 		}
 		return fmt.Errorf("bootstrap access unavailable: configure an active initial_admin, or enable registration only for an empty trusted pilot deployment")
 	}
+	if err := ctx.Err(); err != nil {
+		if cfg.DatabaseClose != nil {
+			_ = cfg.DatabaseClose()
+		}
+		return err
+	}
+	// 启动 context 只约束初始化；常驻请求和 worker 使用各自的 context。
+	store = store.WithContext(context.Background())
 	defaultStore = store
 	if _, ok := cfg.DatabaseRepository.(domainvdoc.SummaryJobRepository); ok {
 		store.StartSummaryWorker()

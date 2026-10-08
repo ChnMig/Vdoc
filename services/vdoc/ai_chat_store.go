@@ -225,7 +225,7 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 	}
 	session := s.aiChats[sessionID]
 	if session == nil || session.ProjectID != projectID || session.GenerationToken != request.GenerationToken {
-		return nil, staleAIChatRequestError()
+		return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, result.Usage, staleAIChatRequestError())
 	}
 	if err := s.validateAIChatCompletionLocked(actorID, projectID, sessionID, request); err != nil {
 		return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, result.Usage, err)
@@ -233,7 +233,7 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 	if callErr != nil {
 		audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", callErr, result.Usage)
 		if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit, request.Guard); err != nil {
-			if isAICompletionContextError(err) {
+			if isAICompletionContextError(err) || Is(err, ErrFailedPrecondition) {
 				return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, result.Usage, staleAIChatRequestError())
 			}
 			if isAICancellation(err) {
@@ -247,7 +247,7 @@ func (s *Store) finishAIChatMessage(actorID, projectID, sessionID string, reques
 	assistant := &AIChatMessage{ID: id.GenerateID(), SessionID: sessionID, Role: domainai.ChatRoleAssistant, Content: result.Content, ProviderID: request.Provider.ID, CreatedAt: now}
 	audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "success", nil, result.Usage)
 	if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, &now, request.UserMessage, assistant, audit, request.Guard); err != nil {
-		if isAICompletionContextError(err) {
+		if isAICompletionContextError(err) || Is(err, ErrFailedPrecondition) {
 			return nil, s.failStaleAIChatMessageLocked(ctx, actorID, projectID, sessionID, request, result.Usage, staleAIChatRequestError())
 		}
 		if isAICancellation(err) {
@@ -263,9 +263,21 @@ func (s *Store) failStaleAIChatMessageLocked(ctx AuditContext, actorID, projectI
 	defer cancel()
 	s = s.WithContext(cleanupCtx)
 	audit := s.auditAIChatMessageLocked(ctx, actorID, projectID, sessionID, request.Provider, "failed", staleErr, usage)
+	session := s.aiChats[sessionID]
+	if session == nil || session.ProjectID != projectID || session.GenerationToken != request.GenerationToken {
+		if err := s.persistDiscardedAIAuditLocked(audit); err != nil {
+			return err
+		}
+		return staleErr
+	}
 	// 失效请求只能释放自己持有的生成令牌；清理不再要求已撤销的业务权限。
-	if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit, nil); err != nil && !Is(err, ErrFailedPrecondition) {
-		return err
+	if err := s.completeAIChatRequestLocked(sessionID, request.GenerationToken, nil, nil, nil, audit, nil); err != nil {
+		if !Is(err, ErrFailedPrecondition) {
+			return err
+		}
+		if err := s.persistDiscardedAIAuditLocked(audit); err != nil {
+			return err
+		}
 	}
 	return staleErr
 }

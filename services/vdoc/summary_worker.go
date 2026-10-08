@@ -89,18 +89,22 @@ func (s *Store) StartSummaryWorker() {
 			return
 		}
 	}
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
 	if s.backgroundRunning {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s.backgroundRunning, s.backgroundCancel, s.backgroundDone = true, cancel, make(chan struct{})
-	go s.WithContext(ctx).summaryWorker(s.backgroundDone)
+	done := make(chan struct{})
+	s.backgroundRunning, s.backgroundCancel, s.backgroundDone = true, cancel, done
+	go s.WithContext(ctx).summaryWorker(done)
 }
 
 func (s *Store) StopSummaryWorker() {
-	s.mu.Lock()
+	// 数据库操作可能持有业务锁等待 context 取消；停止不能先等那把锁。
+	s.backgroundMu.Lock()
 	cancel, done := s.backgroundCancel, s.backgroundDone
-	s.mu.Unlock()
+	s.backgroundMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
@@ -109,17 +113,18 @@ func (s *Store) StopSummaryWorker() {
 	}
 }
 
-func (s *Store) summaryWorker(done chan struct{}) {
-	stopped := false
-	defer func() {
-		if stopped {
-			return
-		}
-		s.mu.Lock()
+func (s *Store) finishSummaryWorker(done chan struct{}) {
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	if s.backgroundDone == done {
 		s.backgroundRunning = false
+		s.backgroundCancel, s.backgroundDone = nil, nil
 		close(done)
-		s.mu.Unlock()
-	}()
+	}
+}
+
+func (s *Store) summaryWorker(done chan struct{}) {
+	defer s.finishSummaryWorker(done)
 	var repo domain.SummaryJobRepository
 	if s.persistence != nil {
 		repo, _ = s.persistence.repo.(domain.SummaryJobRepository)
@@ -149,9 +154,8 @@ func (s *Store) summaryWorker(done chan struct{}) {
 			}
 			// 空闲时退出，避免内存 Store 和测试遗留常驻 goroutine。
 			if job == nil {
-				s.backgroundRunning = false
-				close(done)
-				stopped = true
+				// 与入队后的 Start 共用业务锁，避免旧 worker 退出时吞掉新的启动。
+				s.finishSummaryWorker(done)
 				s.mu.Unlock()
 				return
 			}

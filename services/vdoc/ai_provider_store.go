@@ -1,6 +1,7 @@
 package vdoc
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -149,11 +150,20 @@ func (s *Store) testAIProvider(actorID, projectID string, input *AIProviderInput
 		return "", err
 	}
 	result, callErr := s.completeAI(s.requestContext(), aiCompletionRequest{Provider: provider, APIKey: apiKey, System: immutableAIGuard(), User: "Reply with a short provider connectivity check."})
-	if auditErr := s.auditAIProviderTest(actorID, projectID, provider, result.Usage, callErr, auditCtx...); auditErr != nil {
+	if err := s.requestContext().Err(); err != nil {
+		callErr = err
+	}
+	// 上游调用已经完成；客户端取消不能丢掉明确返回的计费用量。
+	auditContext, cancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
+	defer cancel()
+	if auditErr := s.WithContext(auditContext).auditAIProviderTest(actorID, projectID, provider, result.Usage, callErr, auditCtx...); auditErr != nil {
 		return "", auditErr
 	}
 	if callErr != nil {
 		return "", callErr
+	}
+	if err := s.requestContext().Err(); err != nil {
+		return "", err
 	}
 	return result.Content, nil
 }

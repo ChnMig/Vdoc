@@ -3,9 +3,65 @@ package config
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
+
+func TestReadConfigRejectsInvalidBooleans(t *testing.T) {
+	previous := v
+	t.Cleanup(func() { v = previous })
+	for _, key := range []string{"server.enable_rate_limit", "server.enable_cors", "auth.allow_registration", "database.enabled", "storage.enabled", "storage.use_ssl", "storage.path_style"} {
+		for _, invalid := range []any{"treu", "", "synthetic-secret-must-not-appear", 2, []string{"false"}} {
+			t.Run(key+"/"+reflect.TypeOf(invalid).String()+"/"+strings.ReplaceAll(reflect.ValueOf(invalid).String(), "/", "_"), func(t *testing.T) {
+				v = viper.New()
+				setDefaults()
+				v.Set(key, invalid)
+				_, err := readConfig()
+				if err == nil || !strings.Contains(err.Error(), key) {
+					t.Fatalf("invalid %s was not rejected: %v", key, err)
+				}
+				if strings.Contains(err.Error(), "synthetic-secret") {
+					t.Fatal("invalid boolean leaked its value")
+				}
+			})
+		}
+	}
+}
+
+func TestReadConfigAcceptsExplicitBooleans(t *testing.T) {
+	previous := v
+	t.Cleanup(func() { v = previous })
+	for _, value := range []any{true, false, "true", "false", "TRUE", "FALSE", "1", "0"} {
+		v = viper.New()
+		setDefaults()
+		v.Set("database.enabled", value)
+		cfg, err := readConfig()
+		if err != nil {
+			t.Fatalf("valid boolean %v was rejected: %v", value, err)
+		}
+		want := value == true || value == "true" || value == "TRUE" || value == "1"
+		if cfg.DatabaseEnabled != want {
+			t.Fatalf("database.enabled=%v read as %v", value, cfg.DatabaseEnabled)
+		}
+	}
+}
+
+func TestLoadConfigInvalidBooleanEnvironmentDoesNotApply(t *testing.T) {
+	previous := v
+	previousDatabaseEnabled := DatabaseEnabled
+	t.Cleanup(func() { v = previous; DatabaseEnabled = previousDatabaseEnabled })
+	DatabaseEnabled = true
+	t.Setenv("VDOC_DATABASE_ENABLED", "treu")
+	if err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "database.enabled") {
+		t.Fatalf("invalid environment value was not rejected: %v", err)
+	}
+	if !DatabaseEnabled {
+		t.Fatal("failed configuration load disabled the running database")
+	}
+}
 
 func TestParseSize(t *testing.T) {
 	tests := []struct {
