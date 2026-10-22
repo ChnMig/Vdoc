@@ -70,7 +70,12 @@ func mutationTestStore(t *testing.T, cfg app.RuntimeConfig) *app.Store {
 
 func pauseMutation(t *testing.T, barrier *mutationTransactionBarrier, store *app.Store, operation func(context.Context, *app.Store) error) func() error {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	return pauseMutationWithTimeout(t, barrier, store, 15*time.Second, operation)
+}
+
+func pauseMutationWithTimeout(t *testing.T, barrier *mutationTransactionBarrier, store *app.Store, timeout time.Duration, operation func(context.Context, *app.Store) error) func() error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	barrier.armed.Store(true)
 	var once sync.Once
 	resume := func() { once.Do(func() { close(barrier.resume) }) }

@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	domain "vdoc/domain/vdoc"
 	app "vdoc/services/vdoc"
@@ -51,7 +52,8 @@ func TestPostgresPasswordChangeRejectsConcurrentCredentialUpdate(t *testing.T) {
 			barrierConfig := cfg
 			barrierConfig.DatabaseRepository = barrier
 			first := mutationTestStore(t, barrierConfig)
-			resume := pauseMutation(t, barrier, first, func(ctx context.Context, store *app.Store) error {
+			// 超时覆盖两次真实改密的 bcrypt 计算，给并行 race CI 留足余量；仍限制整个暂停窗口。
+			resume := pauseMutationWithTimeout(t, barrier, first, time.Minute, func(ctx context.Context, store *app.Store) error {
 				return store.WithContext(ctx).ChangePassword(user.ID, onlinePasswordBefore, onlinePasswordAfter)
 			})
 			const winningPassword = "Concurrent-winning-password-2026!"
