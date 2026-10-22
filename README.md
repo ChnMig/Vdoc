@@ -366,6 +366,8 @@ no old KIDs; the full procedure is in [RELEASE_DEPLOY.md](https://github.com/Chn
 
 Register and login always have an independent per-IP limiter, configured by `auth.rate_limit` and `auth.rate_burst`, even when the optional global server limiter is disabled.
 
+Signed-in users, including SuperAdmins, can change their own password in the Admin settings page. The authenticated endpoint is `POST /api/v1/private/identity/me/password` with `current_password` and `new_password`; it verifies the current password and applies the same 12–72 UTF-8 byte policy as account creation. A new password must differ from the current password. Password changes have their own per-IP limiter using `auth.rate_limit` and `auth.rate_burst`. The Admin clears the current browser session after success and asks the user to sign in with the new password. Existing JWTs on other devices retain their normal expiration; this operation does not rotate the instance JWT key or revoke MCP tokens.
+
 If a SuperAdmin password is lost, run the built binary against the configured PostgreSQL database without starting the HTTP server:
 
 ```bash

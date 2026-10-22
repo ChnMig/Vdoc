@@ -166,6 +166,29 @@ paths:
       security: [{ JWTAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/identity/me/password:
+    post:
+      tags: [Identity]
+      summary: Change the signed-in user's own password.
+      description: >-
+        Verifies current_password and changes only the active JWT user's password.
+        Both ordinary users and SuperAdmins may use this endpoint; the authenticated identity
+        always determines the target account, regardless of any user ID in the request.
+        The new password must differ from the current one and satisfy the account password policy.
+        Incorrect current passwords and invalid new passwords return INVALID_ARGUMENT without
+        invalidating the session; concurrent credential updates return FAILED_PRECONDITION.
+        Independently rate-limited per IP using auth.rate_limit and auth.rate_burst.
+        Clients should clear their current session and sign in again after success.
+        Existing JWTs retain their configured expiration and MCP tokens are unchanged.
+      operationId: changeIdentityPassword
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/system/users:
     get:
       tags: [System Users]
@@ -1435,6 +1458,22 @@ components:
           type: string
           format: password
           description: UTF-8 encoding must be 12 to 72 bytes with no leading or trailing whitespace.
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          description: The signed-in user's current password; never returned or logged.
+        new_password:
+          type: string
+          format: password
+          writeOnly: true
+          description: UTF-8 encoding must be 12 to 72 bytes, with no leading or trailing whitespace, and differ from the current password.
     MCPCallRequest:
       type: object
       description: JSON-RPC 2.0 tools/list or tools/call request, or the documented legacy tool bridge object.

@@ -311,6 +311,7 @@ Send the proof as `X-Vdoc-Share-Unlock`. Invalid capabilities, passwords, proofs
 | Document Shares | `GET` | `/api/v1/open/document-shares/{share_id}/versions/{version_id}/content` | Share capability/proof |
 | Document Shares | `GET` | `/api/v1/open/document-shares/{share_id}/versions/{version_id}/download` | Share capability/proof |
 | Identity | `GET` | `/api/v1/private/identity/me` | JWT |
+| Identity | `POST` | `/api/v1/private/identity/me/password` | JWT; current password |
 | System Users | `GET`, `POST` | `/api/v1/private/system/users` | JWT |
 | System Users | `PATCH` | `/api/v1/private/system/users/{user_id}` | JWT |
 | System Users | `GET` | `/api/v1/private/system/users/{user_id}/mcp-tokens` | JWT |

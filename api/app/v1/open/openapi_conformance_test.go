@@ -61,6 +61,7 @@ var requestBodyContracts = map[string]requestBodyContract{
 	"POST /api/v1/open/auth/login":                                                                         {required: true, schemaRef: "#/components/schemas/AuthRequest"},
 	"POST /api/v1/open/mcp":                                                                                {required: true, schemaRef: "#/components/schemas/MCPCallRequest"},
 	"POST /api/v1/open/document-shares/{share_id}/unlock":                                                  {required: true, schemaRef: "#/components/schemas/DocumentShareUnlockRequest"},
+	"POST /api/v1/private/identity/me/password":                                                            {required: true, schemaRef: "#/components/schemas/ChangePasswordRequest"},
 	"POST /api/v1/private/system/users":                                                                    {required: true, schemaRef: "#/components/schemas/CreateUserRequest"},
 	"PATCH /api/v1/private/system/users/{user_id}":                                                         {required: true, schemaRef: "#/components/schemas/PatchUserRequest"},
 	"POST /api/v1/private/teams":                                                                           {required: true, schemaRef: "#/components/schemas/NameDescriptionRequest"},
@@ -267,8 +268,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 33 {
-		t.Fatalf("request body route contract count = %d, want 33", len(requestBodyContracts))
+	if len(requestBodyContracts) != 34 {
+		t.Fatalf("request body route contract count = %d, want 34", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))
