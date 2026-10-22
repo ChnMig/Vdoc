@@ -75,6 +75,12 @@ jobs:
       - name: Test stable image promotion
         run: bash scripts/test-promote-latest-image.sh
 
+      - name: Test beta image promotion
+        run: bash scripts/test-promote-beta-image.sh
+
+      - name: Test release publication recovery
+        run: bash scripts/test-publish-release.sh
+
       - name: Package tagged release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
@@ -165,21 +171,21 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: bash scripts/publish-image.sh "$RELEASE_TAG" release
 
-      - name: Create GitHub Release
+      - name: Create or verify GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          options=()
-          if [[ "$RELEASE_TAG" == *-* ]]; then
-            options+=(--prerelease)
-          fi
-          gh release create "$RELEASE_TAG" release/* \
-            --verify-tag --generate-notes --title "$RELEASE_TAG" "${options[@]}"
+        run: bash scripts/publish-release.sh "$RELEASE_TAG" release
 
       - name: Point latest at the newest stable release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: bash scripts/promote-latest-image.sh "$RELEASE_TAG"
+
+      - name: Point beta at the newest beta prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/promote-beta-image.sh "$RELEASE_TAG"
