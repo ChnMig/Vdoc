@@ -13,6 +13,8 @@ tags:
     description: Admin-managed document share links and minimal anonymous published-content access.
   - name: Identity
     description: Current user identity.
+  - name: System
+    description: Deployed backend build and read-only release update checks for all active signed-in users.
   - name: System Users
     description: Super admin user lifecycle and user MCP token oversight.
   - name: Teams
@@ -187,6 +189,36 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/system/version:
+    get:
+      tags: [System]
+      summary: Read the deployed backend build version.
+      description: >-
+        Available to every active signed-in user. The detail object follows SystemVersion;
+        version, git_commit and build_time are injected into the running backend binary at build time.
+        Strict vX.Y.Z-beta.N tags use beta, strict vX.Y.Z tags use release, and all other builds use development.
+        This endpoint does not contact the update service.
+      operationId: getSystemVersion
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/system/updates:
+    get:
+      tags: [System]
+      summary: Manually check for a newer release in this deployment's channel.
+      description: >-
+        Available to every active signed-in user. The detail object follows SystemUpdates.
+        Reads only https://api.github.com/repos/ChnMig/Vdoc-site/releases; never installs, restarts or downloads an update.
+        Beta deployments consider only non-draft prereleases named vX.Y.Z-beta.N; stable deployments consider only
+        non-draft non-prereleases named vX.Y.Z. Numeric version ordering is used, including beta.10 after beta.9.
+        Successful checks are cached per channel for two minutes. No matching release returns update_available=false
+        and null latest_version, release_url and published_at. Development builds return FAILED_PRECONDITION.
+        Upstream/network/invalid-response errors return UNAVAILABLE, deadlines return DEADLINE_EXCEEDED,
+        and cancellation returns CANCELLED; failures are never reported as an up-to-date deployment.
+      operationId: checkSystemUpdates
+      security: [{ JWTAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/system/users:
@@ -1429,6 +1461,26 @@ components:
         text/markdown:
           schema: { type: string, format: binary }
   schemas:
+    SystemVersion:
+      type: object
+      additionalProperties: false
+      required: [version, git_commit, build_time, channel]
+      properties:
+        version: { type: string, example: v0.3.17-beta.4 }
+        git_commit: { type: string, example: abc1234 }
+        build_time: { type: string, example: "2026-10-23_10:00:00" }
+        channel: { type: string, enum: [beta, release, development] }
+    SystemUpdates:
+      type: object
+      additionalProperties: false
+      required: [current_version, channel, latest_version, update_available, release_url, published_at]
+      properties:
+        current_version: { type: string, example: v0.3.17-beta.4 }
+        channel: { type: string, enum: [beta, release] }
+        latest_version: { type: [string, "null"], example: v0.3.17-beta.5 }
+        update_available: { type: boolean }
+        release_url: { type: [string, "null"], example: "https://github.com/ChnMig/Vdoc-site/releases/tag/v0.3.17-beta.5" }
+        published_at: { type: [string, "null"], format: date-time }
     VdocEnvelope:
       type: object
       properties:

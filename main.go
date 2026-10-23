@@ -21,6 +21,7 @@ import (
 	pgdbvdoc "vdoc/db/pgdb/vdoc"
 	domainhealth "vdoc/domain/health"
 	domainvdoc "vdoc/domain/vdoc"
+	systemsvc "vdoc/services/system"
 	vdocsvc "vdoc/services/vdoc"
 	"vdoc/utils/encryption"
 	"vdoc/utils/log"
@@ -47,6 +48,7 @@ var (
 const runtimeStartupTimeout = 2 * time.Minute
 
 func main() {
+	systemsvc.SetBuildInfo(Version, GitCommit, BuildTime)
 	if email, ok, err := parseResetAdminArgs(os.Args[1:]); err != nil {
 		fmt.Printf("Failed to parse reset admin command: %v\n", err)
 		os.Exit(1)

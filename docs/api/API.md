@@ -295,6 +295,16 @@ GET  /api/v1/open/document-shares/{share_id}/versions/{version_id}/download
 
 Send the proof as `X-Vdoc-Share-Unlock`. Invalid capabilities, passwords, proofs, revoked/expired links, and inactive parent resources all return the same public unavailable response. Downloads always pass through Vdoc authorization; object storage remains private. Markdown viewers must disable raw HTML, remote images, and unsafe links, while OpenAPI content is rendered only as escaped read-only text.
 
+## Deployment Version and Manual Update Checks
+
+All active signed-in users can read `GET /api/v1/private/system/version`. Its `detail` contains `version`, `git_commit`, `build_time`, and `channel` from the running backend binary's build metadata. A strict `vX.Y.Z-beta.N` build has channel `beta`, a strict `vX.Y.Z` build has channel `release`, and untagged, dirty, RC, or unknown builds have channel `development`. Reading this endpoint does not check for updates.
+
+Call `GET /api/v1/private/system/updates` only when the user requests an update check. This read-only endpoint queries the fixed [Vdoc release repository](https://github.com/ChnMig/Vdoc-site/releases); it never installs or restarts anything. Beta deployments select only published beta prereleases; stable deployments select only published stable releases. Drafts, RCs, invalid tags, and inconsistent GitHub prerelease flags are ignored. Versions are compared numerically (`beta.10` is newer than `beta.9`), independently of publication order. Successful results are cached per channel for two minutes; requests are bounded to ten seconds, ten pages of 100 releases, and 4 MiB per page. An incomplete or failed check is an error.
+
+The result's `detail` contains `current_version`, `channel`, `latest_version`, `update_available`, `release_url`, and `published_at`. The last three release metadata strings (`latest_version`, `release_url`, `published_at`) are `null` if no matching release exists; `update_available` is then `false`. Release links always point to `https://github.com/ChnMig/Vdoc-site/releases/tag/<version>`.
+
+Development builds return `FAILED_PRECONDITION` when checking updates. Network, GitHub rate-limit, and malformed-response failures return `UNAVAILABLE`; deadlines return `DEADLINE_EXCEEDED`, and canceled requests return `CANCELLED`. The HTTP status remains 200 under the standard Vdoc envelope contract. A failed check must not be presented as “up to date.” Operators still update their Docker Compose deployment manually.
+
 ## Route Reference
 
 | Category | Methods | Path | Auth |
@@ -312,6 +322,8 @@ Send the proof as `X-Vdoc-Share-Unlock`. Invalid capabilities, passwords, proofs
 | Document Shares | `GET` | `/api/v1/open/document-shares/{share_id}/versions/{version_id}/download` | Share capability/proof |
 | Identity | `GET` | `/api/v1/private/identity/me` | JWT |
 | Identity | `POST` | `/api/v1/private/identity/me/password` | JWT; current password |
+| System | `GET` | `/api/v1/private/system/version` | JWT; all active signed-in users |
+| System | `GET` | `/api/v1/private/system/updates` | JWT; all active signed-in users |
 | System Users | `GET`, `POST` | `/api/v1/private/system/users` | JWT |
 | System Users | `PATCH` | `/api/v1/private/system/users/{user_id}` | JWT |
 | System Users | `GET` | `/api/v1/private/system/users/{user_id}/mcp-tokens` | JWT |
