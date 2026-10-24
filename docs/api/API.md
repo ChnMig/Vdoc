@@ -51,9 +51,39 @@ REST handlers return HTTP 200 for both success and application errors. The seman
 
 Private project APIs use SuperAdmin plus project Reader, Writer, and Admin roles. Reader can query, Writer can upload draft and submit, and Admin can approve or reject.
 
-Projects directly own typed Documents. `document_type` is `1` for OpenAPI and `2` for Markdown. `relative_path` is the document path identity stored by Vdoc; display names can change without creating a second persisted path/name identity.
+Projects directly own typed Documents. `document_type` is `1` for OpenAPI, `2` for Markdown, and `3` for TXT. `relative_path` is the document path identity stored by Vdoc; the display name, filename, and containing folder are independent. Accessible project DTOs include `team_name` for navigation without granting access to the SuperAdmin-only Teams API.
 
-List routes accept the PRD filters used by the workbench: document lists accept `?document_type=1|2`, while draft and version lists accept `?branch_id={branch_id}`. Draft detail/list responses include `review_comment` after request-changes, reject, or approve review actions.
+List routes accept the PRD filters used by the workbench: document lists accept `?document_type=1|2|3`, while draft and version lists accept `?branch_id={branch_id}`. Draft detail/list responses include `review_comment` after request-changes, reject, or approve review actions.
+
+## Project folders, filenames, and initial uploads
+
+`GET /api/v1/private/projects/{project_id}/folders` requires project read permission and returns a flat array of `FolderDTO` records in `detail`, plus `total`. Each record contains `id`, `project_id`, nullable `parent_id`, `name`, canonical project-local `path`, `created_by`, `created_at`, and `updated_at`. A null parent identifies a folder directly under the virtual project root. Empty folders are persisted, and folder nesting has no fixed depth limit.
+
+`POST` to the same route requires Project Admin or SuperAdmin and an active project. Send `{"name":"Guides","parent_id":null}` to create a root folder, or supply a folder ID from the same project to create a child. Sibling names are unique without regard to case. Names are trimmed and must be single safe segments without separators, dot segments, or control characters. Teams and projects isolate their own trees; a folder from another project cannot be selected.
+
+For document creation, send the display `name`, a separate `file_name`, and optional nullable `folder_id`. Omitting the folder, sending null, or sending an empty string selects the project root. The server derives `relative_path`. Filenames must be single safe segments; a missing extension becomes `.yaml` for OpenAPI, `.md` for Markdown, or `.txt` for TXT. OpenAPI also accepts `.yml` and `.json`. The legacy `relative_path` field remains supported and creates missing parent folders, but it cannot be combined with `file_name` or `folder_id`, even if it is empty or null.
+
+Creation can optionally include the uploaded source as `initial_content`:
+
+```json
+{
+  "name": "Installation guide",
+  "document_type": 3,
+  "file_name": "install.txt",
+  "folder_id": "selected-project-folder-id",
+  "initial_content": {
+    "content": "Install the application and configure its database.\n",
+    "version_name": "0.1.0",
+    "changelog": "Initial upload"
+  }
+}
+```
+
+`initial_content.content` must be a string. TXT accepts an empty string; Markdown and OpenAPI keep their normal validation. `version_name` defaults to `0.1.0`. The document, default `dev`/`test`/`prod` branches, and first editable draft on `dev` are committed together; failure leaves none of those new records or automatically created parent folders. Uploading does not submit for review or publish. The response is a flat `DocumentDTO` with additional `initial_draft_id` and `initial_branch_id`. Without `initial_content`, creation produces the document and branches only.
+
+Document DTOs include nullable `folder_id`, derived `file_name`, `workflow_state` (`published`, `draft`, or `empty`), `has_draft`, and available `latest_version_id` / `latest_draft_id`. A published document can also have an unpublished draft, so `has_draft` remains useful when `workflow_state` is `published`. These fields contain metadata only. The existing numeric `status` describes the active/archived lifecycle and must not be interpreted as publication state.
+
+Document PATCH accepts independent `name`, `file_name`, and `folder_id`. An omitted filename or folder retains its current value; null or empty `folder_id` moves the document to the project root. Legacy `relative_path` cannot be combined with the new location fields. Renames and moves do not rewrite historical draft or version paths.
 
 ## Route Categories
 
@@ -65,6 +95,7 @@ List routes accept the PRD filters used by the workbench: document lists accept 
 | Teams | Team lifecycle. |
 | Projects | Project lifecycle and membership. |
 | Documents | Project document lifecycle. |
+| Document Folders | Project-local folder trees and empty folders. |
 | Branches | Document branch lifecycle. |
 | Drafts | Draft creation, update, submission, review, and promotion. |
 | Versions | Published document versions and stored raw/normalized or stable content. |
@@ -109,7 +140,7 @@ Document lifecycle state is not patchable. `PATCH /api/v1/private/projects/{proj
 
 ### 2. Upload Draft, Submit, And Approve
 
-Create a draft by posting OpenAPI 3.0 or 3.1 content as `schema_content`. Markdown documents use the same private REST draft routes and may post Markdown text as `schema_content` or `content`; MCP Markdown draft tools use `markdown_content`. `content_kind` accepts `raw` or `normalized` for OpenAPI content and `raw` or `stable` for Markdown content.
+Create a draft by posting OpenAPI 3.0 or 3.1 content as `schema_content`. Markdown and TXT documents use the same private REST draft routes and may post source text as `schema_content` or `content`. MCP text-document draft tools accept `content` and retain the legacy `markdown_content` alias. `content_kind` accepts `raw` or `normalized` for OpenAPI content and `raw` or `stable` for Markdown/TXT content. TXT preserves source bytes and line endings, permits an empty string, and rejects missing or null content.
 
 Draft responses include an opaque `revision`. Every REST draft PATCH and MCP `update_api_version_draft` / `update_doc_draft` call requires `expected_revision` from the draft snapshot the edits were based on. A missing revision returns `INVALID_ARGUMENT`; a stale revision returns `FAILED_PRECONDITION` without changing the draft. Reload and reconcile local edits before retrying. REST draft content responses include `detail.draft` alongside `content` and `hash`, all from one snapshot; editors must use this nested draft's metadata and revision. Deploy the backend and Admin together, and update MCP clients to pass the new required field.
 
@@ -163,7 +194,7 @@ DIFF_ID=$(printf '%s' "$DIFF_RESPONSE" | jq -r '.detail.id')
 curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$DOCUMENT_ID/diffs/$DIFF_ID/summary" -H "Authorization: $JWT"
 ```
 
-OpenAPI summaries use `added_endpoints`, `removed_endpoints`, `modified_endpoints`, and `breaking_changes`. Markdown summaries set `document_format: 3` and use `added_lines`, `removed_lines`, `modified_lines`, and `modified_blocks`; endpoint counts remain zero for Markdown.
+OpenAPI summaries use `added_endpoints`, `removed_endpoints`, `modified_endpoints`, and `breaking_changes`. Markdown summaries set `document_format: 3` and use `added_lines`, `removed_lines`, `modified_lines`, and `modified_blocks`; endpoint counts remain zero. TXT uses `document_format: 4` with line comparisons that preserve newline differences, and has no API endpoint semantics.
 
 Endpoint details resolve local references and apply operation-level parameter overrides by `name` + `in`; duplicate identities at the same level are rejected. OpenAPI 3.1 Schema `$ref` siblings remain active alongside the referenced schema (represented with `allOf`), while 3.0 Reference Object siblings remain ignored. Used security scheme definitions are included in `normalized_operation.securitySchemes`; unused definitions are omitted. Changes to these definitions emit `security_changed` items at `securitySchemes` with the previous and current definitions, using the existing warning severity for security changes. This is available through both REST endpoint detail and MCP `get_endpoint_detail`; tool arguments are unchanged.
 
@@ -338,6 +369,7 @@ Development builds return `FAILED_PRECONDITION` when checking updates. Network, 
 | Projects | `GET` | `/api/v1/private/projects/{project_id}/member-candidates` | JWT; Project Admin or SuperAdmin |
 | Projects | `DELETE` | `/api/v1/private/projects/{project_id}/members/{user_id}` | JWT |
 | Projects | `PATCH` | `/api/v1/private/projects/{project_id}/members/{user_id}/role` | JWT |
+| Document Folders | `GET`, `POST` | `/api/v1/private/projects/{project_id}/folders` | JWT; GET requires project read permission, POST requires Project Admin/SuperAdmin |
 | Documents | `GET`, `POST` | `/api/v1/private/projects/{project_id}/documents` | JWT |
 | Documents | `GET`, `PATCH` | `/api/v1/private/projects/{project_id}/documents/{document_id}` | JWT |
 | Documents | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/archive` | JWT |

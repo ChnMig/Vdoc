@@ -31,6 +31,7 @@ const (
 
 	DocumentTypeOpenAPI  = commonvdoc.DocumentTypeOpenAPI
 	DocumentTypeMarkdown = commonvdoc.DocumentTypeMarkdown
+	DocumentTypeText     = commonvdoc.DocumentTypeText
 
 	DocumentStatusActive   = commonvdoc.DocumentStatusActive
 	DocumentStatusArchived = commonvdoc.DocumentStatusArchived
@@ -65,6 +66,7 @@ const (
 	DocumentFormatOpenAPI30 = commonvdoc.DocumentFormatOpenAPI30
 	DocumentFormatOpenAPI31 = commonvdoc.DocumentFormatOpenAPI31
 	DocumentFormatMarkdown  = commonvdoc.DocumentFormatMarkdown
+	DocumentFormatText      = commonvdoc.DocumentFormatText
 
 	SourceTypeWebUpload = commonvdoc.SourceTypeWebUpload
 	SourceTypeMCPUpload = commonvdoc.SourceTypeMCPUpload

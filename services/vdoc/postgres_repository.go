@@ -229,6 +229,9 @@ func (p *postgresPersistence) saveLockedWithRepository(ctx context.Context, stor
 			return err
 		}
 	}
+	if err := p.saveDocumentFoldersLocked(ctx, store, repository); err != nil {
+		return err
+	}
 	if repo, ok := repository.(documentMutationRepository); ok {
 		if err := p.saveDocumentWorkflowLocked(ctx, store, repo); err != nil {
 			return err
@@ -496,6 +499,7 @@ func (s *Store) applyStateLocked(loaded *domainvdoc.State) {
 	s.projects = loaded.Projects
 	s.members = loaded.Members
 	s.apiServices = loaded.APIServices
+	s.documentFolders = loaded.DocumentFolders
 	s.branches = loaded.Branches
 	s.drafts = loaded.Drafts
 	s.versions = loaded.Versions
@@ -514,25 +518,26 @@ func (s *Store) applyStateLocked(loaded *domainvdoc.State) {
 
 func (s *Store) stateLocked() *domainvdoc.State {
 	return &domainvdoc.State{
-		Users:         s.users,
-		Teams:         s.teams,
-		Projects:      s.projects,
-		Members:       s.members,
-		APIServices:   s.apiServices,
-		Branches:      s.branches,
-		Drafts:        s.drafts,
-		Versions:      s.versions,
-		Endpoints:     s.endpoints,
-		Diffs:         s.diffs,
-		Tokens:        s.tokens,
-		Shares:        s.shares,
-		AIProviders:   s.aiProviders,
-		AIPrompts:     s.aiPrompts,
-		AISummaries:   s.aiSummaries,
-		AIChats:       s.aiChats,
-		AIMessages:    s.aiMessages,
-		AuditLogs:     s.audits,
-		AISummaryJobs: s.summaryJobs,
+		Users:           s.users,
+		Teams:           s.teams,
+		Projects:        s.projects,
+		Members:         s.members,
+		APIServices:     s.apiServices,
+		DocumentFolders: s.documentFolders,
+		Branches:        s.branches,
+		Drafts:          s.drafts,
+		Versions:        s.versions,
+		Endpoints:       s.endpoints,
+		Diffs:           s.diffs,
+		Tokens:          s.tokens,
+		Shares:          s.shares,
+		AIProviders:     s.aiProviders,
+		AIPrompts:       s.aiPrompts,
+		AISummaries:     s.aiSummaries,
+		AIChats:         s.aiChats,
+		AIMessages:      s.aiMessages,
+		AuditLogs:       s.audits,
+		AISummaryJobs:   s.summaryJobs,
 	}
 }
 
@@ -557,6 +562,10 @@ func (s *Store) cloneStateLocked() *domainvdoc.State {
 	for key, value := range s.members {
 		copied := *value
 		state.Members[key] = &copied
+	}
+	for key, value := range s.documentFolders {
+		copied := *value
+		state.DocumentFolders[key] = &copied
 	}
 	for key, value := range s.apiServices {
 		copied := *value
@@ -707,7 +716,8 @@ func (s *Store) hydrateStoredContentLocked(ctx context.Context, objectKey, expec
 	if content == nil {
 		return nil
 	}
-	if *content != "" {
+	// 纯内存模式没有可回源的对象存储，空 TXT 由空正文的哈希确认；持久化模式仍校验实际对象。
+	if *content != "" || (s.persistence == nil && s.objects == nil && expectedHash == sha("")) {
 		return validateStoredObjectBody(objectKey, expectedHash, []byte(*content))
 	}
 	if objectKey == "" {

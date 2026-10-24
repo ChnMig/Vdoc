@@ -14,7 +14,11 @@ func (s *Store) withMutationGuard(actorID, projectID, documentID string, permiss
 	guard := domain.MutationGuard{ActorID: actorID, ProjectID: projectID, DocumentID: documentID, Permission: permission, BranchIDs: slices.Clone(branchIDs)}
 	if s.mutationGuard != nil {
 		guard = *s.mutationGuard
-		guard.BranchIDs = append(slices.Clone(guard.BranchIDs), branchIDs...)
+		guard.BranchIDs = slices.Clone(guard.BranchIDs)
+		// 首次上传的文档和分支尚未落库；同一事务只重新锁定其已有项目权限。
+		if !s.creatingDocument {
+			guard.BranchIDs = append(guard.BranchIDs, branchIDs...)
+		}
 		if permission > guard.Permission {
 			guard.Permission = permission
 		}
@@ -36,7 +40,7 @@ func (s *Store) validateMutationGuardLocked() error {
 	if tokenID := mcpMutationTokenID(s.requestContext()); tokenID != "" {
 		s.mutationGuard.TokenID = tokenID
 		scope := ScopeAPIDraft
-		if document := s.apiServices[s.mutationGuard.DocumentID]; document != nil && document.DocumentType == DocumentTypeMarkdown {
+		if document := s.apiServices[s.mutationGuard.DocumentID]; document != nil && isTextDocumentType(document.DocumentType) {
 			scope = ScopeDocDraft
 		}
 		if s.mutationGuard.Permission == MemberRoleReader {

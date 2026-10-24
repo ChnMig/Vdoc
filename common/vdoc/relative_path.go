@@ -37,12 +37,24 @@ func ValidateMarkdownRelativePath(relativePath string) error {
 	return nil
 }
 
+func ValidateTextRelativePath(relativePath string) error {
+	if err := ValidateRelativePath(relativePath); err != nil {
+		return err
+	}
+	if !strings.EqualFold(path.Ext(relativePath), ".txt") {
+		return fmt.Errorf("%w: text path must end with .txt", ErrInvalidRelativePath)
+	}
+	return nil
+}
+
 func ValidateDocumentRelativePath(documentType int, relativePath string) error {
 	switch documentType {
 	case DocumentTypeOpenAPI:
 		return ValidateRelativePath(relativePath)
 	case DocumentTypeMarkdown:
 		return ValidateMarkdownRelativePath(relativePath)
+	case DocumentTypeText:
+		return ValidateTextRelativePath(relativePath)
 	default:
 		return fmt.Errorf("%w: unknown document type", ErrInvalidRelativePath)
 	}

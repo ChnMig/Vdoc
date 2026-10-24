@@ -1067,6 +1067,18 @@ func (r *recordingRepository) RecordPublicDocumentShareAccess(ctx context.Contex
 	return r.RecordAudit(ctx, audit)
 }
 
+func (r *recordingRepository) UpsertDocumentFolder(ctx context.Context, folder *domainvdoc.DocumentFolder) error {
+	_ = ctx
+	if folder == nil {
+		return nil
+	}
+	r.ensureState()
+	r.saves++
+	copied := *folder
+	r.state.DocumentFolders[folder.ID] = &copied
+	return nil
+}
+
 func (r *recordingRepository) UpsertDocument(ctx context.Context, document *domainvdoc.APIService) error {
 	_ = ctx
 	if document == nil {
@@ -1353,6 +1365,10 @@ func cloneRepositoryStateWithoutBodies(state *domainvdoc.State) *domainvdoc.Stat
 	for key, value := range state.APIServices {
 		copied := *value
 		clone.APIServices[key] = &copied
+	}
+	for key, value := range state.DocumentFolders {
+		copied := *value
+		clone.DocumentFolders[key] = &copied
 	}
 	for key, value := range state.Branches {
 		copied := *value

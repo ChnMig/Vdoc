@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"errors"
+	"path"
 	"time"
 
 	"vdoc/api/response"
@@ -94,6 +95,10 @@ func IsMarkdownDocument(document *app.APIService) bool {
 	return document != nil && document.DocumentType == app.DocumentTypeMarkdown
 }
 
+func IsTextDocument(document *app.APIService) bool {
+	return document != nil && (document.DocumentType == app.DocumentTypeMarkdown || document.DocumentType == app.DocumentTypeText)
+}
+
 type UserDTO struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
@@ -153,6 +158,7 @@ func Teams(values []*app.Team) []TeamDTO {
 }
 
 type ProjectDTO struct {
+	TeamName    string    `json:"team_name,omitempty"`
 	ID          string    `json:"id"`
 	TeamID      string    `json:"team_id"`
 	Name        string    `json:"name"`
@@ -167,7 +173,7 @@ func Project(v *app.Project) ProjectDTO {
 	if v == nil {
 		return ProjectDTO{}
 	}
-	return ProjectDTO{ID: v.ID, TeamID: v.TeamID, Name: v.Name, Description: v.Description, Status: v.Status, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return ProjectDTO{ID: v.ID, TeamID: v.TeamID, TeamName: v.TeamName, Name: v.Name, Description: v.Description, Status: v.Status, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 
 func Projects(values []*app.Project) []ProjectDTO {
@@ -223,23 +229,50 @@ func ProjectMembers(values []*app.ProjectMember) []ProjectMemberDTO {
 }
 
 type DocumentDTO struct {
-	ID           string    `json:"id"`
-	ProjectID    string    `json:"project_id"`
-	Name         string    `json:"name"`
-	DocumentType int       `json:"document_type"`
-	RelativePath string    `json:"relative_path,omitempty"`
-	Description  string    `json:"description,omitempty"`
-	Status       int       `json:"status"`
-	CreatedBy    string    `json:"created_by"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	FolderID        *string   `json:"folder_id"`
+	FileName        string    `json:"file_name"`
+	WorkflowState   string    `json:"workflow_state"`
+	HasDraft        bool      `json:"has_draft"`
+	LatestVersionID *string   `json:"latest_version_id,omitempty"`
+	LatestDraftID   *string   `json:"latest_draft_id,omitempty"`
+	ID              string    `json:"id"`
+	ProjectID       string    `json:"project_id"`
+	Name            string    `json:"name"`
+	DocumentType    int       `json:"document_type"`
+	RelativePath    string    `json:"relative_path,omitempty"`
+	Description     string    `json:"description,omitempty"`
+	Status          int       `json:"status"`
+	CreatedBy       string    `json:"created_by"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func Document(v *app.APIService) DocumentDTO {
 	if v == nil {
 		return DocumentDTO{}
 	}
-	return DocumentDTO{ID: v.ID, ProjectID: v.ProjectID, Name: v.Name, DocumentType: v.DocumentType, RelativePath: v.RelativePath, Description: v.Description, Status: v.Status, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	var folderID, latestVersionID, latestDraftID *string
+	if v.FolderID != "" {
+		value := v.FolderID
+		folderID = &value
+	}
+	if v.LatestVersionID != "" {
+		value := v.LatestVersionID
+		latestVersionID = &value
+	}
+	if v.LatestDraftID != "" {
+		value := v.LatestDraftID
+		latestDraftID = &value
+	}
+	fileName := ""
+	if v.RelativePath != "" {
+		fileName = path.Base(v.RelativePath)
+	}
+	workflowState := v.WorkflowState
+	if workflowState == "" {
+		workflowState = "empty"
+	}
+	return DocumentDTO{ID: v.ID, ProjectID: v.ProjectID, Name: v.Name, DocumentType: v.DocumentType, RelativePath: v.RelativePath, FolderID: folderID, FileName: fileName, WorkflowState: workflowState, HasDraft: v.HasDraft, LatestVersionID: latestVersionID, LatestDraftID: latestDraftID, Description: v.Description, Status: v.Status, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 
 func Documents(values []*app.APIService) []DocumentDTO {
@@ -313,7 +346,7 @@ func Draft(v *app.ContractDraft) DraftDTO {
 	dto := DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 	dto.Revision = v.Revision()
 	dto.ReviewRevision = v.ReviewRevision()
-	if v.SchemaFormat == app.DocumentFormatMarkdown {
+	if v.SchemaFormat == app.DocumentFormatMarkdown || v.SchemaFormat == app.DocumentFormatText {
 		dto.StableContentHash = v.NormalizedSchemaHash
 	} else {
 		dto.NormalizedContentHash = v.NormalizedSchemaHash
@@ -358,7 +391,7 @@ func Version(v *app.ContractVersion) VersionDTO {
 		return VersionDTO{}
 	}
 	dto := VersionDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, DraftID: v.DraftID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, PublishedBy: v.PublishedBy, PublishedAt: v.PublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
-	if v.SchemaFormat == app.DocumentFormatMarkdown {
+	if v.SchemaFormat == app.DocumentFormatMarkdown || v.SchemaFormat == app.DocumentFormatText {
 		dto.StableContentHash = v.NormalizedSchemaHash
 	} else {
 		dto.NormalizedContentHash = v.NormalizedSchemaHash

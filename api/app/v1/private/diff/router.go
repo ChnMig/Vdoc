@@ -65,7 +65,7 @@ func createDiff(c *gin.Context) {
 		diffValue *app.Diff
 		err       error
 	)
-	if shared.IsMarkdownDocument(document) {
+	if shared.IsTextDocument(document) {
 		diffValue, err = shared.Store(c).CompareMarkdownVersions(userID, c.Param("project_id"), c.Param("document_id"), req.FromVersionID, req.ToVersionID, shared.AuditContextFromGin(c))
 	} else {
 		diffValue, err = shared.Store(c).CompareDocumentVersions(userID, c.Param("project_id"), c.Param("document_id"), req.FromVersionID, req.ToVersionID, shared.AuditContextFromGin(c))

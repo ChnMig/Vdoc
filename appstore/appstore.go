@@ -32,6 +32,7 @@ const (
 
 	DocumentTypeOpenAPI  = app.DocumentTypeOpenAPI
 	DocumentTypeMarkdown = app.DocumentTypeMarkdown
+	DocumentTypeText     = app.DocumentTypeText
 
 	DocumentStatusActive   = app.DocumentStatusActive
 	DocumentStatusArchived = app.DocumentStatusArchived
@@ -60,6 +61,7 @@ const (
 	DocumentFormatOpenAPI30 = app.DocumentFormatOpenAPI30
 	DocumentFormatOpenAPI31 = app.DocumentFormatOpenAPI31
 	DocumentFormatMarkdown  = app.DocumentFormatMarkdown
+	DocumentFormatText      = app.DocumentFormatText
 
 	DiffStatusPending   = app.DiffStatusPending
 	DiffStatusRunning   = app.DiffStatusRunning
@@ -129,6 +131,10 @@ type AIChatSessionInput = app.AIChatSessionInput
 type AuditContext = app.AuditContext
 type NameDescriptionPatch = app.NameDescriptionPatch
 type DocumentPatchInput = app.DocumentPatchInput
+type DocumentFolder = app.DocumentFolder
+type DocumentLocation = app.DocumentLocation
+type InitialDocumentContent = app.InitialDocumentContent
+type CreateDocumentResult = app.CreateDocumentResult
 type BranchPatchInput = app.BranchPatchInput
 type DraftInput = app.DraftInput
 type DraftPatchInput = app.DraftPatchInput

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Vdoc API
   version: 0.1.0
-  description: Machine-readable contract for the Vdoc v0.1 HTTP API. Projects own typed Documents, including OpenAPI and Markdown. REST handlers return HTTP 200 with the semantic result in the Vdoc envelope body.
+  description: Machine-readable contract for the Vdoc v0.1 HTTP API. Projects own typed Documents, including OpenAPI, Markdown, and TXT. REST handlers return HTTP 200 with the semantic result in the Vdoc envelope body.
 servers:
   - url: /
 security: []
@@ -23,6 +23,8 @@ tags:
     description: Project lifecycle and membership.
   - name: Documents
     description: Project document lifecycle.
+  - name: Document Folders
+    description: Persistent project-local folders with arbitrary nesting.
   - name: Branches
     description: Document branch lifecycle.
   - name: Drafts
@@ -333,6 +335,7 @@ paths:
     get:
       tags: [Projects]
       summary: List projects.
+      description: Returns accessible ProjectDTO records with team_name for team and project navigation; this does not grant access to the SuperAdmin-only Teams API.
       operationId: listProjects
       security: [{ JWTAuth: [] }]
       responses:
@@ -448,6 +451,7 @@ paths:
     get:
       tags: [Documents]
       summary: List project documents.
+      description: Returns DocumentDTO records including folder_id, file_name, workflow_state, has_draft, and available latest version/draft IDs. The lifecycle status remains separate from the published/draft/empty workflow state.
       operationId: listProjectDocuments
       security: [{ JWTAuth: [] }]
       parameters:
@@ -455,13 +459,13 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 1 }
-          description: Filter documents by type code (1 OpenAPI, 2 Markdown).
+          description: Filter documents by type code (1 OpenAPI, 2 Markdown, 3 TXT).
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
     post:
       tags: [Documents]
       summary: Create project document.
-      description: Creates a typed Document. document_type 1 is OpenAPI and 2 is Markdown. relative_path is the stored project-local path identity.
+      description: Creates a typed Document. document_type 1 is OpenAPI and 2 is Markdown; 3 is TXT. relative_path is the stored project-local path identity. Prefer independent name, file_name, and nullable folder_id; the server derives relative_path. Optional initial_content creates an editable draft on dev atomically with the document and default branches. It does not submit or publish. The flat DocumentDTO response also includes initial_draft_id and initial_branch_id when initial content is supplied. Validation or persistence failure leaves no newly created document, branches, folders, or draft.
       operationId: createProjectDocument
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -469,6 +473,30 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/DocumentRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/folders:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+    get:
+      tags: [Document Folders]
+      summary: List project folders.
+      description: Requires project read permission. Returns a flat FolderDTO array in detail with total; parent_id is null for folders under the virtual project root. Empty folders are retained, and nesting has no fixed depth limit.
+      operationId: listProjectFolders
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
+    post:
+      tags: [Document Folders]
+      summary: Create project folder.
+      description: Project Admin or SuperAdmin only, and the project must be active. Returns FolderDTO. The parent must belong to the same project; omitted or null parent_id selects the virtual project root. Sibling names are unique without regard to case. Folder names are single safe path segments, excluding dot segments and control characters.
+      operationId: createProjectFolder
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateFolderRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}:
@@ -485,7 +513,7 @@ paths:
     patch:
       tags: [Documents]
       summary: Update project document.
-      description: Updates document metadata only. Lifecycle status cannot be changed here; use the archive action. Invalid lifecycle input is rejected before any metadata is committed.
+      description: Updates document metadata only. name is independent from file_name. Omitted folder_id retains the folder; null or an empty string moves to the project root. Omitted file_name retains the current filename. The server derives relative_path; legacy relative_path cannot be combined with file_name or folder_id. Moving or renaming a document does not rewrite historical draft or version paths. Lifecycle status cannot be changed here; use the archive action. Invalid lifecycle input is rejected before any metadata is committed.
       operationId: updateProjectDocument
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1386,7 +1414,7 @@ components:
       schema:
         type: string
         enum: [raw, normalized, stable]
-      description: Selects raw, normalized OpenAPI, or stable Markdown content.
+      description: Selects raw, normalized OpenAPI, or stable Markdown/TXT content.
     AIPromptKey:
       name: prompt_key
       in: path
@@ -1449,7 +1477,7 @@ components:
         application/json:
           schema: { type: object }
     PublicDocumentDownloadResponse:
-      description: Authorized immutable raw OpenAPI or Markdown bytes with an attachment Content-Disposition header.
+      description: Authorized immutable raw OpenAPI, Markdown, or TXT bytes with an attachment Content-Disposition header.
       headers:
         Content-Disposition:
           schema: { type: string }
@@ -1459,6 +1487,8 @@ components:
         application/yaml:
           schema: { type: string, format: binary }
         text/markdown:
+          schema: { type: string, format: binary }
+        text/plain:
           schema: { type: string, format: binary }
   schemas:
     SystemVersion:
@@ -1602,20 +1632,116 @@ components:
     DocumentRequest:
       type: object
       additionalProperties: false
-      required: [name, document_type, relative_path]
+      required: [name]
+      allOf:
+        - not: { required: [relative_path, file_name] }
+        - not: { required: [relative_path, folder_id] }
+        - if: { required: [folder_id] }
+          then: { required: [file_name] }
       properties:
         name: { type: string, minLength: 1 }
-        document_type: { type: integer, enum: [1, 2] }
-        relative_path: { type: string, minLength: 1 }
+        document_type: { type: integer, enum: [1, 2, 3], default: 1 }
+        relative_path:
+          type: [string, "null"]
+          description: Legacy project-local path. Cannot be combined with file_name or folder_id, including when this field is empty or null. Missing parent folders are created without rewriting the supplied path.
+        file_name:
+          type: string
+          minLength: 1
+          description: Independent filename, as one safe path segment. A missing suffix defaults to .yaml for OpenAPI, .md for Markdown, or .txt for TXT. OpenAPI permits .yaml, .yml, and .json. It need not match name.
+        folder_id:
+          type: [string, "null"]
+          description: Folder in this project. Omitted, null, or empty selects the project root. Requires file_name.
         description: { type: string }
+        initial_content: { $ref: "#/components/schemas/InitialDocumentContent" }
     PatchDocumentRequest:
       type: object
       additionalProperties: false
       minProperties: 1
+      allOf:
+        - not: { required: [relative_path, file_name] }
+        - not: { required: [relative_path, folder_id] }
       properties:
         name: { type: string, minLength: 1 }
         relative_path: { type: string, minLength: 1 }
+        file_name:
+          type: string
+          minLength: 1
+          description: Replaces only the filename, preserving the selected folder unless folder_id is also supplied. Uses the document type's suffix validation.
+        folder_id:
+          type: [string, "null"]
+          description: Omitted retains the current folder. Null or empty moves to the project root; otherwise the folder must belong to this project. Does not alter historical paths.
         description: { type: string }
+    InitialDocumentContent:
+      type: object
+      additionalProperties: false
+      required: [content]
+      description: Optional initial source content. The first draft and document are committed atomically. TXT permits an empty string; Markdown and OpenAPI retain their normal content validation. No review submission or publication occurs.
+      properties:
+        content: { type: string }
+        version_name: { type: string, default: "0.1.0" }
+        changelog: { type: string }
+    CreateFolderRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: One safe folder-name segment after trimming, excluding dot segments, separators, and control characters.
+        parent_id:
+          type: [string, "null"]
+          description: Parent folder in this project; omitted, null, or empty selects the virtual project root.
+    FolderDTO:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, parent_id, name, path, created_by, created_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        parent_id: { type: [string, "null"] }
+        name: { type: string }
+        path: { type: string, description: Canonical project-local folder path without a leading or trailing slash. }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DocumentDTO:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, name, document_type, folder_id, file_name, workflow_state, has_draft, status, created_by, created_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        name: { type: string, description: Display name, independent of the stored filename. }
+        document_type: { type: integer, enum: [1, 2, 3] }
+        relative_path: { type: string }
+        folder_id: { type: [string, "null"], description: Null represents the virtual project root. }
+        file_name: { type: string, description: Filename derived from relative_path. }
+        workflow_state: { type: string, enum: [published, draft, empty], description: Published when a published version exists; otherwise draft when an unpublished draft exists; otherwise empty. Separate from lifecycle status. }
+        has_draft: { type: boolean, description: Whether an unpublished draft exists, including when workflow_state is published. }
+        latest_version_id: { type: string, description: Omitted when no accessible published version exists. }
+        latest_draft_id: { type: string, description: Omitted when no accessible unpublished draft exists. This metadata exposes no content. }
+        description: { type: string }
+        status: { type: integer, enum: [1, 2], description: Document lifecycle status; not a publication indicator. }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        initial_draft_id: { type: string, description: Present only in the create response when initial_content was supplied. }
+        initial_branch_id: { type: string, description: Present only in the create response when initial_content was supplied; identifies the dev branch. }
+    ProjectDTO:
+      type: object
+      additionalProperties: false
+      required: [id, team_id, name, status, created_by, created_at, updated_at]
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        team_name: { type: string, description: Name of the owning team, enriched only for an accessible project. This does not broaden Teams API permissions. }
+        name: { type: string }
+        description: { type: string }
+        status: { type: integer, enum: [1, 2] }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     CreateDocumentShareRequest:
       type: object
       additionalProperties: false
@@ -1661,10 +1787,10 @@ components:
         source_git_commit_id: { type: string }
         schema_content:
           type: string
-          description: OpenAPI source content. The handler also accepts this field for Markdown clients.
+          description: OpenAPI source content. The handler also accepts this field for Markdown and TXT clients.
         content:
           type: string
-          description: Markdown source content; used when schema_content is empty.
+          description: Markdown or TXT source content; used when schema_content is empty. Empty TXT content is valid, but missing or null content is invalid.
     PatchDraftRequest:
       type: object
       additionalProperties: false
@@ -1682,10 +1808,10 @@ components:
         source_git_commit_id: { type: string }
         schema_content:
           type: string
-          description: Updated OpenAPI source content. The handler also accepts this field for Markdown clients.
+          description: Updated OpenAPI source content. The handler also accepts this field for Markdown and TXT clients.
         content:
           type: string
-          description: Updated Markdown source content; used when schema_content is empty.
+          description: Updated Markdown or TXT source content; used when schema_content is empty. Empty TXT content clears the file, while missing or null content is invalid.
     ReviewRequest:
       type: object
       additionalProperties: false

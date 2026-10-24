@@ -12,7 +12,7 @@ func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
 	if draft == nil {
 		return nil
 	}
-	markdown := draft.SchemaFormat == DocumentFormatMarkdown
+	markdown := isTextDocumentFormat(draft.SchemaFormat)
 	if !markdown && draft.SchemaFormat != SchemaFormatOpenAPI30 && draft.SchemaFormat != SchemaFormatOpenAPI31 {
 		return nil
 	}
@@ -48,7 +48,7 @@ func (s *Store) ensureDraftPreviewFactsLocked(draft *ContractDraft) error {
 		if err := s.hydrateVersionContentLocked(s.requestContext(), baseline, "stable"); err != nil {
 			return err
 		}
-		updated = markdownDiff(draft.ServiceID, baseline.ID, "draft", baseline.NormalizedSchema, draft.RawSchema)
+		updated = textDiff(draft.SchemaFormat, draft.ServiceID, baseline.ID, "draft", baseline.NormalizedSchema, draft.RawSchema)
 	} else {
 		if err := s.ensureVersionEndpointFactsLocked(baseline.ID); err != nil {
 			return err
@@ -157,7 +157,7 @@ func (s *Store) ensureDiffFactsLocked(diff *Diff) error {
 		return nil
 	}
 	from, to := s.versions[diff.FromVersionID], s.versions[diff.ToVersionID]
-	if from == nil || to == nil || from.SchemaFormat == DocumentFormatMarkdown || to.SchemaFormat == DocumentFormatMarkdown {
+	if from == nil || to == nil || isTextDocumentFormat(from.SchemaFormat) || isTextDocumentFormat(to.SchemaFormat) {
 		return nil
 	}
 	if from.SchemaFormat == 0 || to.SchemaFormat == 0 {

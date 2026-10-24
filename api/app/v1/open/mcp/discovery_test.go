@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -22,9 +23,10 @@ func TestMCPToolArgumentManifest(t *testing.T) {
 	}
 	var manifest struct {
 		Tools []struct {
-			Name     string   `json:"name"`
-			Required []string `json:"required"`
-			Optional []string `json:"optional"`
+			Name          string     `json:"name"`
+			Required      []string   `json:"required"`
+			Optional      []string   `json:"optional"`
+			RequiredAnyOf [][]string `json:"required_any_of"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(body, &manifest); err != nil {
@@ -59,11 +61,31 @@ func TestMCPToolArgumentManifest(t *testing.T) {
 			if !slices.Equal(required, declared.Required) || !slices.Equal(optional, declared.Optional) {
 				t.Errorf("%s runtime required=%v optional=%v; manifest required=%v optional=%v", tool.Name, required, optional, declared.Required, declared.Optional)
 			}
+			var alternatives [][]string
+			if anyOf, ok := tool.InputSchema["anyOf"].([]gin.H); ok {
+				for _, alternative := range anyOf {
+					alternatives = append(alternatives, alternative["required"].([]string))
+				}
+			}
+			if !slices.Equal(normalizeRequiredAlternatives(alternatives), normalizeRequiredAlternatives(declared.RequiredAnyOf)) {
+				t.Errorf("%s runtime required alternatives=%v; manifest required alternatives=%v", tool.Name, alternatives, declared.RequiredAnyOf)
+			}
 		}
 		if !found {
 			t.Errorf("unknown manifest tool %s", declared.Name)
 		}
 	}
+}
+
+func normalizeRequiredAlternatives(alternatives [][]string) []string {
+	result := make([]string, 0, len(alternatives))
+	for _, alternative := range alternatives {
+		keys := slices.Clone(alternative)
+		slices.Sort(keys)
+		result = append(result, strings.Join(keys, ","))
+	}
+	slices.Sort(result)
+	return result
 }
 
 func TestMCPDiscoveryCompletesEndpointAndFirstDraftWorkflows(t *testing.T) {

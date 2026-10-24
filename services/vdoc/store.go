@@ -55,6 +55,7 @@ type Store struct {
 	mutationGuard     *domainvdoc.MutationGuard
 	registration      *registrationMutation
 	prepared          *preparedOpenAPI
+	creatingDocument  bool
 	endpointFactsRepo domainvdoc.EndpointFactsRepository
 }
 
@@ -69,6 +70,7 @@ type storeState struct {
 	projects            map[string]*Project
 	members             map[string]*ProjectMember
 	apiServices         map[string]*APIService
+	documentFolders     map[string]*DocumentFolder
 	branches            map[string]*ContractBranch
 	drafts              map[string]*ContractDraft
 	versions            map[string]*ContractVersion
@@ -108,7 +110,7 @@ func NewStore() *Store {
 		verifySharePassword: verifyPublicSharePassword,
 		hashPassword:        encryption.HashPasswordBytesWithBcrypt,
 		users:               map[string]*User{}, teams: map[string]*Team{}, projects: map[string]*Project{}, members: map[string]*ProjectMember{},
-		apiServices: map[string]*APIService{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
+		apiServices: map[string]*APIService{}, documentFolders: map[string]*DocumentFolder{}, branches: map[string]*ContractBranch{}, drafts: map[string]*ContractDraft{},
 		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{}, shares: map[string]*DocumentShare{},
 		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
 		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: newAIHTTPClient(), audits: map[string]*AuditLog{},
@@ -209,7 +211,8 @@ func (s *Store) persistMarkdownObjectLocked(projectID, documentID, branchID, own
 		return "", domainvdoc.ObjectRef{}, err
 	}
 	ownerCollection := ownerType + "s"
-	key := newObjectWriteKey(projectID, documentID, branchID, ownerType, ownerID, kind, hash, "md")
+	extension, format, contentType := textObjectMetadata(s.apiServices[documentID])
+	key := newObjectWriteKey(projectID, documentID, branchID, ownerType, ownerID, kind, hash, extension)
 	metadata := map[string]string{
 		"project_id":       projectID,
 		"document_id":      documentID,
@@ -219,10 +222,9 @@ func (s *Store) persistMarkdownObjectLocked(projectID, documentID, branchID, own
 		"owner_id":         ownerID,
 		"owner_collection": ownerCollection,
 		"kind":             kind,
-		"document_format":  "markdown",
+		"document_format":  format,
 		"sha256":           hash,
 	}
-	contentType := "text/markdown; charset=utf-8"
 	info := ObjectInfo{SizeBytes: int64(len(content)), Metadata: metadata}
 	if s.objects != nil {
 		var err error
@@ -1170,7 +1172,7 @@ func (s *Store) CreateProject(actorID, teamID, name, description, adminUserID st
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
-	return cloneProject(p), nil
+	return s.projectWithTeamLocked(p), nil
 }
 
 func (s *Store) ListProjects(actorID string) ([]*Project, error) {
@@ -1186,7 +1188,7 @@ func (s *Store) ListProjects(actorID string) ([]*Project, error) {
 	out := []*Project{}
 	for _, p := range s.projects {
 		if actor.IsSuperAdmin || s.canReadLocked(actorID, p.ID) {
-			out = append(out, cloneProject(p))
+			out = append(out, s.projectWithTeamLocked(p))
 		}
 	}
 	sortProjects(out)
@@ -1205,7 +1207,7 @@ func (s *Store) Project(actorID, projectID string) (*Project, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return cloneProject(p), nil
+	return s.projectWithTeamLocked(p), nil
 }
 
 func (s *Store) UpdateProject(actorID, projectID string, input NameDescriptionPatch, auditCtx ...AuditContext) (*Project, error) {
@@ -1244,7 +1246,7 @@ func (s *Store) UpdateProject(actorID, projectID string, input NameDescriptionPa
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
-	return cloneProject(p), nil
+	return s.projectWithTeamLocked(p), nil
 }
 
 func (s *Store) ArchiveProject(actorID, projectID string, auditCtx ...AuditContext) (*Project, error) {
@@ -1271,7 +1273,7 @@ func (s *Store) ArchiveProject(actorID, projectID string, auditCtx ...AuditConte
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
-	return cloneProject(p), nil
+	return s.projectWithTeamLocked(p), nil
 }
 
 func (s *Store) AddProjectMember(actorID, projectID, userID string, role int, auditCtx ...AuditContext) (*ProjectMember, error) {
@@ -1486,37 +1488,11 @@ func (s *Store) CreateService(actorID, projectID, name, displayName, description
 }
 
 func (s *Store) CreateDocument(actorID, projectID, name string, documentType int, relativePath, description string, auditCtx ...AuditContext) (*APIService, error) {
-	s = s.withMutationGuard(actorID, projectID, "", MemberRoleAdmin)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ctx := auditContext(auditCtx)
-	if err := s.refreshLocked(); err != nil {
-		return nil, err
-	}
-	if !s.canManageProjectLocked(actorID, projectID) {
-		return nil, ErrPermissionDenied
-	}
-	project, ok := s.projects[projectID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	if project.Status == ProjectStatusArchived {
-		return nil, ErrFailedPrecondition
-	}
-	now := time.Now()
-	document, err := domaindocument.Create(domaindocument.CreateParams{ID: id.GenerateID(), ProjectID: projectID, Name: name, DocumentType: documentType, RelativePath: relativePath, Description: description, ActorID: actorID, Now: now, Existing: s.servicesForProjectLocked(projectID)})
+	result, err := s.CreateDocumentWithLocation(actorID, projectID, name, documentType, relativePath, description, nil, nil, auditCtx...)
 	if err != nil {
 		return nil, err
 	}
-	s.apiServices[document.ID] = document
-	for _, branch := range domainbranch.DefaultEnvironmentBranches(domainbranch.DefaultBranchesParams{DocumentID: document.ID, ActorID: actorID, Now: now, NewID: id.GenerateID}) {
-		s.branches[branch.ID] = branch
-	}
-	s.auditLocked(ctx, AuditActorUser, actorID, "document.create", "document", document.ID, projectID, document.ID, auditMetadata("result", "success", "name", document.Name, "document_type", fmt.Sprint(document.DocumentType), "relative_path", document.RelativePath))
-	if err := s.persistLocked(); err != nil {
-		return nil, err
-	}
-	return cloneService(document), nil
+	return result.Document, nil
 }
 
 func (s *Store) ListDocuments(actorID, projectID string, documentType ...int) ([]*APIService, error) {
@@ -1524,7 +1500,7 @@ func (s *Store) ListDocuments(actorID, projectID string, documentType ...int) ([
 }
 
 func (s *Store) Document(actorID, projectID, documentID string) (*APIService, error) {
-	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: documentID})
+	local, _, err := s.readScope(domainvdoc.ReadScope{ActorID: actorID, ProjectID: projectID, DocumentID: documentID, DocumentWorkflow: true})
 	if err != nil {
 		return nil, err
 	}
@@ -1535,63 +1511,95 @@ func (s *Store) Document(actorID, projectID, documentID string) (*APIService, er
 	return s.Service(actorID, projectID, documentID)
 }
 
-func (s *Store) UpdateDocument(actorID, projectID, documentID string, input DocumentPatchInput, auditCtx ...AuditContext) (*APIService, error) {
+func (s *Store) UpdateDocument(actorID, projectID, documentID string, input DocumentPatchInput, auditCtx ...AuditContext) (_ *APIService, err error) {
 	s = s.withMutationGuard(actorID, projectID, documentID, MemberRoleAdmin)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := auditContext(auditCtx)
-	if err := s.refreshLocked(); err != nil {
+	if err = s.refreshLocked(); err != nil {
 		return nil, err
 	}
 	if !s.canManageProjectLocked(actorID, projectID) {
 		return nil, ErrPermissionDenied
 	}
-	project, ok := s.projects[projectID]
-	if !ok {
+	project := s.projects[projectID]
+	if project == nil {
 		return nil, ErrNotFound
 	}
-	if project.Status == ProjectStatusArchived {
+	if project.Status != ProjectStatusActive {
 		return nil, ErrFailedPrecondition
 	}
-	document, ok := s.apiServices[documentID]
-	if !ok || document.ProjectID != projectID {
+	document := s.apiServices[documentID]
+	if document == nil || document.ProjectID != projectID {
 		return nil, ErrNotFound
 	}
 	if document.Status != DocumentStatusActive {
 		return nil, ErrFailedPrecondition
 	}
-	if input.Name == nil && input.RelativePath == nil && input.Description == nil {
+	locationSet := input.FileName != nil || input.FolderIDSet || input.FolderID != nil
+	if input.Name == nil && input.RelativePath == nil && input.Description == nil && !locationSet {
 		return nil, fmt.Errorf("%w: at least one document field is required", ErrInvalidArgument)
 	}
-	name := document.Name
+	if input.RelativePath != nil && locationSet {
+		return nil, fmt.Errorf("%w: relative_path cannot be combined with file_name or folder_id", ErrInvalidArgument)
+	}
+	name, description := document.Name, document.Description
 	if input.Name != nil {
 		name = strings.TrimSpace(*input.Name)
 		if name == "" {
 			return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
 		}
 	}
-	relativePath := document.RelativePath
-	if input.RelativePath != nil {
+	if input.Description != nil {
+		description = *input.Description
+	}
+	before := s.cloneStateLocked()
+	defer func() {
+		if err != nil {
+			s.applyStateLocked(before)
+		}
+	}()
+	now := time.Now()
+	relativePath, folderID := document.RelativePath, document.FolderID
+	if locationSet {
+		location := &DocumentLocation{FolderID: document.FolderID, FileName: documentFileName(document)}
+		if input.FileName != nil {
+			location.FileName = *input.FileName
+		}
+		if input.FolderIDSet || input.FolderID != nil {
+			location.FolderID = ""
+			if input.FolderID != nil {
+				location.FolderID = *input.FolderID
+			}
+		}
+		relativePath, folderID, err = s.resolveDocumentLocationLocked(actorID, projectID, document.DocumentType, "", location, now)
+		if err != nil {
+			return nil, err
+		}
+	} else if input.RelativePath != nil {
 		relativePath = strings.TrimSpace(*input.RelativePath)
 		if relativePath == "" {
 			return nil, fmt.Errorf("%w: relative_path is required", ErrInvalidArgument)
 		}
+		relativePath, folderID, err = s.resolveDocumentLocationLocked(actorID, projectID, document.DocumentType, relativePath, nil, now)
+		if err != nil {
+			return nil, err
+		}
 	}
-	description := document.Description
-	if input.Description != nil {
-		description = *input.Description
+	if err = s.ensureDocumentPathAvailableLocked(projectID, documentID, relativePath); err != nil {
+		return nil, err
 	}
 	updated := *document
-	if err := domaindocument.Update(domaindocument.UpdateParams{Document: &updated, Name: name, DisplayName: document.DisplayName, Description: description, BasePath: document.BasePath, RelativePath: relativePath, Now: time.Now(), Existing: s.servicesForProjectLocked(projectID)}); err != nil {
+	if err = domaindocument.Update(domaindocument.UpdateParams{Document: &updated, Name: name, DisplayName: document.DisplayName, Description: description, BasePath: document.BasePath, RelativePath: relativePath, Now: now, Existing: s.servicesForProjectLocked(projectID)}); err != nil {
 		return nil, err
 	}
+	updated.FolderID = folderID
 	s.apiServices[documentID] = &updated
-	document = &updated
-	s.auditLocked(ctx, AuditActorUser, actorID, "document.update", "document", documentID, projectID, documentID, auditMetadata("result", "success", "name", document.Name, "document_type", fmt.Sprint(document.DocumentType), "relative_path", document.RelativePath))
-	if err := s.persistLocked(); err != nil {
+	s.auditLocked(ctx, AuditActorUser, actorID, "document.update", "document", documentID, projectID, documentID, auditMetadata("result", "success", "name", updated.Name, "document_type", fmt.Sprint(updated.DocumentType), "relative_path", updated.RelativePath))
+	if err = s.persistLocked(); err != nil {
 		return nil, err
 	}
-	return cloneService(document), nil
+	return s.documentWithWorkflowLocked(actorID, &updated), nil
 }
 
 func (s *Store) ArchiveDocument(actorID, projectID, documentID string, auditCtx ...AuditContext) (*APIService, error) {
@@ -1732,7 +1740,7 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	if input.VersionName != nil {
 		versionName = *input.VersionName
 	}
-	if err := domaindraft.ValidateCreate(versionName, input.SchemaContent); err != nil {
+	if err := domaindraft.ValidateContent(versionName, input.SchemaContent, textDocumentFormat(s.apiServices[documentID])); err != nil {
 		return nil, err
 	}
 	if err := domaindraft.EnsureVersionNameAvailable(s.draftVersionIdentitiesLocked(documentID), documentID, d.BranchID, versionName); err != nil {
@@ -1756,7 +1764,7 @@ func (s *Store) UpdateMarkdownDraft(actorID, projectID, documentID, draftID stri
 	if input.SourceGitCommitID != nil {
 		updated.SourceGitCommitID = *input.SourceGitCommitID
 	}
-	updated.SchemaFormat = DocumentFormatMarkdown
+	updated.SchemaFormat = textDocumentFormat(s.apiServices[documentID])
 	updated.RawSchema = input.SchemaContent
 	updated.NormalizedSchema = stableContent
 	updated.RawSchemaHash = sha(input.SchemaContent)
@@ -1931,7 +1939,7 @@ func (s *Store) MarkdownVersionContent(actorID, projectID, documentID, versionID
 		return nil, err
 	}
 	v, ok := s.versions[versionID]
-	if !ok || v.ProjectID != projectID || v.ServiceID != documentID || v.SchemaFormat != DocumentFormatMarkdown {
+	if !ok || v.ProjectID != projectID || v.ServiceID != documentID || v.SchemaFormat != textDocumentFormat(s.apiServices[documentID]) {
 		return nil, ErrNotFound
 	}
 	if err := s.hydrateVersionContentLocked(s.requestContext(), v, kind); err != nil {
@@ -1953,7 +1961,7 @@ func (s *Store) MarkdownDraftContent(actorID, projectID, documentID, draftID, ki
 		return nil, err
 	}
 	draft, ok := s.draftInProjectServiceLocked(projectID, documentID, draftID)
-	if !ok || draft.SchemaFormat != DocumentFormatMarkdown {
+	if !ok || draft.SchemaFormat != textDocumentFormat(s.apiServices[documentID]) {
 		return nil, ErrNotFound
 	}
 	if err := s.hydrateDraftContentLocked(s.requestContext(), draft, kind); err != nil {
@@ -1983,11 +1991,11 @@ func (s *Store) CompareMarkdownVersions(actorID, projectID, documentID, fromID, 
 		return nil, fmt.Errorf("%w: version comparison requires two different versions", ErrInvalidArgument)
 	}
 	from, ok := s.versions[fromID]
-	if !ok || from.ProjectID != projectID || from.ServiceID != documentID || from.SchemaFormat != DocumentFormatMarkdown {
+	if !ok || from.ProjectID != projectID || from.ServiceID != documentID || from.SchemaFormat != textDocumentFormat(s.apiServices[documentID]) {
 		return nil, ErrNotFound
 	}
 	to, ok := s.versions[toID]
-	if !ok || to.ProjectID != projectID || to.ServiceID != documentID || to.SchemaFormat != DocumentFormatMarkdown {
+	if !ok || to.ProjectID != projectID || to.ServiceID != documentID || to.SchemaFormat != textDocumentFormat(s.apiServices[documentID]) {
 		return nil, ErrNotFound
 	}
 	if existing := s.diffForVersionsLocked(documentID, fromID, toID); existing != nil {
@@ -2003,7 +2011,7 @@ func (s *Store) CompareMarkdownVersions(actorID, projectID, documentID, fromID, 
 	if err := s.hydrateVersionContentLocked(s.requestContext(), to, "stable"); err != nil {
 		return nil, err
 	}
-	diff := markdownDiff(documentID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
+	diff := textDiff(to.SchemaFormat, documentID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
 	objectRefs := []domainvdoc.ObjectRef{}
 	if s.persistence != nil {
 		ref, err := s.persistDiffSnapshotLocked(projectID, documentID, to.BranchID, diff)
@@ -2042,6 +2050,7 @@ func (s *Store) ListServices(actorID, projectID string, documentType ...int) ([]
 			out = append(out, cloneService(svc))
 		}
 	}
+	s.enrichDocumentWorkflowLocked(actorID, projectID, out)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
@@ -2058,7 +2067,7 @@ func (s *Store) Service(actorID, projectID, serviceID string) (*APIService, erro
 	if !ok || svc.ProjectID != projectID {
 		return nil, ErrNotFound
 	}
-	return cloneService(svc), nil
+	return s.documentWithWorkflowLocked(actorID, svc), nil
 }
 
 func (s *Store) UpdateService(actorID, projectID, serviceID, name, displayName, description, basePath string, auditCtx ...AuditContext) (*APIService, error) {
@@ -2603,7 +2612,7 @@ func (s *Store) PromoteDraft(actorID, projectID, serviceID string, input Promote
 	}
 	draftInput := DraftInput{BranchID: promote.BranchID, VersionName: promote.VersionName, Changelog: promote.Changelog, SchemaContent: promote.SchemaContent, SourceGitCommitID: promote.SourceGitCommitID, SourceBranchID: promote.SourceBranchID, SourceVersionID: promote.SourceVersionID, BaseVersionID: promote.BaseVersionID}
 	document := s.apiServices[serviceID]
-	if document.DocumentType == DocumentTypeMarkdown {
+	if isTextDocumentType(document.DocumentType) {
 		return s.createMarkdownDraftLocked(actorID, projectID, serviceID, draftInput, SourceTypePromote, ctx)
 	}
 	return s.createDraftLocked(actorID, projectID, serviceID, draftInput, SourceTypePromote, ctx)
@@ -2804,7 +2813,7 @@ func (s *Store) CompareVersions(actorID, projectID, serviceID, fromID, toID stri
 		}
 		return cloneDiff(existing), nil
 	}
-	if from.SchemaFormat == DocumentFormatMarkdown || to.SchemaFormat == DocumentFormatMarkdown {
+	if isTextDocumentFormat(from.SchemaFormat) || isTextDocumentFormat(to.SchemaFormat) {
 		if err := s.hydrateVersionContentLocked(s.requestContext(), from, "stable"); err != nil {
 			return nil, err
 		}
@@ -3133,6 +3142,9 @@ type NameDescriptionPatch struct {
 }
 
 type DocumentPatchInput struct {
+	FileName     *string
+	FolderID     *string
+	FolderIDSet  bool
 	Name         *string
 	RelativePath *string
 	Description  *string
@@ -3255,7 +3267,7 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 	if err := s.ensureMarkdownDocumentLocked(documentID); err != nil {
 		return nil, err
 	}
-	if err := domaindraft.ValidateCreate(input.VersionName, input.SchemaContent); err != nil {
+	if err := domaindraft.ValidateContent(input.VersionName, input.SchemaContent, textDocumentFormat(s.apiServices[documentID])); err != nil {
 		return nil, err
 	}
 	stableContent := input.SchemaContent
@@ -3277,7 +3289,7 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 		return nil, err
 	}
 	now := time.Now()
-	d := domaindraft.New(domaindraft.CreateParams{ID: id.GenerateID(), ProjectID: projectID, DocumentID: documentID, BranchID: input.BranchID, VersionName: input.VersionName, Changelog: input.Changelog, SourceGitCommitID: input.SourceGitCommitID, SchemaFormat: DocumentFormatMarkdown, SourceType: sourceType, SourceBranchID: input.SourceBranchID, SourceVersionID: input.SourceVersionID, BaseVersionID: input.BaseVersionID, RawSchema: input.SchemaContent, NormalizedSchema: stableContent, RawSchemaHash: rawHash, NormalizedSchemaHash: stableHash, CreatedBy: actorID, Now: now})
+	d := domaindraft.New(domaindraft.CreateParams{ID: id.GenerateID(), ProjectID: projectID, DocumentID: documentID, BranchID: input.BranchID, VersionName: input.VersionName, Changelog: input.Changelog, SourceGitCommitID: input.SourceGitCommitID, SchemaFormat: textDocumentFormat(s.apiServices[documentID]), SourceType: sourceType, SourceBranchID: input.SourceBranchID, SourceVersionID: input.SourceVersionID, BaseVersionID: input.BaseVersionID, RawSchema: input.SchemaContent, NormalizedSchema: stableContent, RawSchemaHash: rawHash, NormalizedSchemaHash: stableHash, CreatedBy: actorID, Now: now})
 	rawKey, rawRef, err := s.persistMarkdownObjectLocked(projectID, documentID, d.BranchID, "draft", d.ID, "raw", d.RawSchemaHash, d.RawSchema)
 	if err != nil {
 		return nil, err
@@ -3318,7 +3330,7 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 	if service == nil || service.ProjectID != d.ProjectID {
 		return nil, ErrNotFound
 	}
-	if service.DocumentType == DocumentTypeMarkdown || d.SchemaFormat == DocumentFormatMarkdown {
+	if isTextDocumentType(service.DocumentType) || isTextDocumentFormat(d.SchemaFormat) {
 		return s.publishMarkdownDraftLocked(actorID, d, service, auditCtx)
 	}
 	branch := s.branches[d.BranchID]
@@ -3412,7 +3424,10 @@ func (s *Store) publishDraftLocked(actorID string, d *ContractDraft, auditCtx Au
 }
 
 func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, document *APIService, auditCtx AuditContext) (*ContractVersion, error) {
-	if err := commonvdoc.ValidateMarkdownRelativePath(document.RelativePath); err != nil {
+	if !isTextDocumentType(document.DocumentType) || d.SchemaFormat != textDocumentFormat(document) {
+		return nil, fmt.Errorf("%w: draft format does not match text document", ErrFailedPrecondition)
+	}
+	if err := commonvdoc.ValidateDocumentRelativePath(document.DocumentType, document.RelativePath); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedPrecondition, err)
 	}
 	branch := s.branches[d.BranchID]
@@ -3431,7 +3446,7 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 		return nil, err
 	}
 	now := time.Now()
-	v, err := domainversion.PublishFromDraft(domainversion.PublishParams{ID: id.GenerateID(), PublishedBy: actorID, Now: now, Draft: domainversion.DraftSnapshot{ID: d.ID, ProjectID: d.ProjectID, DocumentID: d.ServiceID, BranchID: d.BranchID, VersionName: d.VersionName, RelativePath: document.RelativePath, Changelog: d.Changelog, SourceGitCommitID: d.SourceGitCommitID, SchemaFormat: DocumentFormatMarkdown, SourceType: d.SourceType, SourceBranchID: d.SourceBranchID, SourceVersionID: d.SourceVersionID, BaseVersionID: d.BaseVersionID, RawSchema: d.RawSchema, NormalizedSchema: d.NormalizedSchema, RawSchemaHash: d.RawSchemaHash, NormalizedSchemaHash: d.NormalizedSchemaHash, Status: d.Status}})
+	v, err := domainversion.PublishFromDraft(domainversion.PublishParams{ID: id.GenerateID(), PublishedBy: actorID, Now: now, Draft: domainversion.DraftSnapshot{ID: d.ID, ProjectID: d.ProjectID, DocumentID: d.ServiceID, BranchID: d.BranchID, VersionName: d.VersionName, RelativePath: document.RelativePath, Changelog: d.Changelog, SourceGitCommitID: d.SourceGitCommitID, SchemaFormat: d.SchemaFormat, SourceType: d.SourceType, SourceBranchID: d.SourceBranchID, SourceVersionID: d.SourceVersionID, BaseVersionID: d.BaseVersionID, RawSchema: d.RawSchema, NormalizedSchema: d.NormalizedSchema, RawSchemaHash: d.RawSchemaHash, NormalizedSchemaHash: d.NormalizedSchemaHash, Status: d.Status}})
 	if err != nil {
 		return nil, err
 	}
@@ -3452,7 +3467,7 @@ func (s *Store) publishMarkdownDraftLocked(actorID string, d *ContractDraft, doc
 		if err := s.hydrateVersionContentLocked(s.requestContext(), previous, "stable"); err != nil {
 			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
 		}
-		diff = markdownDiff(d.ServiceID, previous.ID, v.ID, previous.NormalizedSchema, v.NormalizedSchema)
+		diff = textDiff(v.SchemaFormat, d.ServiceID, previous.ID, v.ID, previous.NormalizedSchema, v.NormalizedSchema)
 		diffRef, err := s.persistDiffSnapshotLocked(v.ProjectID, v.ServiceID, v.BranchID, diff)
 		if err != nil {
 			return nil, s.cleanupNewObjectRefs(err, objectRefs...)
@@ -3512,8 +3527,8 @@ func (s *Store) previewDiffLocked(serviceID, branchID string, format int, endpoi
 	return s.diffEndpointSetsLocked(serviceID, latest.ID, temp.ID, format, s.endpointsForVersionLocked(latest.ID), endpoints)
 }
 func (s *Store) diffVersionsLocked(serviceID string, from, to *ContractVersion) *Diff {
-	if from.SchemaFormat == DocumentFormatMarkdown || to.SchemaFormat == DocumentFormatMarkdown {
-		return markdownDiff(serviceID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
+	if isTextDocumentFormat(from.SchemaFormat) || isTextDocumentFormat(to.SchemaFormat) {
+		return textDiff(to.SchemaFormat, serviceID, from.ID, to.ID, from.NormalizedSchema, to.NormalizedSchema)
 	}
 	return s.diffEndpointSetsLocked(serviceID, from.ID, to.ID, to.SchemaFormat, s.endpointsForVersionLocked(from.ID), s.endpointsForVersionLocked(to.ID))
 }
@@ -3526,13 +3541,26 @@ func (s *Store) previewMarkdownDiffLocked(documentID, branchID, content string) 
 	if err := s.hydrateVersionContentLocked(s.requestContext(), latest, "stable"); err != nil {
 		return nil, err
 	}
-	return markdownDiff(documentID, latest.ID, "draft", latest.NormalizedSchema, content), nil
+	return textDiff(latest.SchemaFormat, documentID, latest.ID, "draft", latest.NormalizedSchema, content), nil
 }
 
 func markdownDiff(documentID, fromID, toID, fromContent, toContent string) *Diff {
+	return textDiff(DocumentFormatMarkdown, documentID, fromID, toID, fromContent, toContent)
+}
+
+func textDiff(format int, documentID, fromID, toID, fromContent, toContent string) *Diff {
 	now := time.Now()
-	d := &Diff{ID: id.GenerateID(), DocumentID: documentID, ServiceID: documentID, FromVersionID: fromID, ToVersionID: toID, DiffStatus: DiffStatusSucceeded, Summary: DiffSummary{DocumentFormat: DocumentFormatMarkdown}, CreatedAt: now, UpdatedAt: now}
-	items, modifiedBlocks := markdownLineDiffItems(splitMarkdownLines(fromContent), splitMarkdownLines(toContent))
+	d := &Diff{ID: id.GenerateID(), DocumentID: documentID, ServiceID: documentID, FromVersionID: fromID, ToVersionID: toID, DiffStatus: DiffStatusSucceeded, Summary: DiffSummary{DocumentFormat: format}, CreatedAt: now, UpdatedAt: now}
+	split := splitMarkdownLines
+	if format == DocumentFormatText {
+		split = splitPlainTextLines
+	}
+	items, modifiedBlocks := markdownLineDiffItems(split(fromContent), split(toContent))
+	if format == DocumentFormatText {
+		for index := range items {
+			items[index].Message = strings.Replace(items[index].Message, "Markdown", "Text", 1)
+		}
+	}
 	d.Items = items
 	for _, item := range items {
 		switch item.ChangeType {
@@ -3906,10 +3934,10 @@ func (s *Store) ensureMarkdownDocumentLocked(documentID string) error {
 	if document == nil {
 		return ErrNotFound
 	}
-	if document.DocumentType != DocumentTypeMarkdown {
-		return fmt.Errorf("%w: document type is not Markdown", ErrFailedPrecondition)
+	if !isTextDocumentType(document.DocumentType) {
+		return fmt.Errorf("%w: document type is not Markdown or plain text", ErrFailedPrecondition)
 	}
-	if err := commonvdoc.ValidateMarkdownRelativePath(document.RelativePath); err != nil {
+	if err := commonvdoc.ValidateDocumentRelativePath(document.DocumentType, document.RelativePath); err != nil {
 		return fmt.Errorf("%w: %v", ErrFailedPrecondition, err)
 	}
 	return nil

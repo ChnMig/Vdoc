@@ -666,6 +666,9 @@ func publicShareDownloadMetadata(document *APIService, version *ContractVersion,
 	if document.DocumentType == DocumentTypeMarkdown {
 		contentType = "text/markdown; charset=utf-8"
 		fallback = "document.md"
+	} else if document.DocumentType == DocumentTypeText {
+		contentType = "text/plain; charset=utf-8"
+		fallback = "document.txt"
 	} else if strings.HasPrefix(strings.TrimSpace(content), "{") {
 		contentType = "application/json; charset=utf-8"
 		fallback = "document.json"

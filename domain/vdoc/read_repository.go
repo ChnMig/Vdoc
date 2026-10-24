@@ -11,6 +11,7 @@ import (
 type ReadScope struct {
 	ActorID, ProjectID, DocumentID, VersionID, TokenID string
 	Versions, Endpoints, Tokens                        bool
+	DocumentWorkflow                                   bool
 	SummaryOwnerType, SummaryOwnerID                   string
 }
 

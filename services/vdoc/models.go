@@ -22,6 +22,7 @@ const (
 
 	DocumentTypeOpenAPI  = domainvdoc.DocumentTypeOpenAPI
 	DocumentTypeMarkdown = domainvdoc.DocumentTypeMarkdown
+	DocumentTypeText     = domainvdoc.DocumentTypeText
 
 	DocumentStatusActive   = domainvdoc.DocumentStatusActive
 	DocumentStatusArchived = domainvdoc.DocumentStatusArchived
@@ -56,6 +57,7 @@ const (
 	DocumentFormatOpenAPI30 = domainvdoc.DocumentFormatOpenAPI30
 	DocumentFormatOpenAPI31 = domainvdoc.DocumentFormatOpenAPI31
 	DocumentFormatMarkdown  = domainvdoc.DocumentFormatMarkdown
+	DocumentFormatText      = domainvdoc.DocumentFormatText
 
 	SourceTypeWebUpload = domainvdoc.SourceTypeWebUpload
 	SourceTypeMCPUpload = domainvdoc.SourceTypeMCPUpload
@@ -102,6 +104,7 @@ type Team = domainvdoc.Team
 type Project = domainvdoc.Project
 type ProjectMember = domainvdoc.ProjectMember
 type APIService = domainvdoc.APIService
+type DocumentFolder = domainvdoc.DocumentFolder
 type ContractBranch = domainvdoc.ContractBranch
 type ContractDraft = domainvdoc.ContractDraft
 type ContractVersion = domainvdoc.ContractVersion

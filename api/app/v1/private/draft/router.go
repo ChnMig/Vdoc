@@ -23,12 +23,12 @@ func RegisterRoutes(private *gin.RouterGroup) {
 }
 
 type draftRequest struct {
-	BranchID          string `json:"branch_id"`
-	VersionName       string `json:"version_name"`
-	Changelog         string `json:"changelog"`
-	SourceGitCommitID string `json:"source_git_commit_id"`
-	SchemaContent     string `json:"schema_content"`
-	Content           string `json:"content"`
+	BranchID          string  `json:"branch_id"`
+	VersionName       string  `json:"version_name"`
+	Changelog         string  `json:"changelog"`
+	SourceGitCommitID string  `json:"source_git_commit_id"`
+	SchemaContent     *string `json:"schema_content"`
+	Content           *string `json:"content"`
 }
 
 type draftPatchRequest struct {
@@ -41,9 +41,12 @@ type draftPatchRequest struct {
 }
 
 func (r draftRequest) input() app.DraftInput {
-	content := r.SchemaContent
-	if content == "" {
-		content = r.Content
+	content := ""
+	if r.SchemaContent != nil {
+		content = *r.SchemaContent
+	}
+	if content == "" && r.Content != nil {
+		content = *r.Content
 	}
 	return app.DraftInput{BranchID: r.BranchID, VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
 }
@@ -73,11 +76,15 @@ func createDraft(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
+	if req.SchemaContent == nil && req.Content == nil {
+		shared.ReturnAppError(c, app.ErrInvalidArgument)
+		return
+	}
 	var (
 		draft *app.ContractDraft
 		err   error
 	)
-	if shared.IsMarkdownDocument(document) {
+	if shared.IsTextDocument(document) {
 		draft, err = shared.Store(c).CreateMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), req.input(), shared.AuditContextFromGin(c))
 	} else {
 		draft, err = shared.Store(c).CreateDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), req.input(), shared.AuditContextFromGin(c))
@@ -166,11 +173,15 @@ func updateDraft(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
+	if req.SchemaContent == nil && req.Content == nil {
+		shared.ReturnAppError(c, app.ErrInvalidArgument)
+		return
+	}
 	var (
 		draft *app.ContractDraft
 		err   error
 	)
-	if shared.IsMarkdownDocument(document) {
+	if shared.IsTextDocument(document) {
 		draft, err = shared.Store(c).UpdateMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), req.input(), shared.AuditContextFromGin(c))
 	} else {
 		draft, err = shared.Store(c).UpdateDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), req.input(), shared.AuditContextFromGin(c))
@@ -195,7 +206,7 @@ func submitDraft(c *gin.Context) {
 		draft *app.ContractDraft
 		err   error
 	)
-	if shared.IsMarkdownDocument(document) {
+	if shared.IsTextDocument(document) {
 		draft, err = shared.Store(c).SubmitMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), shared.AuditContextFromGin(c))
 	} else {
 		draft, err = shared.Store(c).SubmitDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), shared.AuditContextFromGin(c))
@@ -228,7 +239,7 @@ func reviewDraft(c *gin.Context, action string) {
 		result any
 		err    error
 	)
-	if shared.IsMarkdownDocument(document) {
+	if shared.IsTextDocument(document) {
 		result, err = shared.Store(c).ReviewMarkdownDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, input, auditCtx)
 	} else {
 		result, err = shared.Store(c).ReviewDocumentDraft(userID, c.Param("project_id"), c.Param("document_id"), c.Param("draft_id"), action, input, auditCtx)

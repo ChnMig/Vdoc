@@ -68,7 +68,7 @@ func getVersionContent(c *gin.Context) {
 		content *app.SchemaDocument
 		err     error
 	)
-	if shared.IsMarkdownDocument(document) {
+	if shared.IsTextDocument(document) {
 		content, err = shared.Store(c).MarkdownVersionContent(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("content_kind"))
 	} else {
 		content, err = shared.Store(c).DocumentVersionSchema(userID, c.Param("project_id"), c.Param("document_id"), c.Param("version_id"), c.Param("content_kind"))

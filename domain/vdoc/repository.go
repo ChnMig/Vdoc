@@ -6,31 +6,32 @@ import (
 )
 
 type State struct {
-	Users         map[string]*User
-	Teams         map[string]*Team
-	Projects      map[string]*Project
-	Members       map[string]*ProjectMember
-	APIServices   map[string]*APIService
-	Branches      map[string]*ContractBranch
-	Drafts        map[string]*ContractDraft
-	Versions      map[string]*ContractVersion
-	Endpoints     map[string]*Endpoint
-	Diffs         map[string]*Diff
-	Tokens        map[string]*MCPToken
-	Shares        map[string]*DocumentShare
-	AIProviders   map[string]*AIProviderConfig
-	AIPrompts     map[string]*AIPromptOverride
-	AISummaries   map[string]*AISummary
-	AIChats       map[string]*AIChatSession
-	AIMessages    map[string]*AIChatMessage
-	AuditLogs     map[string]*AuditLog
-	AISummaryJobs map[string]*AISummaryJob
+	Users           map[string]*User
+	Teams           map[string]*Team
+	Projects        map[string]*Project
+	Members         map[string]*ProjectMember
+	APIServices     map[string]*APIService
+	DocumentFolders map[string]*DocumentFolder
+	Branches        map[string]*ContractBranch
+	Drafts          map[string]*ContractDraft
+	Versions        map[string]*ContractVersion
+	Endpoints       map[string]*Endpoint
+	Diffs           map[string]*Diff
+	Tokens          map[string]*MCPToken
+	Shares          map[string]*DocumentShare
+	AIProviders     map[string]*AIProviderConfig
+	AIPrompts       map[string]*AIPromptOverride
+	AISummaries     map[string]*AISummary
+	AIChats         map[string]*AIChatSession
+	AIMessages      map[string]*AIChatMessage
+	AuditLogs       map[string]*AuditLog
+	AISummaryJobs   map[string]*AISummaryJob
 }
 
 func NewState() *State {
 	return &State{
 		Users: map[string]*User{}, Teams: map[string]*Team{}, Projects: map[string]*Project{}, Members: map[string]*ProjectMember{},
-		APIServices: map[string]*APIService{}, Branches: map[string]*ContractBranch{}, Drafts: map[string]*ContractDraft{},
+		APIServices: map[string]*APIService{}, DocumentFolders: map[string]*DocumentFolder{}, Branches: map[string]*ContractBranch{}, Drafts: map[string]*ContractDraft{},
 		Versions: map[string]*ContractVersion{}, Endpoints: map[string]*Endpoint{}, Diffs: map[string]*Diff{}, Tokens: map[string]*MCPToken{}, Shares: map[string]*DocumentShare{},
 		AIProviders: map[string]*AIProviderConfig{}, AIPrompts: map[string]*AIPromptOverride{}, AISummaries: map[string]*AISummary{},
 		AIChats: map[string]*AIChatSession{}, AIMessages: map[string]*AIChatMessage{}, AuditLogs: map[string]*AuditLog{},

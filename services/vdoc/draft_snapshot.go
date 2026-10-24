@@ -21,7 +21,7 @@ func (s *Store) ReadDraftContent(actorID, projectID, documentID, draftID, kind s
 		return nil, nil, err
 	}
 	build := schemaDocument
-	if draft.SchemaFormat == DocumentFormatMarkdown {
+	if isTextDocumentFormat(draft.SchemaFormat) {
 		build = markdownContentDocument
 	}
 	content, err := build("draft", draft.ID, kind, draft.RawSchema, draft.NormalizedSchema, draft.RawSchemaObjectKey, draft.NormalizedObjectKey, draft.RawSchemaHash, draft.NormalizedSchemaHash)

@@ -26,7 +26,7 @@ func (s *Store) DocumentOverview(actorID, projectID, documentID string) (*domain
 			if err != nil {
 				return nil, err
 			}
-			if out.LatestVersion != nil && out.RawLineCount == nil && local.apiServices[documentID].DocumentType == DocumentTypeMarkdown {
+			if out.LatestVersion != nil && out.RawLineCount == nil && isTextDocumentType(local.apiServices[documentID].DocumentType) {
 				version := out.LatestVersion
 				if err := local.hydrateVersionContentLocked(s.requestContext(), version, "raw"); err != nil {
 					return nil, err
@@ -81,7 +81,7 @@ func (s *Store) DocumentOverview(actorID, projectID, documentID string) (*domain
 				out.EndpointCount++
 			}
 		}
-		if s.apiServices[documentID].DocumentType == DocumentTypeMarkdown {
+		if isTextDocumentType(s.apiServices[documentID].DocumentType) {
 			if err := s.hydrateVersionContentLocked(s.requestContext(), version, "raw"); err != nil {
 				return nil, err
 			}
@@ -138,7 +138,7 @@ func (s *Store) readinessTokens(actorID, projectID, documentID string) ([]string
 		return tokens, nil
 	}
 	scope := ScopeAPIRead
-	if s.apiServices[documentID].DocumentType == DocumentTypeMarkdown {
+	if isTextDocumentType(s.apiServices[documentID].DocumentType) {
 		scope = ScopeDocRead
 	}
 	for _, token := range s.tokens {

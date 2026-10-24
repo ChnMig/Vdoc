@@ -6,11 +6,21 @@ import (
 )
 
 func TestDocumentTypeCodes(t *testing.T) {
-	if DocumentTypeOpenAPI != 1 || DocumentTypeMarkdown != 2 {
-		t.Fatalf("document type codes = OpenAPI %d Markdown %d, want 1 and 2", DocumentTypeOpenAPI, DocumentTypeMarkdown)
+	if DocumentTypeOpenAPI != 1 || DocumentTypeMarkdown != 2 || DocumentTypeText != 3 {
+		t.Fatalf("document type codes = OpenAPI %d Markdown %d Text %d, want 1, 2 and 3", DocumentTypeOpenAPI, DocumentTypeMarkdown, DocumentTypeText)
 	}
-	if DocumentTypeNames[DocumentTypeOpenAPI] != "openapi" || DocumentTypeNames[DocumentTypeMarkdown] != "markdown" {
+	if DocumentTypeNames[DocumentTypeOpenAPI] != "openapi" || DocumentTypeNames[DocumentTypeMarkdown] != "markdown" || DocumentTypeNames[DocumentTypeText] != "text" {
 		t.Fatalf("document type names = %#v", DocumentTypeNames)
+	}
+}
+
+func TestDocumentFormatCodesPreserveExistingFormatsAndAddText(t *testing.T) {
+	want := map[int]string{1: "openapi_3_0", 2: "openapi_3_1", 3: "markdown", 4: "text"}
+	if DocumentFormatOpenAPI30 != 1 || DocumentFormatOpenAPI31 != 2 || DocumentFormatMarkdown != 3 || DocumentFormatText != 4 {
+		t.Fatalf("document format codes changed: OpenAPI30=%d OpenAPI31=%d Markdown=%d Text=%d", DocumentFormatOpenAPI30, DocumentFormatOpenAPI31, DocumentFormatMarkdown, DocumentFormatText)
+	}
+	if !reflect.DeepEqual(DocumentFormatNames, want) {
+		t.Fatalf("DocumentFormatNames = %#v, want %#v", DocumentFormatNames, want)
 	}
 }
 

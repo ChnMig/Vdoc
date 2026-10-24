@@ -66,6 +66,7 @@ func (ProjectMember) TableName() string { return TableNameProjectMembers }
 
 type Document struct {
 	pgdb.Base
+	FolderID     *string `gorm:"column:folder_id;type:uuid"`
 	ProjectID    string  `gorm:"column:project_id;type:uuid;not null"`
 	Name         string  `gorm:"column:name;type:text;not null"`
 	DocumentType int     `gorm:"column:document_type;type:smallint;not null"`

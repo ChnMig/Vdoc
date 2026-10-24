@@ -124,6 +124,9 @@ func (r *Repository) loadState(ctx context.Context, working ...bool) (*domainvdo
 	if err := r.loadProjectMembers(ctx, state); err != nil {
 		return nil, err
 	}
+	if err := r.loadDocumentFolders(ctx, state); err != nil {
+		return nil, err
+	}
 	if err := r.loadDocuments(ctx, state); err != nil {
 		return nil, err
 	}
@@ -263,7 +266,7 @@ func (r *Repository) LoadPublicDocumentShareSnapshot(ctx context.Context, shareI
 		},
 		Document: &domainvdoc.APIService{
 			ID: domainID(documentModel.ID), ProjectID: domainID(documentModel.ProjectID), Name: documentModel.Name,
-			DocumentType: documentModel.DocumentType, RelativePath: documentModel.RelativePath, BasePath: documentModel.RelativePath,
+			DocumentType: documentModel.DocumentType, FolderID: stringValueID(documentModel.FolderID), RelativePath: documentModel.RelativePath, BasePath: documentModel.RelativePath,
 			Description: stringValue(documentModel.Description), Status: documentModel.Status, CreatedBy: domainID(documentModel.CreatedBy),
 			CreatedAt: documentModel.CreatedAt, UpdatedAt: documentModel.UpdatedAt,
 		},
@@ -1211,7 +1214,7 @@ func (r *Repository) loadDocuments(ctx context.Context, loaded *domainvdoc.State
 	}
 	for _, model := range models {
 		documentID := domainID(model.ID)
-		loaded.APIServices[documentID] = &domainvdoc.APIService{ID: documentID, ProjectID: domainID(model.ProjectID), Name: model.Name, DocumentType: model.DocumentType, RelativePath: model.RelativePath, Description: stringValue(model.Description), BasePath: model.RelativePath, Status: model.Status, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
+		loaded.APIServices[documentID] = &domainvdoc.APIService{ID: documentID, ProjectID: domainID(model.ProjectID), Name: model.Name, DocumentType: model.DocumentType, FolderID: stringValueID(model.FolderID), RelativePath: model.RelativePath, Description: stringValue(model.Description), BasePath: model.RelativePath, Status: model.Status, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt}
 	}
 	return nil
 }
@@ -1449,7 +1452,7 @@ func documentModelFromDomain(document *domainvdoc.APIService) *Document {
 	if documentType == 0 {
 		documentType = domainvdoc.DocumentTypeOpenAPI
 	}
-	return &Document{Base: pgdb.Base{ID: document.ID, CreatedAt: nonZeroTime(document.CreatedAt), UpdatedAt: nonZeroTime(document.UpdatedAt)}, ProjectID: document.ProjectID, Name: document.Name, DocumentType: documentType, RelativePath: documentRelativePath(document), Description: stringPtr(document.Description), Status: document.Status, CreatedBy: document.CreatedBy}
+	return &Document{Base: pgdb.Base{ID: document.ID, CreatedAt: nonZeroTime(document.CreatedAt), UpdatedAt: nonZeroTime(document.UpdatedAt)}, ProjectID: document.ProjectID, Name: document.Name, DocumentType: documentType, FolderID: stringPtr(document.FolderID), RelativePath: documentRelativePath(document), Description: stringPtr(document.Description), Status: document.Status, CreatedBy: document.CreatedBy}
 }
 
 func documentBranchModelFromDomain(branch *domainvdoc.ContractBranch) *DocumentBranch {

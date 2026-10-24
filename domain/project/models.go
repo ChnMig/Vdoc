@@ -12,6 +12,7 @@ type Team struct {
 }
 
 type Project struct {
+	TeamName    string    `json:"team_name,omitempty"`
 	ID          string    `json:"id"`
 	TeamID      string    `json:"team_id"`
 	Name        string    `json:"name"`

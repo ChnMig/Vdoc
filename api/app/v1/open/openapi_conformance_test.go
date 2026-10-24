@@ -38,6 +38,7 @@ var listRouteKeys = map[string]struct{}{
 	"GET /api/v1/private/projects/{project_id}/members":                                                 {},
 	"GET /api/v1/private/projects/{project_id}/member-candidates":                                       {},
 	"GET /api/v1/private/projects/{project_id}/documents":                                               {},
+	"GET /api/v1/private/projects/{project_id}/folders":                                                 {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                        {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                          {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                          {},
@@ -71,6 +72,7 @@ var requestBodyContracts = map[string]requestBodyContract{
 	"POST /api/v1/private/projects/{project_id}/members":                                                   {required: true, schemaRef: "#/components/schemas/AddProjectMemberRequest"},
 	"PATCH /api/v1/private/projects/{project_id}/members/{user_id}/role":                                   {required: true, schemaRef: "#/components/schemas/PatchProjectMemberRoleRequest"},
 	"POST /api/v1/private/projects/{project_id}/documents":                                                 {required: true, schemaRef: "#/components/schemas/DocumentRequest"},
+	"POST /api/v1/private/projects/{project_id}/folders":                                                   {required: true, schemaRef: "#/components/schemas/CreateFolderRequest"},
 	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}":                                  {required: true, schemaRef: "#/components/schemas/PatchDocumentRequest"},
 	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                            {required: true, schemaRef: "#/components/schemas/CreateDocumentShareRequest"},
 	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                          {required: true, schemaRef: "#/components/schemas/CreateBranchRequest"},
@@ -268,8 +270,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 34 {
-		t.Fatalf("request body route contract count = %d, want 34", len(requestBodyContracts))
+	if len(requestBodyContracts) != 35 {
+		t.Fatalf("request body route contract count = %d, want 35", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))
@@ -330,6 +332,55 @@ func assertOpenAPICurrentDescriptions(t *testing.T) {
 	for _, phrase := range requiredPhrases {
 		if !strings.Contains(document, phrase) {
 			t.Fatalf("openapi.yaml missing current description %q", phrase)
+		}
+	}
+}
+
+func TestOpenAPIDocumentLocationSchemas(t *testing.T) {
+	root := parseOpenAPI(t)
+	components := asMap(t, root["components"], "components")
+	schemas := asMap(t, components["schemas"], "components.schemas")
+	for schemaName, fields := range map[string][]string{
+		"CreateFolderRequest":  {"name", "parent_id"},
+		"FolderDTO":            {"id", "project_id", "parent_id", "name", "path", "created_by", "created_at", "updated_at"},
+		"DocumentRequest":      {"name", "document_type", "relative_path", "file_name", "folder_id", "initial_content"},
+		"PatchDocumentRequest": {"name", "relative_path", "file_name", "folder_id"},
+		"DocumentDTO":          {"folder_id", "file_name", "workflow_state", "has_draft", "latest_version_id", "latest_draft_id"},
+		"ProjectDTO":           {"team_name"},
+	} {
+		schema := asMap(t, schemas[schemaName], schemaName)
+		properties := asMap(t, schema["properties"], schemaName+".properties")
+		for _, field := range fields {
+			if _, ok := properties[field]; !ok {
+				t.Errorf("%s missing %s", schemaName, field)
+			}
+		}
+	}
+	initial := asMap(t, schemas["InitialDocumentContent"], "InitialDocumentContent")
+	required, ok := initial["required"].([]any)
+	if !ok || len(required) != 1 || required[0] != "content" {
+		t.Fatalf("initial upload required fields = %#v, want content", initial["required"])
+	}
+	properties := asMap(t, initial["properties"], "InitialDocumentContent.properties")
+	content := asMap(t, properties["content"], "InitialDocumentContent.content")
+	if content["type"] != "string" {
+		t.Fatalf("initial upload content type = %#v", content["type"])
+	}
+	version := asMap(t, properties["version_name"], "InitialDocumentContent.version_name")
+	if version["default"] != "0.1.0" {
+		t.Fatalf("initial upload version default = %#v", version["default"])
+	}
+	for _, schemaName := range []string{"FolderDTO", "DocumentDTO", "PatchDocumentRequest"} {
+		schema := asMap(t, schemas[schemaName], schemaName)
+		properties := asMap(t, schema["properties"], schemaName+".properties")
+		field := "folder_id"
+		if schemaName == "FolderDTO" {
+			field = "parent_id"
+		}
+		location := asMap(t, properties[field], schemaName+"."+field)
+		types, ok := location["type"].([]any)
+		if !ok || len(types) != 2 || types[0] != "string" || types[1] != "null" {
+			t.Errorf("%s.%s type = %#v, want nullable string", schemaName, field, location["type"])
 		}
 	}
 }

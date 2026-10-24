@@ -240,7 +240,7 @@ var toolDefinitions = []toolDefinition{
 	{Name: "list_document_branches", Description: "List document branches with IDs and names, including branches with no published versions. Requires the document type's read scope.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
 	{Name: "list_api_endpoints", Description: "Find endpoint IDs in a published API version before calling get_endpoint_detail. Optional method and path filters match exactly.", InputSchema: inputSchema([]string{"project_id", "document_id", "version_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "version_id": stringProperty("Published version ID."), "method": stringProperty("Optional HTTP method, case-insensitive."), "path": stringProperty("Optional exact OpenAPI path, including parameter placeholders.")})},
 	{Name: "list_api_versions", Description: "List published API document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
-	{Name: "list_doc_versions", Description: "List published Markdown document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
+	{Name: "list_doc_versions", Description: "List published Markdown or TXT document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
 	{Name: "get_latest_schema", Description: "Get the latest published raw OpenAPI content on an explicitly selected branch. Use get_schema_version for a historical version.", InputSchema: inputSchema([]string{"project_id", "document_id", "branch_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "branch_id": stringProperty("Branch ID from list_document_branches.")})},
 	{Name: "get_schema_version", Description: "Get the complete raw OpenAPI content of an exact published version, including historical versions.", InputSchema: publishedVersionInputSchema()},
 	{Name: "get_endpoint_detail", Description: "Get stored parsed endpoint detail for a published API version endpoint.", InputSchema: inputSchema([]string{"project_id", "document_id", "version_id", "endpoint_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "version_id": stringProperty("Published version ID."), "endpoint_id": stringProperty("Endpoint ID.")})},
@@ -250,13 +250,13 @@ var toolDefinitions = []toolDefinition{
 	{Name: "update_api_version_draft", Description: "Update an existing API version draft before submission.", InputSchema: draftInputSchema(true)},
 	{Name: "submit_api_version_draft", Description: "Submit an API version draft for review.", InputSchema: inputSchema([]string{"project_id", "document_id", "draft_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "draft_id": stringProperty("Draft ID.")})},
 	{Name: "get_api_version_draft", Description: "Get an API draft's metadata, revision and raw OpenAPI content from the same snapshot.", InputSchema: inputSchema([]string{"project_id", "document_id", "draft_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "draft_id": stringProperty("Draft ID.")})},
-	{Name: "get_latest_doc", Description: "Get the latest published stable Markdown content on an explicitly selected branch. Use get_doc_version for a historical version.", InputSchema: inputSchema([]string{"project_id", "document_id", "branch_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "branch_id": stringProperty("Branch ID from list_document_branches.")})},
-	{Name: "get_doc_version", Description: "Get the complete stable Markdown content of an exact published version, including historical versions.", InputSchema: publishedVersionInputSchema()},
-	{Name: "compare_doc_versions", Description: "Compare two published Markdown document versions and return plain line diff details.", InputSchema: inputSchema([]string{"project_id", "document_id", "from_version_id", "to_version_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "from_version_id": stringProperty("Base version ID."), "to_version_id": stringProperty("Target version ID.")})},
-	{Name: "create_doc_draft", Description: "Create a Markdown document draft for human review.", InputSchema: docDraftInputSchema(false)},
-	{Name: "update_doc_draft", Description: "Update an existing Markdown document draft before submission.", InputSchema: docDraftInputSchema(true)},
-	{Name: "submit_doc_draft", Description: "Submit a Markdown document draft for review.", InputSchema: inputSchema([]string{"project_id", "document_id", "draft_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "draft_id": stringProperty("Draft ID.")})},
-	{Name: "get_doc_draft", Description: "Get a Markdown document draft and its stable Markdown content by ID.", InputSchema: inputSchema([]string{"project_id", "document_id", "draft_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "draft_id": stringProperty("Draft ID.")})},
+	{Name: "get_latest_doc", Description: "Get the latest published stable Markdown or TXT content on an explicitly selected branch. Use get_doc_version for a historical version.", InputSchema: inputSchema([]string{"project_id", "document_id", "branch_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "branch_id": stringProperty("Branch ID from list_document_branches.")})},
+	{Name: "get_doc_version", Description: "Get the complete stable Markdown or TXT content of an exact published version, including historical versions.", InputSchema: publishedVersionInputSchema()},
+	{Name: "compare_doc_versions", Description: "Compare two published Markdown or TXT document versions and return plain line diff details.", InputSchema: inputSchema([]string{"project_id", "document_id", "from_version_id", "to_version_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "from_version_id": stringProperty("Base version ID."), "to_version_id": stringProperty("Target version ID.")})},
+	{Name: "create_doc_draft", Description: "Create a Markdown or TXT document draft for human review.", InputSchema: docDraftInputSchema(false)},
+	{Name: "update_doc_draft", Description: "Update an existing Markdown or TXT document draft before submission.", InputSchema: docDraftInputSchema(true)},
+	{Name: "submit_doc_draft", Description: "Submit a Markdown or TXT document draft for review.", InputSchema: inputSchema([]string{"project_id", "document_id", "draft_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "draft_id": stringProperty("Draft ID.")})},
+	{Name: "get_doc_draft", Description: "Get a Markdown or TXT document draft and its stable content by ID.", InputSchema: inputSchema([]string{"project_id", "document_id", "draft_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "draft_id": stringProperty("Draft ID.")})},
 }
 
 func RegisterOpenRoutes(open *gin.RouterGroup) {
@@ -678,6 +678,9 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("branch_id", a.BranchID), field("version_name", a.VersionName), field("schema_content", a.SchemaContent)); err != nil {
 			return nil, err
 		}
+		if err := ensureMCPDocumentType(store, userID, a.ProjectID, a.DocumentID, app.DocumentTypeOpenAPI); err != nil {
+			return nil, err
+		}
 		draft, err := store.CreateMCPDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.SchemaContent}, auditCtx...)
 		if err != nil {
 			return nil, err
@@ -809,10 +812,14 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := decodeArguments(raw, &a); err != nil {
 			return nil, err
 		}
-		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("branch_id", a.BranchID), field("version_name", a.VersionName), field("markdown_content", a.MarkdownContent)); err != nil {
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("branch_id", a.BranchID), field("version_name", a.VersionName)); err != nil {
 			return nil, err
 		}
-		draft, err := store.CreateMarkdownDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent}, auditCtx...)
+		content, err := docDraftContent(a.Content, a.MarkdownContent)
+		if err != nil {
+			return nil, err
+		}
+		draft, err := store.CreateMarkdownDraft(userID, a.ProjectID, a.DocumentID, app.DraftInput{BranchID: a.BranchID, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: content}, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -825,10 +832,14 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err := decodeArguments(raw, &a); err != nil {
 			return nil, err
 		}
-		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID), field("markdown_content", a.MarkdownContent)); err != nil {
+		if err := requireNonEmpty(field("project_id", a.ProjectID), field("document_id", a.DocumentID), field("draft_id", a.DraftID)); err != nil {
 			return nil, err
 		}
-		draft, err := store.UpdateMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{ExpectedRevision: a.ExpectedRevision, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: a.MarkdownContent}, auditCtx...)
+		content, err := docDraftContent(a.Content, a.MarkdownContent)
+		if err != nil {
+			return nil, err
+		}
+		draft, err := store.UpdateMarkdownDraft(userID, a.ProjectID, a.DocumentID, a.DraftID, app.DraftPatchInput{ExpectedRevision: a.ExpectedRevision, VersionName: a.VersionName, Changelog: a.Changelog, SourceGitCommitID: a.SourceGitCommitID, SchemaContent: content}, auditCtx...)
 		if err != nil {
 			return nil, err
 		}
@@ -904,14 +915,15 @@ type draftUpdateArgs struct {
 }
 
 type docDraftArgs struct {
-	ProjectID         string `json:"project_id"`
-	DocumentID        string `json:"document_id"`
-	BranchID          string `json:"branch_id"`
-	DraftID           string `json:"draft_id"`
-	VersionName       string `json:"version_name"`
-	Changelog         string `json:"changelog"`
-	SourceGitCommitID string `json:"source_git_commit_id"`
-	MarkdownContent   string `json:"markdown_content"`
+	ProjectID         string  `json:"project_id"`
+	DocumentID        string  `json:"document_id"`
+	BranchID          string  `json:"branch_id"`
+	DraftID           string  `json:"draft_id"`
+	VersionName       string  `json:"version_name"`
+	Changelog         string  `json:"changelog"`
+	SourceGitCommitID string  `json:"source_git_commit_id"`
+	Content           *string `json:"content"`
+	MarkdownContent   *string `json:"markdown_content"`
 }
 
 type docDraftUpdateArgs struct {
@@ -922,7 +934,22 @@ type docDraftUpdateArgs struct {
 	VersionName       *string `json:"version_name"`
 	Changelog         *string `json:"changelog"`
 	SourceGitCommitID *string `json:"source_git_commit_id"`
-	MarkdownContent   string  `json:"markdown_content"`
+	Content           *string `json:"content"`
+	MarkdownContent   *string `json:"markdown_content"`
+}
+
+// docDraftContent 保留旧 Markdown 参数，并拒绝两个正文参数产生歧义。
+func docDraftContent(content, legacy *string) (string, error) {
+	if content == nil && legacy == nil {
+		return "", invalidArgument("content or markdown_content is required")
+	}
+	if content != nil && legacy != nil && *content != *legacy {
+		return "", invalidArgument("content and markdown_content must match when both are supplied")
+	}
+	if content != nil {
+		return *content, nil
+	}
+	return *legacy, nil
 }
 
 func isJSONRPCRequest(body []byte) bool {
@@ -1229,7 +1256,7 @@ func draftInputSchema(includeDraftID bool) gin.H {
 }
 
 func docDraftInputSchema(includeDraftID bool) gin.H {
-	required := []string{"project_id", "document_id", "branch_id", "version_name", "markdown_content"}
+	required := []string{"project_id", "document_id", "branch_id", "version_name"}
 	properties := gin.H{
 		"project_id":           stringProperty("Project ID."),
 		"document_id":          stringProperty("Document ID."),
@@ -1237,15 +1264,18 @@ func docDraftInputSchema(includeDraftID bool) gin.H {
 		"version_name":         stringProperty("Version name for the draft."),
 		"changelog":            stringProperty("Optional changelog."),
 		"source_git_commit_id": stringProperty("Optional source git commit ID."),
-		"markdown_content":     stringProperty("Markdown document content."),
+		"content":              stringProperty("Markdown or TXT document content. Supply content or the legacy markdown_content alias."),
+		"markdown_content":     stringProperty("Legacy alias for content. If both fields are supplied their values must match."),
 	}
 	if includeDraftID {
-		required = []string{"project_id", "document_id", "draft_id", "markdown_content", "expected_revision"}
+		required = []string{"project_id", "document_id", "draft_id", "expected_revision"}
 		delete(properties, "branch_id")
 		properties["draft_id"] = stringProperty("Draft ID.")
 		properties["expected_revision"] = stringProperty("Revision returned when the draft was read. Reload and reconcile edits after FAILED_PRECONDITION; never retry with a newer revision blindly.")
 	}
-	return inputSchema(required, properties)
+	schema := inputSchema(required, properties)
+	schema["anyOf"] = []gin.H{{"required": []string{"content"}}, {"required": []string{"markdown_content"}}}
+	return schema
 }
 
 func stringProperty(description string) gin.H {
@@ -1318,7 +1348,7 @@ func mcpDraft(value *app.ContractDraft) mcpDraftDTO {
 }
 
 func setNormalizedOrStableDraftHash(dto *mcpDraftDTO, format int, hash string) {
-	if format == app.DocumentFormatMarkdown {
+	if format == app.DocumentFormatMarkdown || format == app.DocumentFormatText {
 		dto.StableContentHash = hash
 		return
 	}
@@ -1335,7 +1365,7 @@ func mcpVersion(value *app.ContractVersion) mcpVersionDTO {
 }
 
 func setNormalizedOrStableVersionHash(dto *mcpVersionDTO, format int, hash string) {
-	if format == app.DocumentFormatMarkdown {
+	if format == app.DocumentFormatMarkdown || format == app.DocumentFormatText {
 		dto.StableContentHash = hash
 		return
 	}
@@ -1472,13 +1502,13 @@ func hasAnyScope(scopes []int, wants ...int) bool {
 
 func filterDocumentsForScopes(documents []*app.APIService, scopes []int) []*app.APIService {
 	allowOpenAPI := hasScope(scopes, app.ScopeAPIRead)
-	allowMarkdown := hasScope(scopes, app.ScopeDocRead)
+	allowText := hasScope(scopes, app.ScopeDocRead)
 	filtered := make([]*app.APIService, 0, len(documents))
 	for _, document := range documents {
 		if document == nil {
 			continue
 		}
-		if (allowMarkdown && document.DocumentType == app.DocumentTypeMarkdown) ||
+		if (allowText && (document.DocumentType == app.DocumentTypeMarkdown || document.DocumentType == app.DocumentTypeText)) ||
 			(allowOpenAPI && (document.DocumentType == 0 || document.DocumentType == app.DocumentTypeOpenAPI)) {
 			filtered = append(filtered, document)
 		}
@@ -1494,7 +1524,7 @@ func ensureMCPDocumentType(store *app.Store, userID, projectID, documentID strin
 	if want == app.DocumentTypeOpenAPI && (document.DocumentType == 0 || document.DocumentType == app.DocumentTypeOpenAPI) {
 		return nil
 	}
-	if document.DocumentType == want {
+	if document.DocumentType == want || (want == app.DocumentTypeMarkdown && document.DocumentType == app.DocumentTypeText) {
 		return nil
 	}
 	// Keep cross-type scope probes indistinguishable from an unknown document.

@@ -34,12 +34,17 @@ func (r *Repository) LoadReadState(ctx context.Context, scope domain.ReadScope) 
 					return err
 				}
 			}
-			if scope.Versions || scope.VersionID != "" {
+			if scope.Versions || scope.DocumentWorkflow || scope.VersionID != "" {
 				query := tx.Where("document_id = ? AND project_id = ?", scope.DocumentID, scope.ProjectID)
 				if scope.VersionID != "" {
 					query = query.Where("id = ?", scope.VersionID)
 				}
 				if err := reader(query).loadVersions(ctx, state); err != nil {
+					return err
+				}
+			}
+			if scope.DocumentWorkflow {
+				if err := reader(tx.Where("document_id = ? AND project_id = ?", scope.DocumentID, scope.ProjectID)).loadDrafts(ctx, state); err != nil {
 					return err
 				}
 			}

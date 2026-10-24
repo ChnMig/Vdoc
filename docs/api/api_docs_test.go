@@ -189,10 +189,6 @@ func TestAPIDocsUseProjectDocumentLanguage(t *testing.T) {
 		"Service" + " ID",
 		"/" + "services",
 		"api" + "_contract",
-		"file" + "name",
-		"File" + "name",
-		"file" + "_name",
-		"File" + "Name",
 		strings.Join([]string{"publish", "api", "schema"}, "_"),
 		strings.Join([]string{"publish", "api", "version"}, "_"),
 	}
@@ -204,6 +200,17 @@ func TestAPIDocsUseProjectDocumentLanguage(t *testing.T) {
 		for _, term := range staleTerms {
 			if strings.Contains(body, term) {
 				t.Fatalf("%s contains stale active document wording %q", path, term)
+			}
+		}
+	}
+}
+
+func TestAPIDocsDescribeIndependentFileNamesAndFolders(t *testing.T) {
+	for _, path := range []string{"API.md", "openapi.yaml"} {
+		body := readDocsMarkdown(t, path)
+		for _, field := range []string{"file_name", "folder_id", "initial_content"} {
+			if !strings.Contains(body, field) {
+				t.Fatalf("%s missing document location/upload contract %q", path, field)
 			}
 		}
 	}

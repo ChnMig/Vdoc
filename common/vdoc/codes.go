@@ -16,6 +16,7 @@ const (
 
 	DocumentTypeOpenAPI  = 1
 	DocumentTypeMarkdown = 2
+	DocumentTypeText     = 3
 
 	DocumentStatusActive   = 1
 	DocumentStatusArchived = 2
@@ -47,6 +48,7 @@ const (
 	DocumentFormatOpenAPI30 = SchemaFormatOpenAPI30
 	DocumentFormatOpenAPI31 = SchemaFormatOpenAPI31
 	DocumentFormatMarkdown  = 3
+	DocumentFormatText      = 4
 
 	SourceTypeWebUpload = 1
 	SourceTypeMCPUpload = 2
@@ -112,6 +114,7 @@ var MemberStatusNames = map[int]string{
 var DocumentTypeNames = map[int]string{
 	DocumentTypeOpenAPI:  "openapi",
 	DocumentTypeMarkdown: "markdown",
+	DocumentTypeText:     "text",
 }
 
 var DocumentStatusNames = map[int]string{
@@ -161,6 +164,7 @@ var DocumentFormatNames = map[int]string{
 	DocumentFormatOpenAPI30: "openapi_3_0",
 	DocumentFormatOpenAPI31: "openapi_3_1",
 	DocumentFormatMarkdown:  "markdown",
+	DocumentFormatText:      "text",
 }
 
 var SourceTypeNames = map[int]string{
