@@ -72,15 +72,16 @@ func TestServiceNamesAreUniqueWithinProject(t *testing.T) {
 	}
 }
 
-func TestCreateBranchValidatesFeatureNamesAndUniqueness(t *testing.T) {
+func TestCreateBranchValidatesCustomNamesAndUniqueness(t *testing.T) {
 	store := newTask5Store()
 	service, err := store.CreateService("admin", "project-a", "checkout", "", "", "")
 	if err != nil {
 		t.Fatalf("CreateService() error = %v", err)
 	}
 
-	if _, err := store.CreateBranch("admin", "project-a", service.ID, "checkout-v2", ""); !Is(err, ErrInvalidArgument) {
-		t.Fatalf("CreateBranch(checkout-v2) error = %v, want invalid argument", err)
+	custom, err := store.CreateBranch("admin", "project-a", service.ID, "checkout-v2", "")
+	if err != nil || custom.Kind != BranchKindFeature {
+		t.Fatalf("CreateBranch(checkout-v2) = %+v, %v, want custom feature branch", custom, err)
 	}
 	if _, err := store.CreateBranch("admin", "project-a", service.ID, "feature/", ""); !Is(err, ErrInvalidArgument) {
 		t.Fatalf("CreateBranch(feature/) error = %v, want invalid argument", err)

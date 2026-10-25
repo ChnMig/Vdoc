@@ -544,19 +544,44 @@ func TestDocumentDefaultBranchesThroughPrivateRoutes(t *testing.T) {
 	}
 }
 
-func TestFeatureBranchValidationThroughPrivateRoutes(t *testing.T) {
+func TestCustomBranchValidationThroughPrivateRoutes(t *testing.T) {
 	fixture := setupPrivateTask5Project(t)
 	document, err := app.DefaultStore().CreateDocument(fixture.adminUser.ID, fixture.project.ID, "checkout", app.DocumentTypeOpenAPI, "apis/feature-checkout.yaml", "")
 	if err != nil {
 		t.Fatalf("create document: %v", err)
 	}
 
-	invalidRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"checkout-v2"}`)
+	invalidRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"feature/"}`)
 	invalidEnvelope := decodePrivateEnvelope(t, invalidRecorder)
 	if invalidEnvelope.Code != 400 || invalidEnvelope.Status != "INVALID_ARGUMENT" {
 		t.Fatalf("invalid branch response = code %d status %q body %s", invalidEnvelope.Code, invalidEnvelope.Status, invalidRecorder.Body.String())
 	}
 	t.Logf("invalid branch response: code=%d status=%s body=%s", invalidEnvelope.Code, invalidEnvelope.Status, strings.TrimSpace(invalidRecorder.Body.String()))
+
+	customRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"main","description":"Custom workflow"}`)
+	customEnvelope := decodePrivateEnvelope(t, customRecorder)
+	if customEnvelope.Code != 200 || customEnvelope.Status != "OK" {
+		t.Fatalf("custom branch response = %s", customRecorder.Body.String())
+	}
+	var custom app.ContractBranch
+	if err := json.Unmarshal(customEnvelope.Detail, &custom); err != nil {
+		t.Fatal(err)
+	}
+	if custom.Name != "main" || custom.Kind != app.BranchKindFeature {
+		t.Fatalf("custom branch = %+v", custom)
+	}
+	renameRecorder := performPrivateJSON(fixture.router, http.MethodPatch, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches/"+custom.ID, fixture.adminToken, `{"name":"release/2026"}`)
+	renameEnvelope := decodePrivateEnvelope(t, renameRecorder)
+	if renameEnvelope.Code != 200 || renameEnvelope.Status != "OK" {
+		t.Fatalf("custom rename response = %s", renameRecorder.Body.String())
+	}
+	var renamed app.ContractBranch
+	if err := json.Unmarshal(renameEnvelope.Detail, &renamed); err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Name != "release/2026" || renamed.Kind != app.BranchKindFeature {
+		t.Fatalf("renamed custom branch = %+v", renamed)
+	}
 
 	featureRecorder := performPrivateJSON(fixture.router, http.MethodPost, "/api/v1/private/projects/"+fixture.project.ID+"/documents/"+document.ID+"/branches", fixture.adminToken, `{"name":"feature/checkout-v2","description":"Checkout V2"}`)
 	featureEnvelope := decodePrivateEnvelope(t, featureRecorder)

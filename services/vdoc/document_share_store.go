@@ -18,6 +18,7 @@ import (
 type DocumentShareInput struct {
 	BranchID     string
 	VersionScope int
+	VersionID    *string
 	ExpiryPreset domainshare.ExpiryPreset
 	Password     string
 }
@@ -68,8 +69,8 @@ func (s *Store) CreateDocumentShare(actorID, projectID, documentID string, input
 	if err != nil {
 		return nil, err
 	}
-	if s.latestVersionLocked(document.ID, branch.ID) == nil {
-		return nil, fmt.Errorf("%w: document branch has no published version", ErrFailedPrecondition)
+	if err := s.validateShareVersionSelectionLocked(document, branch, input); err != nil {
+		return nil, err
 	}
 	s = s.withMutationGuard(actorID, projectID, documentID, MemberRoleAdmin, branch.ID)
 
@@ -95,8 +96,8 @@ func (s *Store) CreateDocumentShare(actorID, projectID, documentID string, input
 		if err != nil {
 			return nil, err
 		}
-		if s.latestVersionLocked(document.ID, branch.ID) == nil {
-			return nil, fmt.Errorf("%w: document branch has no published version", ErrFailedPrecondition)
+		if err := s.validateShareVersionSelectionLocked(document, branch, input); err != nil {
+			return nil, err
 		}
 		passwordVerifier = &encoded
 	}
@@ -104,7 +105,7 @@ func (s *Store) CreateDocumentShare(actorID, projectID, documentID string, input
 	share, err := domainshare.Create(domainshare.CreateParams{
 		ID: shareID, ProjectID: projectID, DocumentID: documentID, BranchID: branch.ID,
 		TokenHash: capability.Hash, TokenCiphertext: capability.Ciphertext, CipherKID: capability.KID,
-		PasswordVerifier: passwordVerifier, VersionScope: input.VersionScope, ExpiryPreset: input.ExpiryPreset,
+		PasswordVerifier: passwordVerifier, VersionScope: input.VersionScope, PinnedVersionID: input.VersionID, ExpiryPreset: input.ExpiryPreset,
 		CreatedBy: actorID, Now: now,
 	})
 	if err != nil {
@@ -276,7 +277,7 @@ func (s *Store) PublicDocumentShareMetadata(shareID, secret, unlockProof string,
 	if err != nil {
 		return nil, publicShareAccessError(err)
 	}
-	version := s.latestVersionLocked(document.ID, share.BranchID)
+	version := s.currentPublicShareVersionLocked(share)
 	if version == nil {
 		return nil, publicShareUnavailable()
 	}
@@ -423,6 +424,33 @@ func (s *Store) managedDocumentShareLocked(projectID, documentID, shareID string
 	return share, nil
 }
 
+func (s *Store) validateShareVersionSelectionLocked(document *APIService, branch *ContractBranch, input DocumentShareInput) error {
+	if err := domainshare.ValidateVersionSelection(input.VersionScope, input.VersionID); err != nil {
+		return err
+	}
+	if input.VersionScope == DocumentShareScopeFixedVersion {
+		version := s.versions[*input.VersionID]
+		if version == nil || version.ServiceID != document.ID || version.BranchID != branch.ID || version.Status != VersionStatusPublished {
+			return ErrNotFound
+		}
+		return nil
+	}
+	if s.latestVersionLocked(document.ID, branch.ID) == nil {
+		return fmt.Errorf("%w: document branch has no published version", ErrFailedPrecondition)
+	}
+	return nil
+}
+
+func (s *Store) currentPublicShareVersionLocked(share *DocumentShare) *ContractVersion {
+	if share.VersionScope == DocumentShareScopeFixedVersion {
+		if share.PinnedVersionID == nil {
+			return nil
+		}
+		return s.allowedPublicShareVersionLocked(share, *share.PinnedVersionID)
+	}
+	return s.latestVersionLocked(share.DocumentID, share.BranchID)
+}
+
 func (s *Store) publishedShareVersionsLocked(documentID, branchID string) []*ContractVersion {
 	versions := make([]*ContractVersion, 0)
 	for _, version := range s.versions {
@@ -444,11 +472,19 @@ func (s *Store) allowedPublicShareVersionLocked(share *DocumentShare, versionID 
 	if version == nil || version.ServiceID != share.DocumentID || version.BranchID != share.BranchID || version.Status != VersionStatusPublished {
 		return nil
 	}
-	if share.VersionScope == DocumentShareScopeLatest {
+	switch share.VersionScope {
+	case DocumentShareScopeLatest:
 		latest := s.latestVersionLocked(share.DocumentID, share.BranchID)
 		if latest == nil || latest.ID != version.ID {
 			return nil
 		}
+	case DocumentShareScopeFixedVersion:
+		if share.PinnedVersionID == nil || *share.PinnedVersionID != version.ID {
+			return nil
+		}
+	case DocumentShareScopeAllVersions:
+	default:
+		return nil
 	}
 	return version
 }
@@ -477,6 +513,9 @@ func documentShareAuditMetadata(share *DocumentShare, result, versionID string) 
 		"status", fmt.Sprint(share.Status),
 		"expires_at", timePtrString(share.ExpiresAt),
 	)
+	if versionID == "" && share.PinnedVersionID != nil {
+		versionID = *share.PinnedVersionID
+	}
 	if versionID != "" {
 		metadata["version_id"] = versionID
 	}
@@ -524,6 +563,9 @@ func authorizePublicShareSnapshot(snapshot *domainvdoc.PublicDocumentShareSnapsh
 func publishedSnapshotVersions(snapshot *domainvdoc.PublicDocumentShareSnapshot, share *DocumentShare) []*ContractVersion {
 	versions := make([]*ContractVersion, 0, len(snapshot.Versions))
 	for _, version := range snapshot.Versions {
+		if share.VersionScope == DocumentShareScopeFixedVersion && (share.PinnedVersionID == nil || version == nil || version.ID != *share.PinnedVersionID) {
+			continue
+		}
 		if version != nil && version.ServiceID == share.DocumentID && version.BranchID == share.BranchID && version.Status == VersionStatusPublished {
 			versions = append(versions, version)
 		}
@@ -540,7 +582,10 @@ func publishedSnapshotVersions(snapshot *domainvdoc.PublicDocumentShareSnapshot,
 func allowedSnapshotVersion(snapshot *domainvdoc.PublicDocumentShareSnapshot, share *DocumentShare, versionID string) *ContractVersion {
 	versions := publishedSnapshotVersions(snapshot, share)
 	for index, version := range versions {
-		if version.ID == versionID && (share.VersionScope == DocumentShareScopeAllVersions || index == 0) {
+		allowed := share.VersionScope == DocumentShareScopeAllVersions ||
+			(share.VersionScope == DocumentShareScopeLatest && index == 0) ||
+			(share.VersionScope == DocumentShareScopeFixedVersion && share.PinnedVersionID != nil && *share.PinnedVersionID == version.ID)
+		if version.ID == versionID && allowed {
 			return version
 		}
 	}

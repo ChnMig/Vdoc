@@ -69,7 +69,7 @@ func TestDocumentShareCreate_rejectsUnknownPresetAndScope(t *testing.T) {
 	}{
 		{name: "unknown preset", params: validCreateParams(now, ExpiryPreset("forever"))},
 		{name: "zero scope", params: createParamsWithScope(now, 0)},
-		{name: "unknown scope", params: createParamsWithScope(now, 3)},
+		{name: "unknown scope", params: createParamsWithScope(now, 4)},
 	}
 
 	for _, test := range tests {
@@ -81,6 +81,45 @@ func TestDocumentShareCreate_rejectsUnknownPresetAndScope(t *testing.T) {
 			if !errors.Is(err, commonvdoc.ErrInvalidArgument) {
 				t.Fatalf("Create() error = %v, want invalid argument", err)
 			}
+		})
+	}
+}
+
+func TestDocumentShareCreateValidatesFixedVersionSelection(t *testing.T) {
+	now := time.Now().UTC()
+	versionID, emptyID, paddedID := "published-version", "", " published-version "
+	for _, test := range []struct {
+		name      string
+		scope     int
+		versionID *string
+		valid     bool
+	}{
+		{"fixed version", commonvdoc.DocumentShareScopeFixedVersion, &versionID, true},
+		{"fixed missing ID", commonvdoc.DocumentShareScopeFixedVersion, nil, false},
+		{"fixed empty ID", commonvdoc.DocumentShareScopeFixedVersion, &emptyID, false},
+		{"fixed padded ID", commonvdoc.DocumentShareScopeFixedVersion, &paddedID, false},
+		{"latest with ID", commonvdoc.DocumentShareScopeLatest, &versionID, false},
+		{"all with ID", commonvdoc.DocumentShareScopeAllVersions, &versionID, false},
+		{"latest with empty ID", commonvdoc.DocumentShareScopeLatest, &emptyID, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			params := createParamsWithScope(now, test.scope)
+			params.PinnedVersionID = test.versionID
+			share, err := Create(params)
+			if !test.valid {
+				if !errors.Is(err, commonvdoc.ErrInvalidArgument) {
+					t.Fatalf("Create() error = %v, want invalid argument", err)
+				}
+				return
+			}
+			if err != nil || share.PinnedVersionID == nil || *share.PinnedVersionID != versionID {
+				t.Fatalf("fixed share = %+v, error %v", share, err)
+			}
+			*params.PinnedVersionID = "changed"
+			if *share.PinnedVersionID != "published-version" {
+				t.Fatal("Create aliased input version ID")
+			}
+			versionID = "published-version"
 		})
 	}
 }

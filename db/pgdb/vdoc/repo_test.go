@@ -211,6 +211,34 @@ func TestLoadPublicDocumentShareSnapshotRejectsUninitializedRepository(t *testin
 	}
 }
 
+func TestDocumentShareModelMappingRoundTripsPinnedVersion(t *testing.T) {
+	const versionID = "11111111111111111111111111111111"
+	pinnedID := versionID
+	share := &domainvdoc.DocumentShare{VersionScope: domainvdoc.DocumentShareScopeFixedVersion, PinnedVersionID: &pinnedID}
+	model := documentShareModelFromDomain(share)
+	if model.PinnedVersionID == nil || *model.PinnedVersionID != versionID {
+		t.Fatalf("model pinned version = %v, want %s", model.PinnedVersionID, versionID)
+	}
+	*share.PinnedVersionID = "22222222222222222222222222222222"
+	if *model.PinnedVersionID != versionID {
+		t.Fatal("model pinned version aliases the domain input")
+	}
+	canonicalID := "11111111-1111-1111-1111-111111111111"
+	model.PinnedVersionID = &canonicalID
+	loaded := domainDocumentShareFromModel(*model)
+	if loaded.VersionScope != domainvdoc.DocumentShareScopeFixedVersion || loaded.PinnedVersionID == nil || *loaded.PinnedVersionID != versionID {
+		t.Fatalf("loaded pinned version = %+v, want compact domain ID", loaded)
+	}
+	*model.PinnedVersionID = "33333333-3333-3333-3333-333333333333"
+	if *loaded.PinnedVersionID != versionID {
+		t.Fatal("loaded pinned version aliases the persistence model")
+	}
+	legacy := domainDocumentShareFromModel(DocumentShare{VersionScope: domainvdoc.DocumentShareScopeLatest})
+	if legacy.PinnedVersionID != nil || documentShareModelFromDomain(legacy).PinnedVersionID != nil {
+		t.Fatal("legacy latest share must retain an absent pinned version")
+	}
+}
+
 func TestDocumentWorkflowModelMappingKeepsDocumentIdentity(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	document := &domainvdoc.APIService{ID: "document-id", ProjectID: "project-id", Name: "checkout", DocumentType: domainvdoc.DocumentTypeOpenAPI, RelativePath: "apis/checkout.yaml", Status: domainvdoc.DocumentStatusActive, CreatedBy: "admin-id", CreatedAt: now, UpdatedAt: now}

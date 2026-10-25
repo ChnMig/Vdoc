@@ -53,8 +53,9 @@ const (
 
 	VersionStatusPublished = commonvdoc.VersionStatusPublished
 
-	DocumentShareScopeLatest      = commonvdoc.DocumentShareScopeLatest
-	DocumentShareScopeAllVersions = commonvdoc.DocumentShareScopeAllVersions
+	DocumentShareScopeLatest       = commonvdoc.DocumentShareScopeLatest
+	DocumentShareScopeAllVersions  = commonvdoc.DocumentShareScopeAllVersions
+	DocumentShareScopeFixedVersion = commonvdoc.DocumentShareScopeFixedVersion
 
 	DocumentShareStatusActive  = commonvdoc.DocumentShareStatusActive
 	DocumentShareStatusRevoked = commonvdoc.DocumentShareStatusRevoked

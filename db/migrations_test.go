@@ -21,6 +21,8 @@ func TestHistoricalMigrationChecksumsAreFrozen(t *testing.T) {
 		t.Fatalf("load migrations: %v", err)
 	}
 	expected := map[string]string{
+		"011": "74c091d9e39f1c8fd61986221208c7720978f63b536cf8cc5d039ab449f2101e",
+		"010": "88e0673e286e6e06c5f4e5dc82d186a59d32b36f515862cb4cceb44b500b7685",
 		"009": "19de58ea11d6e676b5bf3070cb0c814c3c468eb2676b2ed9d7d4bb538169a1a0",
 		"008": "1809e367eb03c41c1bf78ec09b31007015839f5b71fba8bf6629ac1d50a4711d",
 		"007": "670ee96f8353b674f672d5d945a3cbcddd2ccd4b3689c261dd1af8148583a8a4",
@@ -315,7 +317,9 @@ func TestRunMigrationsEnforcesKeyConstraints(t *testing.T) {
 	assertExecFails(t, database, `INSERT INTO project_members(project_id,user_id,role,status,added_by) VALUES('`+projectID+`','`+userID+`',9,1,'`+userID+`')`, "member role")
 	assertExecFails(t, database, `INSERT INTO project_members(project_id,user_id,role,status,added_by) VALUES('`+projectID+`','`+userID+`',1,9,'`+userID+`')`, "member status")
 	assertExecFails(t, database, `INSERT INTO document_branches(document_id,name,kind,status,created_by) VALUES('`+documentID+`','feature/nope',1,1,'`+userID+`')`, "branch name unique")
-	assertExecFails(t, database, `INSERT INTO document_branches(document_id,name,kind,status,created_by) VALUES('`+documentID+`','bugfix/nope',2,1,'`+userID+`')`, "feature name")
+	if err := database.Exec(`INSERT INTO document_branches(document_id,name,kind,status,created_by) VALUES(?,?,2,1,?)`, documentID, "bugfix/nope", userID).Error; err != nil {
+		t.Fatalf("custom branch name must be allowed: %v", err)
+	}
 	assertExecFails(t, database, `INSERT INTO document_versions(project_id,document_id,branch_id,version_name,version_no,relative_path,status,source_draft_id,source_type,document_format,raw_schema_object_key,normalized_schema_object_key,raw_schema_hash,normalized_schema_hash,schema_size_bytes,published_by) VALUES('`+projectID+`','`+documentID+`','`+branchID+`','1.0.0',3,'openapi/pets.yaml',1,'`+draftID+`',1,1,'raw2','norm2','r2','n2',10,'`+userID+`')`, "version uniqueness")
 	assertExecFails(t, database, `INSERT INTO api_endpoints(document_version_id,document_id,branch_id,method,path,tags,deprecated,request_hash,response_hash,endpoint_hash,sort_order) VALUES('`+versionID+`','`+documentID+`','`+branchID+`',9,'/bad','{}',false,'r','s','e',2)`, "endpoint method")
 	assertExecFails(t, database, `INSERT INTO document_diff_items(diff_id,severity,change_type,message,is_breaking,sort_order) SELECT id,3,1,'bad',false,2 FROM document_version_diffs LIMIT 1`, "breaking consistency")

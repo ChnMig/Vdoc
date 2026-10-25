@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"vdoc/config"
+	domainshare "vdoc/domain/documentshare"
 	domainvdoc "vdoc/domain/vdoc"
 )
 
@@ -1036,8 +1037,7 @@ func (r *recordingRepository) LoadPublicDocumentShareSnapshot(ctx context.Contex
 	if project == nil || document == nil || branch == nil {
 		return nil, errors.New("share parent not found")
 	}
-	shareCopy := *share
-	shareCopy.TokenCiphertext = append([]byte(nil), share.TokenCiphertext...)
+	shareCopy := domainshare.Clone(share)
 	projectCopy := *project
 	documentCopy := *document
 	branchCopy := *branch
@@ -1048,7 +1048,7 @@ func (r *recordingRepository) LoadPublicDocumentShareSnapshot(ctx context.Contex
 			versions = append(versions, &versionCopy)
 		}
 	}
-	return &domainvdoc.PublicDocumentShareSnapshot{Share: &shareCopy, Project: &projectCopy, Document: &documentCopy, Branch: &branchCopy, Versions: versions}, nil
+	return &domainvdoc.PublicDocumentShareSnapshot{Share: shareCopy, Project: &projectCopy, Document: &documentCopy, Branch: &branchCopy, Versions: versions}, nil
 }
 
 func (r *recordingRepository) RecordPublicDocumentShareAccess(ctx context.Context, shareID string, audit *domainvdoc.AuditLog) error {
@@ -1406,9 +1406,7 @@ func cloneRepositoryStateWithoutBodies(state *domainvdoc.State) *domainvdoc.Stat
 		clone.Tokens[key] = &copied
 	}
 	for key, value := range state.Shares {
-		copied := *value
-		copied.TokenCiphertext = append([]byte(nil), value.TokenCiphertext...)
-		clone.Shares[key] = &copied
+		clone.Shares[key] = domainshare.Clone(value)
 	}
 	return clone
 }

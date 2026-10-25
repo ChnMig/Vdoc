@@ -35,8 +35,9 @@ const (
 
 	VersionStatusPublished = 1
 
-	DocumentShareScopeLatest      = 1
-	DocumentShareScopeAllVersions = 2
+	DocumentShareScopeLatest       = 1
+	DocumentShareScopeAllVersions  = 2
+	DocumentShareScopeFixedVersion = 3
 
 	DocumentShareStatusActive  = 1
 	DocumentShareStatusRevoked = 2
@@ -145,8 +146,9 @@ var VersionStatusNames = map[int]string{
 }
 
 var DocumentShareScopeNames = map[int]string{
-	DocumentShareScopeLatest:      "latest",
-	DocumentShareScopeAllVersions: "all_versions",
+	DocumentShareScopeLatest:       "latest",
+	DocumentShareScopeAllVersions:  "all_versions",
+	DocumentShareScopeFixedVersion: "fixed_version",
 }
 
 var DocumentShareStatusNames = map[int]string{

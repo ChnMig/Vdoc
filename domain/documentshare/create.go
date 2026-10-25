@@ -2,6 +2,7 @@ package documentshare
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	commonvdoc "vdoc/common/vdoc"
@@ -27,6 +28,7 @@ type CreateParams struct {
 	CipherKID        string
 	PasswordVerifier *string
 	VersionScope     int
+	PinnedVersionID  *string
 	ExpiryPreset     ExpiryPreset
 	CreatedBy        string
 	Now              time.Time
@@ -48,6 +50,7 @@ func Create(params CreateParams) (*DocumentShare, error) {
 		CipherKID:        params.CipherKID,
 		PasswordVerifier: cloneString(params.PasswordVerifier),
 		VersionScope:     params.VersionScope,
+		PinnedVersionID:  cloneString(params.PinnedVersionID),
 		Status:           commonvdoc.DocumentShareStatusActive,
 		ExpiresAt:        expiresAt,
 		CreatedBy:        params.CreatedBy,
@@ -66,6 +69,9 @@ func Validate(share *DocumentShare) error {
 	}
 	if !validScope(share.VersionScope) || !validPersistedStatus(share.Status) {
 		return fmt.Errorf("%w: invalid document share code", commonvdoc.ErrInvalidArgument)
+	}
+	if err := ValidateVersionSelection(share.VersionScope, share.PinnedVersionID); err != nil {
+		return err
 	}
 	if share.Status == commonvdoc.DocumentShareStatusActive && (share.RevokedBy != nil || share.RevokedAt != nil) {
 		return fmt.Errorf("%w: active document share has revocation metadata", commonvdoc.ErrInvalidArgument)
@@ -97,7 +103,21 @@ func expiresAtForPreset(preset ExpiryPreset, now time.Time) (*time.Time, error) 
 }
 
 func validScope(scope int) bool {
-	return scope == commonvdoc.DocumentShareScopeLatest || scope == commonvdoc.DocumentShareScopeAllVersions
+	return scope == commonvdoc.DocumentShareScopeLatest || scope == commonvdoc.DocumentShareScopeAllVersions || scope == commonvdoc.DocumentShareScopeFixedVersion
+}
+
+func ValidateVersionSelection(scope int, versionID *string) error {
+	if !validScope(scope) {
+		return fmt.Errorf("%w: invalid document share scope", commonvdoc.ErrInvalidArgument)
+	}
+	if scope == commonvdoc.DocumentShareScopeFixedVersion {
+		if versionID == nil || *versionID == "" || strings.TrimSpace(*versionID) != *versionID {
+			return fmt.Errorf("%w: fixed-version share requires version_id", commonvdoc.ErrInvalidArgument)
+		}
+	} else if versionID != nil {
+		return fmt.Errorf("%w: version_id requires fixed-version scope", commonvdoc.ErrInvalidArgument)
+	}
+	return nil
 }
 
 func validPersistedStatus(status int) bool {

@@ -247,8 +247,15 @@ func (r *Repository) LoadPublicDocumentShareSnapshot(ctx context.Context, shareI
 		return nil, err
 	}
 	var versionModels []DocumentVersion
-	if err := r.database.WithContext(ctx).
-		Where("document_id = ? AND branch_id = ? AND status = ?", shareModel.DocumentID, shareModel.BranchID, domainvdoc.VersionStatusPublished).
+	versionQuery := r.database.WithContext(ctx).
+		Where("project_id = ? AND document_id = ? AND branch_id = ? AND status = ?", shareModel.ProjectID, shareModel.DocumentID, shareModel.BranchID, domainvdoc.VersionStatusPublished)
+	if shareModel.VersionScope == domainvdoc.DocumentShareScopeFixedVersion {
+		if shareModel.PinnedVersionID == nil {
+			return nil, domainvdoc.ErrFailedPrecondition
+		}
+		versionQuery = versionQuery.Where("id = ?", *shareModel.PinnedVersionID)
+	}
+	if err := versionQuery.
 		Order("published_at DESC, id DESC").
 		Find(&versionModels).Error; err != nil {
 		return nil, err
@@ -324,6 +331,18 @@ func (r *Repository) RecordPublicDocumentShareAccess(ctx context.Context, shareI
 		identitiesMatch := share.ProjectID == project.ID && share.DocumentID == document.ID && share.BranchID == branch.ID
 		if !shareActive || !parentsActive || !identitiesMatch {
 			return fmt.Errorf("%w: public document share is no longer available", domainvdoc.ErrFailedPrecondition)
+		}
+		if share.VersionScope == domainvdoc.DocumentShareScopeFixedVersion {
+			// 最终读取固定版本，避免快照读取后分享目标变化造成越权访问。
+			if share.PinnedVersionID == nil || domainID(audit.Metadata["version_id"]) != domainID(*share.PinnedVersionID) {
+				return fmt.Errorf("%w: public document share version changed", domainvdoc.ErrFailedPrecondition)
+			}
+			var version DocumentVersion
+			if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).
+				Where("id = ? AND project_id = ? AND document_id = ? AND branch_id = ? AND status = ?", *share.PinnedVersionID, share.ProjectID, share.DocumentID, share.BranchID, domainvdoc.VersionStatusPublished).
+				First(&version).Error; err != nil {
+				return mapRecordLookupError(err)
+			}
 		}
 		return (&Repository{database: tx}).RecordAudit(ctx, audit)
 	}))
@@ -602,6 +621,18 @@ func (r *Repository) lockActiveDocumentShareParents(ctx context.Context, share *
 		Where("id = ? AND document_id = ? AND status = ?", share.BranchID, share.DocumentID, domainvdoc.BranchStatusActive).
 		First(&branch).Error; err != nil {
 		return mapRecordLookupError(err)
+	}
+	if share.VersionScope == domainvdoc.DocumentShareScopeFixedVersion {
+		if share.PinnedVersionID == nil {
+			return fmt.Errorf("%w: fixed document share requires a version", domainvdoc.ErrInvalidArgument)
+		}
+		var version DocumentVersion
+		if err := r.database.WithContext(ctx).
+			Clauses(clause.Locking{Strength: "SHARE"}).
+			Where("id = ? AND project_id = ? AND document_id = ? AND branch_id = ? AND status = ?", *share.PinnedVersionID, share.ProjectID, share.DocumentID, share.BranchID, domainvdoc.VersionStatusPublished).
+			First(&version).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
 	}
 	return nil
 }
@@ -1275,7 +1306,7 @@ func documentShareModelFromDomain(share *domainvdoc.DocumentShare) *DocumentShar
 		Base:      pgdb.Base{ID: share.ID, CreatedAt: nonZeroTime(share.CreatedAt), UpdatedAt: nonZeroTime(share.UpdatedAt)},
 		ProjectID: share.ProjectID, DocumentID: share.DocumentID, BranchID: share.BranchID,
 		TokenHash: share.TokenHash, TokenCiphertext: append([]byte(nil), share.TokenCiphertext...), CipherKID: share.CipherKID,
-		PasswordVerifier: stringPtr(share.PasswordVerifier), VersionScope: share.VersionScope, Status: share.Status,
+		PasswordVerifier: stringPtr(share.PasswordVerifier), VersionScope: share.VersionScope, PinnedVersionID: stringPtr(share.PinnedVersionID), Status: share.Status,
 		ExpiresAt: share.ExpiresAt, CreatedBy: share.CreatedBy, RevokedBy: stringPtr(share.RevokedBy), RevokedAt: share.RevokedAt,
 	}
 }
@@ -1284,7 +1315,7 @@ func domainDocumentShareFromModel(model DocumentShare) *domainvdoc.DocumentShare
 	return &domainvdoc.DocumentShare{
 		ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: domainID(model.DocumentID), BranchID: domainID(model.BranchID),
 		TokenHash: model.TokenHash, TokenCiphertext: append([]byte(nil), model.TokenCiphertext...), CipherKID: model.CipherKID,
-		PasswordVerifier: cloneOptionalString(model.PasswordVerifier), VersionScope: model.VersionScope, Status: model.Status,
+		PasswordVerifier: cloneOptionalString(model.PasswordVerifier), VersionScope: model.VersionScope, PinnedVersionID: stringPtrID(model.PinnedVersionID), Status: model.Status,
 		ExpiresAt: cloneOptionalTime(model.ExpiresAt), CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt,
 		RevokedBy: stringPtrID(model.RevokedBy), RevokedAt: cloneOptionalTime(model.RevokedAt),
 	}

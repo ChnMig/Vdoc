@@ -122,6 +122,7 @@ type DocumentShare struct {
 	CipherKID        string     `gorm:"column:cipher_kid;type:text;not null"`
 	PasswordVerifier *string    `gorm:"column:password_verifier;type:text"`
 	VersionScope     int        `gorm:"column:version_scope;type:smallint;not null"`
+	PinnedVersionID  *string    `gorm:"column:pinned_version_id;type:uuid"`
 	Status           int        `gorm:"column:status;type:smallint;not null;default:1"`
 	ExpiresAt        *time.Time `gorm:"column:expires_at;type:timestamptz"`
 	CreatedBy        string     `gorm:"column:created_by;type:uuid;not null"`

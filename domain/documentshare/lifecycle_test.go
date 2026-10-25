@@ -56,7 +56,7 @@ func TestDocumentShareEffectiveStatus_rejectsInvalidPersistedCodes(t *testing.T)
 		status int
 	}{
 		{name: "zero scope", scope: 0, status: commonvdoc.DocumentShareStatusActive},
-		{name: "unknown scope", scope: 3, status: commonvdoc.DocumentShareStatusActive},
+		{name: "unknown scope", scope: 4, status: commonvdoc.DocumentShareStatusActive},
 		{name: "zero status", scope: commonvdoc.DocumentShareScopeLatest, status: 0},
 		{name: "computed status persisted", scope: commonvdoc.DocumentShareScopeLatest, status: commonvdoc.DocumentShareStatusExpired},
 		{name: "unknown status", scope: commonvdoc.DocumentShareScopeLatest, status: 4},

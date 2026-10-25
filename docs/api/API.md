@@ -134,7 +134,7 @@ BRANCH_ID=$(curl -sS "$API_BASE/api/v1/private/projects/$PROJECT_ID/documents/$D
   -H "Authorization: $JWT" | jq -r '.detail[] | select(.name=="dev") | .id')
 ```
 
-Document creation creates `dev`, `test`, and protected `prod` branches. Admins can add `feature/*` branches when needed.
+Document creation creates `dev`, `test`, and protected `prod` branches. Admins can create and rename custom branches such as `main`, `release`, `feature/checkout`, or `release/2026`; the `feature/` prefix is optional. The exact names `dev`, `test`, and `prod` retain environment kind, and other valid names use feature kind. Names are trimmed, must be non-empty valid text, and cannot contain backslashes, control characters, empty slash-separated segments, or `.`/`..` segments. Names stay case-sensitive and unique within the document, including archived branches. Creating a branch creates no draft or published version.
 
 Document lifecycle state is not patchable. `PATCH /api/v1/private/projects/{project_id}/documents/{document_id}` updates document metadata only; omit `status` (or send the unchanged active value for legacy clients). Archive a document only through `POST /api/v1/private/projects/{project_id}/documents/{document_id}/archive`. A rejected status change does not partially update the other fields.
 
@@ -299,7 +299,9 @@ POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/message
 
 ### 6. Public Document Shares
 
-Only Project Admins and SuperAdmins can manage public links. A branch must be active and already contain at least one published version before a link can be created. `version_scope` is `1` for the moving latest published version and `2` for all published versions on the branch. `expiry_preset` accepts `1_month`, `3_months`, `6_months`, `1_year`, or `permanent`; Admin selects `3_months` by default. `password` is optional and, when present, must be 12–72 UTF-8 bytes with no leading or trailing Unicode whitespace.
+Only Project Admins and SuperAdmins can manage public links. A branch must be active and already contain at least one published version before a link can be created. `version_scope` is `1` for the moving latest published version, `2` for all published versions on the branch, or `3` for one fixed published version. Scope `3` requires a nonempty `version_id` belonging to the same project, document, and branch; scopes `1` and `2` must omit `version_id`. Drafts cannot be shared. The private create/list/reveal/revoke response includes `version_id` for fixed-version links. `expiry_preset` accepts `1_month`, `3_months`, `6_months`, `1_year`, or `permanent`; Admin selects `3_months` by default. `password` is optional and, when present, must be 12–72 UTF-8 bytes with no leading or trailing Unicode whitespace.
+
+For a fixed-version link, public metadata's `current_version` always identifies that version, including after newer versions are published. Content and download routes accept only its `version_id`; other IDs return the same unavailable response. The public versions-list route remains available only to scope `2`, so fixed-version links expose no other version metadata. Existing scope `1` and `2` links keep their original behavior.
 
 After the parent Project, Document, or Branch is archived, Admins can still list retained share history and revoke an active link. Creating a link and revealing its capability are blocked. Anonymous public access remains unavailable whenever a parent is inactive and deliberately does not reveal which lifecycle check failed.
 

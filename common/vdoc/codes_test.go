@@ -40,7 +40,7 @@ func TestMCPScopeCodesIncludeAPIDocReadDraft(t *testing.T) {
 
 func TestDocumentShareCodes_matchPersistedAndEffectiveContract(t *testing.T) {
 	// Given
-	wantScopes := map[int]string{1: "latest", 2: "all_versions"}
+	wantScopes := map[int]string{1: "latest", 2: "all_versions", 3: "fixed_version"}
 	wantStatuses := map[int]string{1: "active", 2: "revoked", 3: "expired"}
 
 	// When
@@ -48,8 +48,8 @@ func TestDocumentShareCodes_matchPersistedAndEffectiveContract(t *testing.T) {
 	gotStatuses := DocumentShareStatusNames
 
 	// Then
-	if DocumentShareScopeLatest != 1 || DocumentShareScopeAllVersions != 2 {
-		t.Fatalf("document share scope codes = %d and %d, want 1 and 2", DocumentShareScopeLatest, DocumentShareScopeAllVersions)
+	if DocumentShareScopeLatest != 1 || DocumentShareScopeAllVersions != 2 || DocumentShareScopeFixedVersion != 3 {
+		t.Fatalf("document share scope codes = %d, %d, %d, want 1, 2, 3", DocumentShareScopeLatest, DocumentShareScopeAllVersions, DocumentShareScopeFixedVersion)
 	}
 	if DocumentShareStatusActive != 1 || DocumentShareStatusRevoked != 2 || DocumentShareStatusExpired != 3 {
 		t.Fatalf("document share status codes = %d, %d, and %d, want 1, 2, and 3", DocumentShareStatusActive, DocumentShareStatusRevoked, DocumentShareStatusExpired)

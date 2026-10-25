@@ -12,6 +12,7 @@ type DocumentShare struct {
 	CipherKID        string     `json:"-"`
 	PasswordVerifier *string    `json:"-"`
 	VersionScope     int        `json:"version_scope"`
+	PinnedVersionID  *string    `json:"version_id,omitempty"`
 	Status           int        `json:"status"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	CreatedBy        string     `json:"created_by"`
@@ -32,6 +33,7 @@ func Clone(share *DocumentShare) *DocumentShare {
 	cloned := *share
 	cloned.TokenCiphertext = append([]byte(nil), share.TokenCiphertext...)
 	cloned.PasswordVerifier = cloneString(share.PasswordVerifier)
+	cloned.PinnedVersionID = cloneString(share.PinnedVersionID)
 	cloned.ExpiresAt = cloneTime(share.ExpiresAt)
 	cloned.RevokedBy = cloneString(share.RevokedBy)
 	cloned.RevokedAt = cloneTime(share.RevokedAt)

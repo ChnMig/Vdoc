@@ -17,6 +17,7 @@ type shareDTO struct {
 	DocumentID        string     `json:"document_id"`
 	BranchID          string     `json:"branch_id"`
 	VersionScope      int        `json:"version_scope"`
+	VersionID         *string    `json:"version_id,omitempty"`
 	Status            int        `json:"status"`
 	PasswordProtected bool       `json:"password_protected"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
@@ -62,17 +63,18 @@ func createShare(c *gin.Context) {
 		return
 	}
 	var req struct {
-		BranchID     string `json:"branch_id"`
-		VersionScope int    `json:"version_scope"`
-		ExpiryPreset string `json:"expiry_preset"`
-		Password     string `json:"password"`
+		BranchID     string  `json:"branch_id"`
+		VersionScope int     `json:"version_scope"`
+		VersionID    *string `json:"version_id"`
+		ExpiryPreset string  `json:"expiry_preset"`
+		Password     string  `json:"password"`
 	}
 	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
 	created, err := shared.Store(c).CreateDocumentShare(userID, c.Param("project_id"), c.Param("document_id"), app.DocumentShareInput{
-		BranchID: req.BranchID, VersionScope: req.VersionScope, ExpiryPreset: app.DocumentShareExpiryPreset(req.ExpiryPreset), Password: req.Password,
+		BranchID: req.BranchID, VersionScope: req.VersionScope, VersionID: req.VersionID, ExpiryPreset: app.DocumentShareExpiryPreset(req.ExpiryPreset), Password: req.Password,
 	}, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
@@ -113,7 +115,7 @@ func toShareDTO(share *app.DocumentShare) shareDTO {
 	}
 	return shareDTO{
 		ID: share.ID, ProjectID: share.ProjectID, DocumentID: share.DocumentID, BranchID: share.BranchID,
-		VersionScope: share.VersionScope, Status: share.Status, PasswordProtected: share.PasswordProtected(), ExpiresAt: share.ExpiresAt,
+		VersionScope: share.VersionScope, VersionID: share.PinnedVersionID, Status: share.Status, PasswordProtected: share.PasswordProtected(), ExpiresAt: share.ExpiresAt,
 		CreatedBy: share.CreatedBy, CreatedAt: share.CreatedAt, UpdatedAt: share.UpdatedAt, RevokedBy: share.RevokedBy, RevokedAt: share.RevokedAt,
 	}
 }

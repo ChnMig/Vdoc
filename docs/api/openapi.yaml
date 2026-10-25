@@ -110,6 +110,7 @@ paths:
     get:
       tags: [Document Shares]
       summary: Read minimal metadata for an authorized public document share.
+      description: current_version follows the branch for scopes 1 and 2; for fixed-version scope 3 it always identifies the pinned published version.
       operationId: getPublicDocumentShare
       security: [{ DocumentShareAuth: [] }]
       responses:
@@ -135,6 +136,7 @@ paths:
     get:
       tags: [Document Shares]
       summary: List published versions allowed by an all-versions share.
+      description: Available only for scope 2. Latest-only and fixed-version shares return the same unavailable response as an unauthorized request.
       operationId: listPublicDocumentShareVersions
       security: [{ DocumentShareAuth: [] }]
       responses:
@@ -146,6 +148,7 @@ paths:
     get:
       tags: [Document Shares]
       summary: Read an allowed immutable published snapshot.
+      description: A fixed-version share allows only its pinned version_id. Other version IDs return the same public unavailable response.
       operationId: getPublicDocumentShareContent
       security: [{ DocumentShareAuth: [] }]
       responses:
@@ -157,6 +160,7 @@ paths:
     get:
       tags: [Document Shares]
       summary: Download an allowed immutable published source file through Vdoc authorization.
+      description: A fixed-version share allows only its pinned version_id. Other version IDs return the same public unavailable response.
       operationId: downloadPublicDocumentShareVersion
       security: [{ DocumentShareAuth: [] }]
       responses:
@@ -572,7 +576,7 @@ paths:
     post:
       tags: [Document Shares]
       summary: Create an immutable branch-bound public-share policy and return its capability once.
-      description: Requires an active Project, Document, and Branch with at least one published version. Archived parents retain list and revoke access but block creation.
+      description: Requires an active Project, Document, and Branch with at least one published version. Scope 3 additionally requires version_id for a published version belonging to the same document and branch; scopes 1 and 2 omit version_id. Fixed-version share responses include version_id and never follow newer publications. Archived parents retain list and revoke access but block creation.
       operationId: createDocumentShare
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1748,7 +1752,8 @@ components:
       required: [branch_id, version_scope, expiry_preset]
       properties:
         branch_id: { type: string }
-        version_scope: { type: integer, enum: [1, 2] }
+        version_scope: { type: integer, enum: [1, 2, 3], description: "1 follows latest, 2 allows all published versions, 3 fixes one published version." }
+        version_id: { type: string, minLength: 1, description: Required only for scope 3; must belong to the selected project/document/branch and be published. Omit for scopes 1 and 2. }
         expiry_preset:
           type: string
           enum: [1_month, 3_months, 6_months, 1_year, permanent]
@@ -1760,7 +1765,8 @@ components:
       properties:
         name:
           type: string
-          pattern: "^(dev|test|prod|feature/.+)$"
+          minLength: 1
+          description: Trimmed custom branch name, for example main, release, feature/checkout or release/2026. The exact names dev, test and prod use environment kind; other valid names use feature kind. Backslashes, control characters, empty slash-separated segments and dot or dot-dot segments are rejected. Names are case-sensitive and unique per document, including archived branches.
         description: { type: string }
     PatchBranchRequest:
       type: object
@@ -1769,7 +1775,8 @@ components:
       properties:
         name:
           type: string
-          pattern: "^(dev|test|prod|feature/.+)$"
+          minLength: 1
+          description: Trimmed custom branch name, for example main, release, feature/checkout or release/2026. The exact names dev, test and prod use environment kind; other valid names use feature kind. Backslashes, control characters, empty slash-separated segments and dot or dot-dot segments are rejected. Names are case-sensitive and unique per document, including archived branches.
         description: { type: string }
         is_default: { type: boolean }
         is_protected: { type: boolean }

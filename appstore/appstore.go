@@ -51,8 +51,9 @@ const (
 
 	VersionStatusPublished = app.VersionStatusPublished
 
-	DocumentShareScopeLatest      = app.DocumentShareScopeLatest
-	DocumentShareScopeAllVersions = app.DocumentShareScopeAllVersions
+	DocumentShareScopeLatest       = app.DocumentShareScopeLatest
+	DocumentShareScopeAllVersions  = app.DocumentShareScopeAllVersions
+	DocumentShareScopeFixedVersion = app.DocumentShareScopeFixedVersion
 
 	DocumentShareStatusActive  = app.DocumentShareStatusActive
 	DocumentShareStatusRevoked = app.DocumentShareStatusRevoked

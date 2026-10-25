@@ -13,11 +13,14 @@ func TestDocumentShareClone_deepCopiesMutableFields(t *testing.T) {
 	if err != nil || !transitioned {
 		t.Fatalf("Revoke() = transitioned %v, error %v", transitioned, err)
 	}
+	versionID := "published-version"
+	original.PinnedVersionID = &versionID
 
 	// When
 	cloned := Clone(original)
 	cloned.TokenCiphertext[0] = 'X'
 	*cloned.PasswordVerifier = "changed"
+	*cloned.PinnedVersionID = "changed"
 	*cloned.RevokedBy = "changed"
 	changedExpiry := cloned.ExpiresAt.Add(time.Hour)
 	cloned.ExpiresAt = &changedExpiry
@@ -28,7 +31,7 @@ func TestDocumentShareClone_deepCopiesMutableFields(t *testing.T) {
 	if reflect.DeepEqual(cloned, original) {
 		t.Fatal("Clone() shares mutable fields with original")
 	}
-	if string(original.TokenCiphertext) != "ciphertext" || *original.PasswordVerifier != "encoded" || *original.RevokedBy != "admin-b" {
+	if string(original.TokenCiphertext) != "ciphertext" || *original.PasswordVerifier != "encoded" || *original.RevokedBy != "admin-b" || *original.PinnedVersionID != "published-version" {
 		t.Fatalf("original mutable fields changed = %+v", original)
 	}
 	if !original.ExpiresAt.Equal(createdAt.AddDate(0, 3, 0)) || !original.RevokedAt.Equal(createdAt.Add(time.Hour)) {
