@@ -3,7 +3,44 @@ package id
 import (
 	"regexp"
 	"testing"
+	"time"
 )
+
+func TestSonyflakeLegacyIDCompatibility(t *testing.T) {
+	sf := newSonyflake()
+	if sf == nil {
+		t.Fatal("newSonyflake returned nil")
+	}
+
+	// 固定值来自 v1.3.0 的 Compose，覆盖旧 epoch、10ms 精度及序列/机器 ID 边界。
+	tests := []struct {
+		name      string
+		timestamp string
+		sequence  int
+		machineID int
+		want      int64
+	}{
+		{"epoch", "2014-09-01T00:00:00Z", 0, 0, 0},
+		{"time unit", "2014-09-01T00:00:00.01Z", 0, 0, 16777216},
+		{"bit boundaries", "2014-09-01T00:00:00Z", 255, 65535, 16777215},
+		{"existing ID", "2026-10-25T12:34:56.789Z", 37, 49153, 643241979255570433},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			timestamp, err := time.Parse(time.RFC3339Nano, tt.timestamp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := sf.Compose(timestamp, tt.sequence, tt.machineID)
+			if err != nil {
+				t.Fatalf("Compose: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("legacy ID changed: got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestIssueID(t *testing.T) {
 	// 测试生成 ID

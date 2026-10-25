@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sony/sonyflake"
+	"github.com/sony/sonyflake/v2"
 )
 
 var flake *sonyflake.Sonyflake
@@ -28,7 +28,7 @@ func IssueID() string {
 	if err != nil {
 		return fallbackID()
 	}
-	return strconv.FormatUint(next, 10)
+	return strconv.FormatInt(next, 10)
 }
 
 // GenerateID 生成唯一 ID (基于 Sonyflake + MD5)
@@ -53,21 +53,24 @@ func init() {
 // 在仅有 loopback/仅 IPv6 等环境下可能返回 nil，进而触发空指针 panic。
 // 这里显式提供 MachineID 计算逻辑，保证初始化与生成 ID 的稳定性。
 func newSonyflake() *sonyflake.Sonyflake {
-	sf, err := sonyflake.New(sonyflake.Settings{
-		MachineID: func() (uint16, error) {
-			return resolveMachineID(), nil
+	settings := sonyflake.Settings{
+		// v2 的默认 epoch 改为 2025 年；显式保留原来的 ID 格式，避免升级后 ID 回退。
+		BitsSequence:  8,
+		BitsMachineID: 16,
+		TimeUnit:      10 * time.Millisecond,
+		StartTime:     time.Date(2014, 9, 1, 0, 0, 0, 0, time.UTC),
+		MachineID: func() (int, error) {
+			return int(resolveMachineID()), nil
 		},
-	})
+	}
+	sf, err := sonyflake.New(settings)
 	if err == nil && sf != nil {
 		return sf
 	}
 
 	// 理论上不会走到这里（MachineID 不返回 error），但保留一个不会失败的兜底。
-	sf, _ = sonyflake.New(sonyflake.Settings{
-		MachineID: func() (uint16, error) {
-			return 0, nil
-		},
-	})
+	settings.MachineID = func() (int, error) { return 0, nil }
+	sf, _ = sonyflake.New(settings)
 	return sf
 }
 

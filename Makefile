@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-export GOTOOLCHAIN ?= go1.25.5
+export GOTOOLCHAIN ?= go1.27.3
 export GOFLAGS ?= -mod=readonly
 
 .PHONY: help build build-local build-cross build-check release-package run dev clean clean-dist version test test-race test-coverage test-e2e test-e2e-live fmt fmt-check lint mod-check verify
