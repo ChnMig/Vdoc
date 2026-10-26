@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.15 release provides one-sentence AI prompts in Admin and Site to install or update MCP and its companion Skill through Vdoc's own installer. Backend runtime code, migrations, and APIs are unchanged from v0.3.17-beta.14.
+This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.15 release provides one-sentence AI prompts in Admin and Site to install, update, or uninstall MCP and its companion Skill. Installation and updates use Vdoc's own installer. Backend runtime code, migrations, and APIs are unchanged from v0.3.17-beta.14.
 
 API documentation:
 
