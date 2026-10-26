@@ -24,6 +24,22 @@ func TestBuildPromoteDraftEnforcesSourceTargetAndBaseInvariants(t *testing.T) {
 	}
 }
 
+func TestBuildPromoteDraftDistinguishesEmptyContentFromMissingSource(t *testing.T) {
+	input := PromoteInput{SourceBranchID: "dev", TargetBranchID: "test", VersionName: "empty-test"}
+	draft, err := BuildPromoteDraft(input, PromoteSource{SourceVersionID: "empty-text-version", TargetBranchExists: true})
+	if err != nil {
+		t.Fatalf("promote existing empty source: %v", err)
+	}
+	if draft.SourceVersionID != "empty-text-version" || draft.SchemaContent != "" {
+		t.Fatalf("empty source identity or content changed: %+v", draft)
+	}
+	for _, content := range []string{"", "orphaned content"} {
+		if _, err := BuildPromoteDraft(input, PromoteSource{SourceRawSchema: content, TargetBranchExists: true}); !errors.Is(err, commonvdoc.ErrNotFound) {
+			t.Fatalf("missing source with content %q: error = %v, want not found", content, err)
+		}
+	}
+}
+
 func TestPublishFromDraftRequiresSubmittedDraft(t *testing.T) {
 	now := time.Now()
 	_, err := PublishFromDraft(PublishParams{ID: "version-a", Draft: DraftSnapshot{ID: "draft-a", Status: commonvdoc.DraftStatusDraft}, PublishedBy: "admin", Now: now})

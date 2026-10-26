@@ -460,7 +460,10 @@ func (p *postgresPersistence) saveDocumentWorkflowLocked(ctx context.Context, st
 			return err
 		}
 	}
-	for _, branch := range changedStoreValues(store.branches, persistedBranches, func(value *domainvdoc.ContractBranch) string { return value.ID }) {
+	branches := changedStoreValues(store.branches, persistedBranches, func(value *domainvdoc.ContractBranch) string { return value.ID })
+	// 默认分支唯一索引逐条检查；先取消旧默认，再启用新默认，同组仍按 ID 写入。
+	sort.SliceStable(branches, func(i, j int) bool { return !branches[i].IsDefault && branches[j].IsDefault })
+	for _, branch := range branches {
 		var err error
 		if supportsOptimisticWrites {
 			err = optimisticRepo.UpsertDocumentBranchIfUnchanged(ctx, branch, persistedBranches[branch.ID])

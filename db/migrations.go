@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -25,6 +28,9 @@ type Migration struct {
 }
 
 var migrationFilePattern = regexp.MustCompile(`^([0-9]{3})_([a-z0-9][a-z0-9_]*)\.sql$`)
+
+// 数据库级命名空间 VDOC/MIGR；所有实例必须先锁定，再创建迁移账本。
+const migrationLockNamespace, migrationLockID int32 = 0x56444f43, 0x4d494752
 
 func EmbeddedMigrations() ([]Migration, error) {
 	entries, err := migrationFS.ReadDir("migrations")
@@ -73,7 +79,42 @@ func RunMigrations(ctx context.Context, database *gorm.DB) error {
 	if len(migrations) == 0 {
 		return fmt.Errorf("no embedded migrations found")
 	}
+	return runMigrations(ctx, database, migrations)
+}
 
+func runMigrations(ctx context.Context, database *gorm.DB, migrations []Migration) error {
+	// 固定连接持有会话锁，保留每项迁移独立提交的行为；不能从连接池
+	// 分别执行加锁和解锁，否则可能把锁遗留在另一个池连接上。
+	return database.WithContext(ctx).Connection(func(locked *gorm.DB) (err error) {
+		conn, ok := locked.Statement.ConnPool.(*sql.Conn)
+		if !ok {
+			return fmt.Errorf("migration lock requires a dedicated SQL connection")
+		}
+		acquired := false
+		defer func() {
+			// 启动被取消时仍须释放锁；连清理也失败则丢弃物理连接，
+			// 避免其他启动请求从连接池取到一个仍持锁的会话。
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			var released bool
+			cleanupErr := conn.QueryRowContext(cleanupCtx, `SELECT pg_advisory_unlock($1, $2)`, migrationLockNamespace, migrationLockID).Scan(&released)
+			if cleanupErr == nil && acquired && !released {
+				cleanupErr = fmt.Errorf("migration advisory lock was not held by its connection")
+			}
+			if cleanupErr != nil {
+				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+				err = errors.Join(err, fmt.Errorf("release migration lock: %w", cleanupErr))
+			}
+		}()
+		if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1, $2)`, migrationLockNamespace, migrationLockID); err != nil {
+			return fmt.Errorf("acquire migration lock: %w", err)
+		}
+		acquired = true
+		return applyMigrations(ctx, locked, migrations)
+	})
+}
+
+func applyMigrations(ctx context.Context, database *gorm.DB, migrations []Migration) error {
 	if err := database.WithContext(ctx).Exec(`
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version text PRIMARY KEY,

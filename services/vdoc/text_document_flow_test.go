@@ -192,6 +192,64 @@ func TestTextDocumentPromoteAndDownloadUseTextFormat(t *testing.T) {
 	}
 }
 
+func TestEmptyTextDocumentPromotesAndPublishesAcrossBranches(t *testing.T) {
+	for _, useObjects := range []bool{false, true} {
+		name := "memory"
+		if useObjects {
+			name = "object storage"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, projectID, documentID, branchID := newTextDocumentFlowStore(t)
+			if useObjects {
+				store.objects = newRecordingObjectStorage(nil)
+			}
+			branches, err := store.ListBranches("admin", projectID, documentID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var targetBranchID string
+			for _, branch := range branches {
+				if branch.Name == "test" {
+					targetBranchID = branch.ID
+				}
+			}
+			if targetBranchID == "" {
+				t.Fatal("test branch missing")
+			}
+			input := PromoteInput{SourceBranchID: branchID, TargetBranchID: targetBranchID, VersionName: "empty-test"}
+			draftCount := len(store.drafts)
+			if _, err := store.PromoteDraft("admin", projectID, documentID, input); !Is(err, ErrNotFound) || len(store.drafts) != draftCount {
+				t.Fatalf("missing source error = %v, drafts = %d; want not found without mutation", err, len(store.drafts))
+			}
+			source := publishMarkdownDocumentDraft(t, store, projectID, documentID, branchID, "empty", "", "text-source")
+			promoted, err := store.PromoteDraft("admin", projectID, documentID, input)
+			if err != nil {
+				t.Fatalf("promote empty TXT: %v", err)
+			}
+			if promoted.SchemaFormat != DocumentFormatText || promoted.RawSchema != "" || promoted.NormalizedSchema != "" || promoted.RawSchemaHash != sha("") || promoted.NormalizedSchemaHash != sha("") || promoted.SourceVersionID != source.ID || promoted.SourceBranchID != branchID || promoted.BranchID != targetBranchID {
+				t.Fatalf("empty promoted TXT content or provenance changed: %+v", promoted)
+			}
+			if _, err := store.SubmitMarkdownDraft("writer", projectID, documentID, promoted.ID); err != nil {
+				t.Fatalf("submit empty promoted TXT: %v", err)
+			}
+			published, err := store.ReviewMarkdownDraft("admin", projectID, documentID, promoted.ID, "approve", reviewInputForTest(t, store, "admin", projectID, documentID, promoted.ID))
+			if err != nil {
+				t.Fatalf("publish empty promoted TXT: %v", err)
+			}
+			version := published.(*ContractVersion)
+			if version.SourceVersionID != source.ID || version.SourceBranchID != branchID || version.BranchID != targetBranchID || version.SchemaFormat != DocumentFormatText {
+				t.Fatalf("published TXT provenance or format changed: %+v", version)
+			}
+			for _, kind := range []string{"raw", "stable"} {
+				body, err := store.MarkdownVersionContent("reader", projectID, documentID, version.ID, kind)
+				if err != nil || body.Content != "" || body.Hash != sha("") {
+					t.Fatalf("empty promoted TXT %s = (%+v, %v)", kind, body, err)
+				}
+			}
+		})
+	}
+}
+
 func TestTextDocumentRequiresTXTPathAndRejectsOpenAPIEntrypoints(t *testing.T) {
 	store, projectID, documentID, branchID := newTextDocumentFlowStore(t)
 	draft, err := store.CreateMarkdownDraft("writer", projectID, documentID, DraftInput{BranchID: branchID, VersionName: "1.0.0", SchemaContent: "plain"})

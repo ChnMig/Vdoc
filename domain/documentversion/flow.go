@@ -9,7 +9,7 @@ func BuildPromoteDraft(input PromoteInput, source PromoteSource) (PromoteDraft, 
 	if input.SourceBranchID == input.TargetBranchID {
 		return PromoteDraft{}, commonvdoc.ErrFailedPrecondition
 	}
-	if source.SourceVersionID == "" || source.SourceRawSchema == "" {
+	if source.SourceVersionID == "" {
 		return PromoteDraft{}, commonvdoc.ErrNotFound
 	}
 	if !source.TargetBranchExists {
