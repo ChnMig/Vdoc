@@ -32,7 +32,7 @@ Go 后端基于 [ChnMig/go-template](https://github.com/ChnMig/go-template) 的 
 
 ## 当前状态
 
-这个仓库是 Vdoc 的 Go/Gin 后端，当前发行版本为 v0.3.12。
+这个仓库是 Vdoc 的 Go/Gin 后端。配套的 v0.3.17-beta.14 版本在 Admin 和 Site 提供给 AI 阅读的 Skill 安装说明；后端运行逻辑与 v0.3.17-beta.13 相同。
 
 API 文档：
 

@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The current release is v0.3.12.
+This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.14 release adds AI-readable Skill installation instructions in Admin and Site; backend runtime behavior is unchanged from v0.3.17-beta.13.
 
 API documentation:
 
