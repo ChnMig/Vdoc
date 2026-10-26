@@ -55,7 +55,7 @@ func (s *Store) QueryDrafts(actorID, projectID, documentID, branchID string, pag
 		if draft.ServiceID != documentID || (branchID != "" && draft.BranchID != branchID) || !s.branchInServiceLocked(draft.BranchID, documentID) || !strings.Contains(strings.ToLower(draft.VersionName), strings.ToLower(page.Search)) {
 			continue
 		}
-		copy := *draft
+		copy := *s.draftHistoryCopyLocked(draft)
 		copy.RawSchema, copy.NormalizedSchema, copy.DiffPreview = "", "", nil
 		items = append(items, &copy)
 	}

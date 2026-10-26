@@ -2539,7 +2539,7 @@ func (s *Store) ListDrafts(actorID, projectID, serviceID string, branchID ...str
 			if err := s.ensureDraftPreviewFactsLocked(d); err != nil {
 				return nil, err
 			}
-			out = append(out, cloneDraft(d))
+			out = append(out, s.draftHistoryCopyLocked(d))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
@@ -2561,7 +2561,7 @@ func (s *Store) Draft(actorID, projectID, serviceID, draftID string) (*ContractD
 	if err := s.ensureDraftPreviewFactsLocked(d); err != nil {
 		return nil, err
 	}
-	return cloneDraft(d), nil
+	return s.draftHistoryCopyLocked(d), nil
 }
 
 func (s *Store) DraftSchema(actorID, projectID, serviceID, draftID, kind string) (*SchemaDocument, error) {
@@ -3203,6 +3203,9 @@ func (s *Store) createDraftLocked(actorID, projectID, serviceID string, input Dr
 	if err := s.ensureOpenAPIDocumentLocked(serviceID); err != nil {
 		return nil, err
 	}
+	if err := s.validateDraftSourceLocked(projectID, serviceID, &input); err != nil {
+		return nil, err
+	}
 	if err := domaindraft.ValidateCreate(input.VersionName, input.SchemaContent); err != nil {
 		return nil, err
 	}
@@ -3265,6 +3268,9 @@ func (s *Store) createMarkdownDraftLocked(actorID, projectID, documentID string,
 		return nil, err
 	}
 	if err := s.ensureMarkdownDocumentLocked(documentID); err != nil {
+		return nil, err
+	}
+	if err := s.validateDraftSourceLocked(projectID, documentID, &input); err != nil {
 		return nil, err
 	}
 	if err := domaindraft.ValidateContent(input.VersionName, input.SchemaContent, textDocumentFormat(s.apiServices[documentID])); err != nil {

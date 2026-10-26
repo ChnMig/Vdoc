@@ -334,6 +334,7 @@ type DraftDTO struct {
 	DiffPreview           *DiffDTO   `json:"diff_preview,omitempty"`
 	ReviewComment         string     `json:"review_comment,omitempty"`
 	CreatedBy             string     `json:"created_by"`
+	PublishedAt           *time.Time `json:"published_at,omitempty"`
 	SubmittedAt           *time.Time `json:"submitted_at,omitempty"`
 	CreatedAt             time.Time  `json:"created_at"`
 	UpdatedAt             time.Time  `json:"updated_at"`
@@ -343,7 +344,7 @@ func Draft(v *app.ContractDraft) DraftDTO {
 	if v == nil {
 		return DraftDTO{}
 	}
-	dto := DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	dto := DraftDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, SourceGitCommitID: v.SourceGitCommitID, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, SourceBranchID: v.SourceBranchID, SourceVersionID: v.SourceVersionID, BaseVersionID: v.BaseVersionID, RawContentHash: v.RawSchemaHash, Status: v.Status, DiffPreview: DiffPointer(v.DiffPreview), ReviewComment: v.ReviewComment, CreatedBy: v.CreatedBy, PublishedAt: v.PublishedAt, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 	dto.Revision = v.Revision()
 	dto.ReviewRevision = v.ReviewRevision()
 	if v.SchemaFormat == app.DocumentFormatMarkdown || v.SchemaFormat == app.DocumentFormatText {

@@ -28,6 +28,25 @@ func (r *Repository) ReadDraftPage(ctx context.Context, documentID, branchID str
 	for _, row := range rows {
 		out = append(out, &domain.ContractDraft{ID: domainID(row.ID), DocumentID: documentID, ServiceID: documentID, BranchID: domainID(row.BranchID), VersionName: row.VersionName, Changelog: stringValue(row.Changelog), SchemaFormat: row.DocumentFormat, SourceType: row.SourceType, Status: row.Status, CreatedBy: domainID(row.CreatedByUserID), SubmittedAt: row.SubmittedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
 	}
+
+	if len(out) > 0 {
+		ids := make([]string, 0, len(out))
+		for _, draft := range out {
+			ids = append(ids, draft.ID)
+		}
+		var publications []DocumentVersion
+		if err := r.database.WithContext(ctx).Select("source_draft_id", "published_at").Where("document_id = ? AND source_draft_id IN ?", documentID, ids).Order("published_at ASC").Find(&publications).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, publication := range publications {
+			for _, draft := range out {
+				if draft.ID == domainID(publication.SourceDraftID) {
+					at := publication.PublishedAt
+					draft.PublishedAt = &at
+				}
+			}
+		}
+	}
 	return out, int(total), nil
 }
 

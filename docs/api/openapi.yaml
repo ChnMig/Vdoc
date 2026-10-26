@@ -539,6 +539,21 @@ paths:
       security: [{ JWTAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/documents/{document_id}/activity:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { $ref: "#/components/parameters/DocumentID" }
+    get:
+      tags: [Documents]
+      summary: Read the document workflow timeline.
+      description: "Requires document read permission. Returns newest first by created_at and id, with an opaque next_cursor and a maximum limit of 200 (default 50). Each item contains id, action, resource_id, optional branch_id/branch_name/version_name/review_action and created_at. Only document, branch, draft and publication lifecycle events are included. Audit metadata, review comments, IP addresses, tokens and client information are not exposed. This endpoint is private and unavailable to public-share capabilities."
+      operationId: listDocumentActivity
+      security: [{ JWTAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}/mcp-readiness:
     parameters:
       - { $ref: "#/components/parameters/ProjectID" }
@@ -684,12 +699,13 @@ paths:
         - { $ref: "#/components/parameters/PageSizeQuery" }
         - { $ref: "#/components/parameters/OffsetQuery" }
         - { $ref: "#/components/parameters/SearchQuery" }
-      description: With page_size, returns draft metadata without content, diff_preview, revision or review_revision. Search matches version names. Fetch the draft content snapshot before editing or reviewing. Omitting page_size preserves the legacy list.
+      description: With page_size, returns draft metadata without content, diff_preview, revision or review_revision. Search matches version names. Fetch the draft content snapshot before editing or reviewing. published_at is present only when an immutable publication exists; unsubmitted drafts never infer it from updated_at. Omitting page_size preserves the legacy list.
       responses:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
     post:
       tags: [Drafts]
       summary: Create document draft.
+      description: Optional source_version_id and source_branch_id identify a published starting version in the same document. The server validates provenance; content contains the user-edited source.
       operationId: createDocumentDraft
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1791,6 +1807,8 @@ components:
         branch_id: { type: string }
         version_name: { type: string, minLength: 1 }
         changelog: { type: string }
+        source_branch_id: { type: string, description: Optional published source branch within this document. }
+        source_version_id: { type: string, description: Optional published starting version within this document. }
         source_git_commit_id: { type: string }
         schema_content:
           type: string

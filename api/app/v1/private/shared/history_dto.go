@@ -16,6 +16,7 @@ type DraftListDTO struct {
 	SourceType     int        `json:"source_type"`
 	Status         int        `json:"status"`
 	CreatedBy      string     `json:"created_by"`
+	PublishedAt    *time.Time `json:"published_at,omitempty"`
 	SubmittedAt    *time.Time `json:"submitted_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
@@ -24,7 +25,7 @@ type DraftListDTO struct {
 func DraftList(values []*app.ContractDraft) []DraftListDTO {
 	out := make([]DraftListDTO, 0, len(values))
 	for _, v := range values {
-		out = append(out, DraftListDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, Status: v.Status, CreatedBy: v.CreatedBy, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt})
+		out = append(out, DraftListDTO{ID: v.ID, ProjectID: v.ProjectID, DocumentID: v.DocumentID, BranchID: v.BranchID, VersionName: v.VersionName, Changelog: v.Changelog, DocumentFormat: v.SchemaFormat, SourceType: v.SourceType, Status: v.Status, CreatedBy: v.CreatedBy, PublishedAt: v.PublishedAt, SubmittedAt: v.SubmittedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt})
 	}
 	return out
 }

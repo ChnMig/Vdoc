@@ -30,11 +30,12 @@ func (q PageQuery) Validate() error {
 }
 
 type AuditQuery struct {
-	ProjectID, Action, ResourceType, ResourceID string
-	Limit                                       int
-	Cursor                                      string
-	From, To                                    *time.Time
-	TokenIDs                                    []string
+	ProjectID, DocumentID, Action, ResourceType, ResourceID string
+	Actions                                                 []string
+	Limit                                                   int
+	Cursor                                                  string
+	From, To                                                *time.Time
+	TokenIDs                                                []string
 }
 
 type AuditCursor struct {

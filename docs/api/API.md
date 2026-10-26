@@ -55,6 +55,12 @@ Projects directly own typed Documents. `document_type` is `1` for OpenAPI, `2` f
 
 List routes accept the PRD filters used by the workbench: document lists accept `?document_type=1|2|3`, while draft and version lists accept `?branch_id={branch_id}`. Draft detail/list responses include `review_comment` after request-changes, reject, or approve review actions.
 
+Draft detail/list responses also include optional `published_at`, projected from the immutable version created from that draft. It is omitted before publication and is never inferred from `updated_at`. New drafts can optionally send `source_version_id` and `source_branch_id` with their normal content payload. The source must be a published version of the same project and document, and its branch must match. Read the version raw content first to seed the editor; source IDs record provenance and do not replace the submitted content.
+
+## Document workflow activity
+
+`GET /api/v1/private/projects/{project_id}/documents/{document_id}/activity` requires document read permission. It returns workflow events newest first by `(created_at, id)`, with opaque `next_cursor` pagination. `limit` defaults to 50 and is bounded to 1–200. The list envelope contains `detail`, `has_more`, and `next_cursor`; it does not perform an unbounded total count. Events include document/branch changes, draft creation/editing/submission/review, and publication. Each item projects only `id`, `action`, `resource_id`, optional `branch_id`, `branch_name`, `version_name`, `review_action`, and `created_at`. Internal audit metadata, review comments, tokens, IPs, and client details are excluded. Public-share capabilities cannot access this private endpoint.
+
 ## Project folders, filenames, and initial uploads
 
 `GET /api/v1/private/projects/{project_id}/folders` requires project read permission and returns a flat array of `FolderDTO` records in `detail`, plus `total`. Each record contains `id`, `project_id`, nullable `parent_id`, `name`, canonical project-local `path`, `created_by`, `created_at`, and `updated_at`. A null parent identifies a folder directly under the virtual project root. Empty folders are persisted, and folder nesting has no fixed depth limit.
@@ -375,6 +381,7 @@ Development builds return `FAILED_PRECONDITION` when checking updates. Network, 
 | Documents | `GET`, `POST` | `/api/v1/private/projects/{project_id}/documents` | JWT |
 | Documents | `GET`, `PATCH` | `/api/v1/private/projects/{project_id}/documents/{document_id}` | JWT |
 | Documents | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/archive` | JWT |
+| Document Activity | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/activity` | JWT; document read permission |
 | Document Shares | `GET`, `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/shares` | JWT (Project Admin/SuperAdmin) |
 | Document Shares | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/shares/{share_id}/reveal` | JWT (Project Admin/SuperAdmin) |
 | Document Shares | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/shares/{share_id}/revoke` | JWT (Project Admin/SuperAdmin) |

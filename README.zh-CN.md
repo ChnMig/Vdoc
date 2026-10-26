@@ -32,7 +32,7 @@ Go 后端基于 [ChnMig/go-template](https://github.com/ChnMig/go-template) 的 
 
 ## 当前状态
 
-这个仓库是 Vdoc 的 Go/Gin 后端。配套的 v0.3.17-beta.15 版本在 Admin 和 Site 提供安装、更新或卸载 MCP 及配套 Skill 的一句话 AI 提示词，安装和更新使用 Vdoc 自有安装器。后端运行代码、数据库迁移和 API 与 v0.3.17-beta.14 相同。
+这个仓库是 Vdoc 的 Go/Gin 后端。配套的 v0.3.17-beta.16 版本统一后台与分享页阅读组件，修复草稿审核和历史导航，支持从正式版本起草。后端新增受文档读取权限约束的活动日志，并从不可变版本投影真实的草稿发布时间。无新数据库迁移；Backend 与 Admin 须配套升级。
 
 API 文档：
 

@@ -38,6 +38,7 @@ var listRouteKeys = map[string]struct{}{
 	"GET /api/v1/private/projects/{project_id}/members":                                                 {},
 	"GET /api/v1/private/projects/{project_id}/member-candidates":                                       {},
 	"GET /api/v1/private/projects/{project_id}/documents":                                               {},
+	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/activity":                        {},
 	"GET /api/v1/private/projects/{project_id}/folders":                                                 {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                        {},
 	"GET /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                          {},

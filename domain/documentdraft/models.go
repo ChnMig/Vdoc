@@ -30,6 +30,7 @@ type ContractDraft struct {
 	DiffPreview          *documentdiff.Diff `json:"diff_preview,omitempty"`
 	ReviewComment        string             `json:"review_comment,omitempty"`
 	CreatedBy            string             `json:"created_by"`
+	PublishedAt          *time.Time         `json:"published_at,omitempty"`
 	SubmittedAt          *time.Time         `json:"submitted_at,omitempty"`
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`

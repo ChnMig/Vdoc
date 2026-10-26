@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/middleware"
@@ -19,6 +20,7 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	private.GET("/projects/:project_id/documents", listDocuments)
 	private.GET("/projects/:project_id/documents/:document_id", getDocument)
 	private.GET("/projects/:project_id/documents/:document_id/overview", getOverview)
+	private.GET("/projects/:project_id/documents/:document_id/activity", getActivity)
 	private.GET("/projects/:project_id/documents/:document_id/mcp-readiness", getMCPReadiness)
 	private.PATCH("/projects/:project_id/documents/:document_id", updateDocument)
 	private.POST("/projects/:project_id/documents/:document_id/archive", archiveDocument)
@@ -211,4 +213,41 @@ func archiveDocument(c *gin.Context) {
 		return
 	}
 	response.ReturnOk(c, shared.Document(document))
+}
+
+type activityDTO struct {
+	ID           string    `json:"id"`
+	Action       string    `json:"action"`
+	ResourceID   string    `json:"resource_id"`
+	BranchID     string    `json:"branch_id,omitempty"`
+	BranchName   string    `json:"branch_name,omitempty"`
+	VersionName  string    `json:"version_name,omitempty"`
+	ReviewAction string    `json:"review_action,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func getActivity(c *gin.Context) {
+	userID, ok := shared.CurrentUserID(c)
+	if !ok {
+		return
+	}
+	limit := 50
+	if raw := c.Query("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 200 {
+			shared.ReturnAppError(c, app.ErrInvalidArgument)
+			return
+		}
+		limit = parsed
+	}
+	page, err := shared.Store(c).QueryDocumentActivity(userID, c.Param("project_id"), c.Param("document_id"), c.Query("cursor"), limit)
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	items := make([]activityDTO, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, activityDTO{ID: item.ID, Action: item.Action, ResourceID: item.ResourceID, BranchID: item.BranchID, BranchName: item.BranchName, VersionName: item.VersionName, ReviewAction: item.ReviewAction, CreatedAt: item.CreatedAt})
+	}
+	response.ReturnPage(c, items, nil, page.NextCursor != "", page.NextCursor)
 }

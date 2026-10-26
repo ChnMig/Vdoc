@@ -28,5 +28,5 @@ func (s *Store) ReadDraftContent(actorID, projectID, documentID, draftID, kind s
 	if err != nil {
 		return nil, nil, err
 	}
-	return cloneDraft(draft), content, nil
+	return s.draftHistoryCopyLocked(draft), content, nil
 }

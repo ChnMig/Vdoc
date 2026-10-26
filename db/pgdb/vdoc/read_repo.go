@@ -161,10 +161,13 @@ func searchPattern(value string) string {
 
 func (r *Repository) ReadAudits(ctx context.Context, input domain.AuditQuery) (*domain.AuditPage, error) {
 	query := r.database.WithContext(ctx).Model(&AuditLog{})
-	for _, filter := range []struct{ column, value string }{{"project_id", input.ProjectID}, {"action", input.Action}, {"resource_type", input.ResourceType}, {"resource_id", input.ResourceID}} {
+	for _, filter := range []struct{ column, value string }{{"project_id", input.ProjectID}, {"document_id", input.DocumentID}, {"action", input.Action}, {"resource_type", input.ResourceType}, {"resource_id", input.ResourceID}} {
 		if filter.value != "" {
 			query = query.Where(filter.column+" = ?", filter.value)
 		}
+	}
+	if input.Actions != nil {
+		query = query.Where("action IN ?", input.Actions)
 	}
 	if input.TokenIDs != nil {
 		query = query.Where("actor_token_id IN ?", input.TokenIDs)

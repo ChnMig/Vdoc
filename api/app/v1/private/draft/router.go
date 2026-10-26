@@ -23,6 +23,8 @@ func RegisterRoutes(private *gin.RouterGroup) {
 }
 
 type draftRequest struct {
+	SourceBranchID    string  `json:"source_branch_id"`
+	SourceVersionID   string  `json:"source_version_id"`
 	BranchID          string  `json:"branch_id"`
 	VersionName       string  `json:"version_name"`
 	Changelog         string  `json:"changelog"`
@@ -48,7 +50,7 @@ func (r draftRequest) input() app.DraftInput {
 	if content == "" && r.Content != nil {
 		content = *r.Content
 	}
-	return app.DraftInput{BranchID: r.BranchID, VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
+	return app.DraftInput{SourceBranchID: r.SourceBranchID, SourceVersionID: r.SourceVersionID, BranchID: r.BranchID, VersionName: r.VersionName, Changelog: r.Changelog, SourceGitCommitID: r.SourceGitCommitID, SchemaContent: content}
 }
 
 func (r draftPatchRequest) input() app.DraftPatchInput {
