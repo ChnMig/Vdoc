@@ -556,6 +556,8 @@ type AuditLogDTO struct {
 	ActorType    int               `json:"actor_type"`
 	ActorUserID  string            `json:"actor_user_id,omitempty"`
 	ActorTokenID string            `json:"actor_token_id,omitempty"`
+	ActorEmail   string            `json:"actor_email,omitempty"`
+	ProjectName  string            `json:"project_name,omitempty"`
 	Action       string            `json:"action"`
 	ResourceType string            `json:"resource_type"`
 	ResourceID   string            `json:"resource_id,omitempty"`
@@ -572,7 +574,7 @@ func AuditLog(v *app.AuditLog) AuditLogDTO {
 	if v == nil {
 		return AuditLogDTO{}
 	}
-	return AuditLogDTO{ID: v.ID, ActorType: v.ActorType, ActorUserID: v.ActorUserID, ActorTokenID: v.ActorTokenID, Action: v.Action, ResourceType: v.ResourceType, ResourceID: v.ResourceID, ProjectID: v.ProjectID, DocumentID: v.ServiceID, Metadata: v.Metadata, IPAddress: v.IPAddress, UserAgent: v.UserAgent, RequestID: v.RequestID, CreatedAt: v.CreatedAt}
+	return AuditLogDTO{ID: v.ID, ActorType: v.ActorType, ActorUserID: v.ActorUserID, ActorTokenID: v.ActorTokenID, ActorEmail: v.ActorEmail, ProjectName: v.ProjectName, Action: v.Action, ResourceType: v.ResourceType, ResourceID: v.ResourceID, ProjectID: v.ProjectID, DocumentID: v.ServiceID, Metadata: v.Metadata, IPAddress: v.IPAddress, UserAgent: v.UserAgent, RequestID: v.RequestID, CreatedAt: v.CreatedAt}
 }
 
 func AuditLogs(values []*app.AuditLog) []AuditLogDTO {

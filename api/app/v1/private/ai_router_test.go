@@ -74,6 +74,34 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	if deniedRead.Code != 403 || deniedRead.Status != "PERMISSION_DENIED" {
 		t.Fatalf("writer provider read response = code %d status %q", deniedRead.Code, deniedRead.Status)
 	}
+	for _, check := range []struct {
+		path, token string
+		code        int
+		key         string
+	}{
+		{"/api/v1/private/ai/provider/key/reveal", superToken, 200, "sk-secret-1234"},
+		{"/api/v1/private/ai/provider/key/reveal", writerToken, 403, ""},
+		{"/api/v1/private/projects/" + project.ID + "/ai/provider/key/reveal", writerToken, 403, ""},
+		{"/api/v1/private/projects/" + project.ID + "/ai/provider/key/reveal", superToken, 404, ""},
+	} {
+		recorder := performPrivateJSON(router, http.MethodPost, check.path, check.token, "")
+		envelope := decodePrivateEnvelope(t, recorder)
+		var detail struct {
+			APIKey string `json:"api_key"`
+		}
+		_ = json.Unmarshal(envelope.Detail, &detail)
+		if envelope.Code != check.code || detail.APIKey != check.key || recorder.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("key reveal contract: code=%d cache=%s", envelope.Code, recorder.Header().Get("Cache-Control"))
+		}
+	}
+	audits := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/audit-logs?action=project.create&actor=ai-super", superToken, ""))
+	var logs []struct {
+		ActorEmail  string `json:"actor_email"`
+		ProjectName string `json:"project_name"`
+	}
+	if err := json.Unmarshal(audits.Detail, &logs); err != nil || audits.Code != 200 || len(logs) != 1 || logs[0].ActorEmail != superUser.Email || logs[0].ProjectName != project.Name {
+		t.Fatalf("audit identity contract: code=%d count=%d err=%v", audits.Code, len(logs), err)
+	}
 }
 
 func TestAIProviderModelsRoutesUseScopedCredentialsAndMaskSecrets(t *testing.T) {

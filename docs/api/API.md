@@ -242,9 +242,11 @@ MCP discovery in the current source version: `list_document_branches(project_id,
 
 ### 5. Built-In Admin AI
 
-SuperAdmins alone can read, update, and test the system OpenAI-compatible provider and system prompts at `/api/v1/private/ai/*`. Project Admins and SuperAdmins can read, update, and test project provider and prompt configuration under `/api/v1/private/projects/{project_id}/ai/*`; Reader and Writer roles are denied those configuration APIs even though they may use page summaries and Chat where document permissions allow. Provider responses expose `api_key_set` and `api_key_last4` only. AI summary and chat outputs are AI-generated helper text and cannot approve, request changes, reject, publish, or modify drafts or versions.
+SuperAdmins alone can read, update, and test the system OpenAI-compatible provider and system prompts at `/api/v1/private/ai/*`. Project Admins and SuperAdmins can read, update, and test project provider and prompt configuration under `/api/v1/private/projects/{project_id}/ai/*`; Reader and Writer roles are denied those configuration APIs even though they may use page summaries and Chat where document permissions allow. Ordinary provider responses expose `api_key_set` and `api_key_last4` only. Explicit key reveal uses `POST /api/v1/private/ai/provider/key/reveal` (SuperAdmin) or `POST /api/v1/private/projects/{project_id}/ai/provider/key/reveal` (Project Admin/SuperAdmin, active project), returns `detail: {"api_key":"…"}` with `Cache-Control: no-store`, and records a secret-free `ai.provider.key.reveal` audit before returning the key. Project reveal never exposes the system fallback key. Admin keeps the saved key masked until the eye button is clicked; hiding it clears the revealed value and merely viewing it never sends a replacement key on save or model discovery. AI summary and chat outputs are AI-generated helper text and cannot approve, request changes, reject, publish, or modify drafts or versions.
 
 Provider payloads accept tuning fields alongside `name`, `base_url`, `model`, `api_mode`, `api_key`, and `enabled`. `temperature` defaults to `0.2` and accepts `0` through `2`. `timeout_ms` defaults to `30000` and accepts `1000` through `120000`. `max_output_tokens` defaults to `1000` and accepts `1` through `32000`. Project provider endpoints use the same request and response shape as the system provider.
+
+Admin places the key before the model field, defaults new configurations to Responses, and uses a 0–2 temperature slider with reset to 0.2. Existing API modes and explicit zero temperature are preserved. Model discovery and inference share one endpoint rule: a host root gets `/v1`, a Base URL ending in `/v1` does not get a second copy, and a gateway prefix such as `/gateway/v1` is preserved. Model-list availability does not imply support for both inference modes; select the API mode supported by the provider.
 
 The provider timeout controls the complete AI HTTP request. The default backend `server.write_timeout` is `180s` to allow a 120-second provider call and request/response processing. Existing deployments with an explicit shorter write timeout should update it (or set `VDOC_SERVER_WRITE_TIMEOUT=180s`) before using longer provider timeouts; external proxy/client timeouts must also allow the request. Admin connects to the configured backend origin directly. The current MCP adapter defaults `VDOC_MCP_TIMEOUT_MS` to `180000` and accepts `1` through `180000`. Upgrade older adapters before setting this value, and allow at least the same duration in the agent host's tool timeout when waiting for long AI-assisted draft submissions.
 
@@ -289,10 +291,12 @@ GET  /api/v1/private/ai/provider
 PUT  /api/v1/private/ai/provider
 POST /api/v1/private/ai/provider/test
 POST /api/v1/private/ai/provider/models
+POST /api/v1/private/ai/provider/key/reveal
 GET  /api/v1/private/projects/{project_id}/ai/provider
 PUT  /api/v1/private/projects/{project_id}/ai/provider
 POST /api/v1/private/projects/{project_id}/ai/provider/test
 POST /api/v1/private/projects/{project_id}/ai/provider/models
+POST /api/v1/private/projects/{project_id}/ai/provider/key/reveal
 GET  /api/v1/private/ai/prompts
 PUT  /api/v1/private/ai/prompts/{prompt_key}
 GET  /api/v1/private/projects/{project_id}/ai/prompts
@@ -421,9 +425,11 @@ Development builds return `FAILED_PRECONDITION` when checking updates. Network, 
 | AI | `GET`, `PUT` | `/api/v1/private/ai/provider` | JWT; SuperAdmin |
 | AI | `POST` | `/api/v1/private/ai/provider/test` | JWT; SuperAdmin |
 | AI | `POST` | `/api/v1/private/ai/provider/models` | JWT; SuperAdmin |
+| AI | `POST` | `/api/v1/private/ai/provider/key/reveal` | JWT; SuperAdmin; explicit audited no-store key reveal |
 | AI | `GET`, `PUT` | `/api/v1/private/projects/{project_id}/ai/provider` | JWT; Project Admin or SuperAdmin |
 | AI | `POST` | `/api/v1/private/projects/{project_id}/ai/provider/test` | JWT; Project Admin or SuperAdmin |
 | AI | `POST` | `/api/v1/private/projects/{project_id}/ai/provider/models` | JWT; Project Admin or SuperAdmin; active project |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/ai/provider/key/reveal` | JWT; Project Admin or SuperAdmin; active project; own override only |
 | AI | `GET` | `/api/v1/private/ai/prompts` | JWT; SuperAdmin |
 | AI | `PUT` | `/api/v1/private/ai/prompts/{prompt_key}` | JWT; SuperAdmin |
 | AI | `GET` | `/api/v1/private/projects/{project_id}/ai/prompts` | JWT; Project Admin or SuperAdmin |
@@ -479,3 +485,5 @@ Development builds return `FAILED_PRECONDITION` when checking updates. Network, 
 - Schema literal comparisons distinguish empty arrays from `null`, including nested `const` values and enum/const intersections. Empty/absent equivalence is limited to optional endpoint collections.
 - Effective server URLs/variables, response header contracts and request media encodings participate in Diff. Changes require manual review (`must_handle=true`, warning severity); server/header descriptions and schema annotations are ignored. Header names are case-insensitive; `Content-Type` entries in Header maps are ignored as required by OpenAPI. Missing/empty server lists use the default `/` server.
 - Derived endpoint `normalized_operation` includes the source `openapi` version. `nullable` affects standard validation in 3.0 only; 3.1 comparisons use type unions and ignore the legacy keyword without changing stored endpoint details or literal values. Local references inside `default` responses and encoding entries resolve with the same rules as other response and encoding names.
+
+Audit history supports `actor` (at most 256 bytes): case-insensitive email substring or exact user ID. Filtering runs before cursor pagination and never expands the caller’s project authorization. Audit DTOs add `actor_email` and `project_name` when referenced identities still exist; original IDs remain unchanged. The workbench offers localized action/resource enums and displays explicit system, anonymous, and unavailable-identity labels. Unknown historical enum values retain their raw value in the cell tooltip.

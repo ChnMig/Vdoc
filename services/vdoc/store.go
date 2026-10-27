@@ -427,7 +427,18 @@ func (s *Store) queryAuditLogsMemory(actorID string, query AuditLogQuery) ([]*Au
 		if query.ResourceID != "" && audit.ResourceID != query.ResourceID {
 			continue
 		}
-		logs = append(logs, cloneAuditLog(audit))
+		user := s.users[audit.ActorUserID]
+		if query.Actor != "" && audit.ActorUserID != query.Actor && (user == nil || !strings.Contains(strings.ToLower(user.Email), strings.ToLower(query.Actor))) {
+			continue
+		}
+		log := cloneAuditLog(audit)
+		if user != nil {
+			log.ActorEmail = user.Email
+		}
+		if project := s.projects[audit.ProjectID]; project != nil {
+			log.ProjectName = project.Name
+		}
+		logs = append(logs, log)
 	}
 	sort.Slice(logs, func(first, second int) bool {
 		if logs[first].CreatedAt.Equal(logs[second].CreatedAt) {

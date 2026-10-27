@@ -31,6 +31,7 @@ func (q PageQuery) Validate() error {
 
 type AuditQuery struct {
 	ProjectID, DocumentID, Action, ResourceType, ResourceID string
+	Actor                                                   string
 	Actions                                                 []string
 	Limit                                                   int
 	Cursor                                                  string

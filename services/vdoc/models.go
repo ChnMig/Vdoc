@@ -121,6 +121,7 @@ type AuditLog = domainvdoc.AuditLog
 
 type AuditLogQuery struct {
 	ProjectID    string
+	Actor        string
 	Action       string
 	ResourceType string
 	ResourceID   string

@@ -112,12 +112,11 @@ func (s *Store) resolveProviderForModels(actorID, projectID string, input *AIPro
 func fetchAIProviderModels(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey string) ([]string, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(provider.TimeoutMS)*time.Millisecond)
 	defer cancel()
-	baseURL := provider.BaseURL
-	path := "/v1/models"
-	if strings.HasSuffix(baseURL, "/v1") {
-		path = "/models"
+	endpoint, err := aiProviderEndpoint(provider.BaseURL, "models")
+	if err != nil {
+		return nil, err
 	}
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, baseURL+path, nil)
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, ErrInvalidArgument
 	}

@@ -161,6 +161,14 @@ func searchPattern(value string) string {
 
 func (r *Repository) ReadAudits(ctx context.Context, input domain.AuditQuery) (*domain.AuditPage, error) {
 	query := r.database.WithContext(ctx).Model(&AuditLog{})
+	if input.Actor != "" {
+		users := r.database.WithContext(ctx).Model(&User{}).Select("id").Where("email ILIKE ?", searchPattern(input.Actor))
+		if actorID, err := uuid.Parse(input.Actor); err == nil {
+			query = query.Where("actor_user_id = ? OR actor_user_id IN (?)", actorID.String(), users)
+		} else {
+			query = query.Where("actor_user_id IN (?)", users)
+		}
+	}
 	for _, filter := range []struct{ column, value string }{{"project_id", input.ProjectID}, {"document_id", input.DocumentID}, {"action", input.Action}, {"resource_type", input.ResourceType}, {"resource_id", input.ResourceID}} {
 		if filter.value != "" {
 			query = query.Where(filter.column+" = ?", filter.value)
@@ -201,5 +209,45 @@ func (r *Repository) ReadAudits(ctx context.Context, input domain.AuditQuery) (*
 		}
 		page.Items = append(page.Items, domainAuditLogFromModel(row))
 	}
+	if err := r.enrichAuditNames(ctx, page.Items); err != nil {
+		return nil, err
+	}
 	return page, nil
+}
+
+// 仅解析已授权日志页引用的身份，避免逐行查询或向项目管理员开放用户目录。
+func (r *Repository) enrichAuditNames(ctx context.Context, logs []*domain.AuditLog) error {
+	userIDs, projectIDs := make([]string, 0, len(logs)), make([]string, 0, len(logs))
+	for _, log := range logs {
+		if log.ActorUserID != "" {
+			userIDs = append(userIDs, log.ActorUserID)
+		}
+		if log.ProjectID != "" {
+			projectIDs = append(projectIDs, log.ProjectID)
+		}
+	}
+	emails, names := map[string]string{}, map[string]string{}
+	if len(userIDs) > 0 {
+		var users []User
+		if err := r.database.WithContext(ctx).Select("id", "email").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+			return err
+		}
+		for _, user := range users {
+			emails[domainID(user.ID)] = user.Email
+		}
+	}
+	if len(projectIDs) > 0 {
+		var projects []Project
+		if err := r.database.WithContext(ctx).Select("id", "name").Where("id IN ?", projectIDs).Find(&projects).Error; err != nil {
+			return err
+		}
+		for _, project := range projects {
+			names[domainID(project.ID)] = project.Name
+		}
+	}
+	for _, log := range logs {
+		log.ActorEmail = emails[log.ActorUserID]
+		log.ProjectName = names[log.ProjectID]
+	}
+	return nil
 }

@@ -41,6 +41,7 @@ func listAuditLogs(c *gin.Context) {
 	}
 	page, err := shared.Store(c).QueryAuditLogPage(userID, app.AuditLogQuery{
 		ProjectID:    c.Query("project_id"),
+		Actor:        c.Query("actor"),
 		Action:       c.Query("action"),
 		ResourceType: c.Query("resource_type"),
 		ResourceID:   c.Query("resource_id"),

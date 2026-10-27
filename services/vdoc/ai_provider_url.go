@@ -73,6 +73,18 @@ func normalizeAIProviderBaseURL(raw string) (string, error) {
 	return parsed.String(), nil
 }
 
+// 模型查询和推理共用路径规则，兼容根地址、/v1 以及网关前缀。
+func aiProviderEndpoint(raw, endpoint string) (string, error) {
+	base, err := normalizeAIProviderBaseURL(raw)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/" + endpoint, nil
+	}
+	return base + "/v1/" + endpoint, nil
+}
+
 func isUnsafeAIProviderHost(host string) bool {
 	domain := strings.TrimSuffix(host, ".")
 	if domain == "localhost" || strings.HasSuffix(domain, ".localhost") {

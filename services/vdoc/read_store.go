@@ -108,6 +108,10 @@ func (s *Store) QueryDocumentEndpoints(actorID, projectID, documentID, versionID
 }
 
 func normalizeAuditQuery(query AuditLogQuery) (AuditLogQuery, error) {
+	query.Actor = strings.TrimSpace(query.Actor)
+	if len(query.Actor) > 256 {
+		return query, ErrInvalidArgument
+	}
 	query.ProjectID = strings.TrimSpace(query.ProjectID)
 	query.Action = strings.TrimSpace(query.Action)
 	query.ResourceType = strings.TrimSpace(query.ResourceType)
@@ -158,7 +162,7 @@ func (s *Store) QueryAuditLogPage(actorID string, query AuditLogQuery) (*AuditLo
 				return nil, ErrPermissionDenied
 			}
 		}
-		return repo.ReadAudits(s.requestContext(), domain.AuditQuery{ProjectID: query.ProjectID, Action: query.Action, ResourceType: query.ResourceType, ResourceID: query.ResourceID, Limit: query.Limit, Cursor: query.Cursor, From: query.From, To: query.To})
+		return repo.ReadAudits(s.requestContext(), domain.AuditQuery{ProjectID: query.ProjectID, Actor: query.Actor, Action: query.Action, ResourceType: query.ResourceType, ResourceID: query.ResourceID, Limit: query.Limit, Cursor: query.Cursor, From: query.From, To: query.To})
 	}
 	limit := query.Limit
 	query.Limit++

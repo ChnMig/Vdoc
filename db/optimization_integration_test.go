@@ -83,6 +83,18 @@ func TestPostgresBoundedReadsAndRecoverableSummaryJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, actor := range []string{"OPTIMIZATION@EXAMPLE.TEST", user.ID} {
+		page, err := store.QueryAuditLogPage(user.ID, app.AuditLogQuery{ProjectID: project.ID, Actor: actor, Action: "project.create", Limit: 1})
+		if err != nil || len(page.Items) != 1 || page.Items[0].ActorEmail != user.Email || page.Items[0].ProjectName != project.Name {
+			t.Fatalf("database audit actor/name query: page=%+v err=%v", page, err)
+		}
+	}
+	for _, actor := range []string{"%", "_", "' OR 1=1 --"} {
+		page, err := store.QueryAuditLogPage(user.ID, app.AuditLogQuery{ProjectID: project.ID, Actor: actor, Limit: 1})
+		if err != nil || len(page.Items) != 0 {
+			t.Fatalf("audit actor must treat SQL metacharacters literally: page=%+v err=%v", page, err)
+		}
+	}
 	document, err := store.CreateDocument(user.ID, project.ID, "OpenAPI", app.DocumentTypeOpenAPI, "api/openapi.yaml", "")
 	if err != nil {
 		t.Fatal(err)

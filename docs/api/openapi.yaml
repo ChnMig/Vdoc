@@ -963,7 +963,7 @@ paths:
     get:
       tags: [Audit Logs]
       summary: List authorized audit history.
-      description: Super administrators may query all projects. Project administrators must supply project_id and can query only projects they administer. Reader and writer roles are denied. Results are newest first with at most 200 rows per page. Follow next_cursor to continue; has_more indicates whether a next page exists. A global total is omitted.
+      description: Super administrators may query all projects. Project administrators must supply project_id and can query only projects they administer. Reader and writer roles are denied. Results are newest first with at most 200 rows per page. Follow next_cursor to continue; has_more indicates whether a next page exists. A global total is omitted. Optional actor matches a case-insensitive email substring or exact user ID before pagination. DTOs add actor_email and project_name when available; original IDs remain unchanged.
       operationId: listAuditLogs
       security: [{ JWTAuth: [] }]
       parameters:
@@ -973,6 +973,7 @@ paths:
             required: false,
             schema: { type: string },
           }
+        - { name: actor, in: query, required: false, schema: { type: string, maxLength: 256 }, description: Email substring or exact user ID. }
         - { name: action, in: query, required: false, schema: { type: string } }
         - {
             name: resource_type,
@@ -1009,7 +1010,7 @@ paths:
     put:
       tags: [AI]
       summary: Upsert system AI provider configuration.
-      description: SuperAdmin only. Saves an OpenAI-compatible provider. Omitted tuning fields use defaults from AIProviderRequest. The raw api_key is accepted only in the request and is never returned.
+      description: SuperAdmin only. Saves an OpenAI-compatible provider. Omitted tuning fields use defaults from AIProviderRequest. This save response never returns the raw api_key; an explicit audited reveal endpoint is separate.
       operationId: putSystemAIProvider
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1101,6 +1102,26 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/AIProviderModelsRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/ai/provider/key/reveal:
+    post:
+      tags: [AI]
+      summary: Explicitly reveal the saved AI provider API key.
+      description: SuperAdmin only. Reveals the saved system key. Records a secret-free audit before returning detail.api_key. Responses use Cache-Control no-store; ordinary provider DTOs remain redacted.
+      operationId: revealSystemAIProviderKey
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/ai/provider/key/reveal:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+    post:
+      tags: [AI]
+      summary: Explicitly reveal the saved AI provider API key.
+      description: Project Admin or SuperAdmin only; active project. Reveals only the project override, never the system fallback key. Records a secret-free audit before returning detail.api_key. Responses use Cache-Control no-store; ordinary provider DTOs remain redacted.
+      operationId: revealProjectAIProviderKey
+      security: [{ JWTAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/ai/prompts:
@@ -1945,7 +1966,7 @@ components:
         api_key:
           type: string
           writeOnly: true
-          description: Raw provider API key. It is encrypted for storage and never returned by API responses or audit metadata.
+          description: Raw provider API key. Encrypted for storage and excluded from ordinary provider responses and audit metadata. An explicit audited reveal endpoint can return it to authorized administrators.
         enabled:
           type: boolean
           description: Whether this provider can be used for summaries and chat.

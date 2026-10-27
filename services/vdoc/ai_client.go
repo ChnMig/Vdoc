@@ -57,7 +57,7 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	messages = append(messages, input.History...)
 	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User})
 	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens}
-	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "/v1/chat/completions", payload)
+	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "chat/completions", payload)
 	if err != nil {
 		return aiCompletionResult{}, err
 	}
@@ -87,7 +87,7 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 
 func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
 	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false}
-	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "/v1/responses", payload)
+	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "responses", payload)
 	if err != nil {
 		return aiCompletionResult{}, err
 	}
@@ -142,7 +142,7 @@ func responsesConversationInput(history []aiMessagePayload, currentUser string) 
 }
 
 func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey, path string, payload any) ([]byte, error) {
-	baseURL, err := normalizeAIProviderBaseURL(provider.BaseURL)
+	endpoint, err := aiProviderEndpoint(provider.BaseURL, path)
 	if err != nil {
 		return nil, err
 	}
@@ -152,8 +152,7 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(providerTimeoutMS(provider))*time.Millisecond)
 	defer cancel()
-	url := baseURL + path
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create ai request: %w", err)
 	}
@@ -176,6 +175,9 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 		return nil, fmt.Errorf("%w: provider response exceeds %d bytes", ErrFailedPrecondition, aiProviderMaxResponseBytes)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: provider status 404 (%s); check the Base URL, API mode and model supported by the provider", ErrFailedPrecondition, provider.APIMode)
+		}
 		return nil, fmt.Errorf("%w: provider status %d", ErrFailedPrecondition, resp.StatusCode)
 	}
 	return data, nil
