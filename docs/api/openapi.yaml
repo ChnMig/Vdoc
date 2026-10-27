@@ -1033,6 +1033,20 @@ paths:
             schema: { $ref: "#/components/schemas/AIProviderRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/ai/provider/models:
+    post:
+      tags: [AI]
+      summary: Discover models using the system provider credentials.
+      description: SuperAdmin only. Returns detail.models as a sorted unique array of model IDs from the OpenAI-compatible GET /v1/models endpoint, without inference or configuration writes. Omit the body to use the saved provider, including a disabled provider. A supplied body needs no model name; omitting api_key reuses the stored key only when the normalized base_url is unchanged. Responses are bounded to 4 MiB and 4096 entries. Redirects and unsafe network destinations are rejected. Discovery failure does not prohibit saving a manually entered model ID.
+      operationId: listSystemAIProviderModels
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIProviderModelsRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/ai/provider:
     parameters:
       - { $ref: "#/components/parameters/ProjectID" }
@@ -1071,6 +1085,22 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/AIProviderRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/ai/provider/models:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+    post:
+      tags: [AI]
+      summary: Discover models for the current project provider connection.
+      description: Project Admin or SuperAdmin only, and the project must be active. Same request and detail.models result as system model discovery. With no body, uses the saved project provider, or the enabled system provider when no project provider exists. A supplied API key and URL are used only for this call; the stored project key is reused only for an unchanged normalized URL. Reader and Writer are denied. Raw credentials and upstream response bodies are never returned.
+      operationId: listProjectAIProviderModels
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIProviderModelsRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/ai/prompts:
@@ -1938,6 +1968,35 @@ components:
           minimum: 1
           maximum: 32000
           description: Maximum generated output tokens. Omit to use 1000. Values from 1 through 32000 are accepted.
+    AIProviderModelsRequest:
+      type: object
+      additionalProperties: false
+      required: [base_url]
+      properties:
+        base_url:
+          type: string
+          format: uri
+          description: HTTPS OpenAI-compatible provider root URL. A trailing /v1 is also accepted for discovery. Must match the stored normalized URL to reuse its key.
+        api_key:
+          type: string
+          writeOnly: true
+          description: Unsaved provider credential, used for this request only and never returned. Required for a new or changed URL.
+        timeout_ms:
+          type: integer
+          minimum: 1000
+          maximum: 120000
+          description: Request timeout; defaults to the saved provider timeout or 30000 for a new connection.
+    AIProviderModelsResponse:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          uniqueItems: true
+          maxItems: 4096
+          items: { type: string, minLength: 1, maxLength: 256 }
+          description: Sorted unique model IDs. An empty array is valid and manual model input remains supported.
     AIProviderResponse:
       type: object
       additionalProperties: false

@@ -252,6 +252,10 @@ Token-limit truncation and other explicit incomplete provider responses fail the
 
 Provider tests accept an optional request body. Omitting the body tests the saved effective configuration; for a project without an enabled override, this deliberately tests the enabled system-provider fallback. Prompt update bodies contain `system_prompt`, `user_prompt_template`, and `enabled`; the path is the single source of truth for `prompt_key`. Both prompt strings must be non-blank, every `user_prompt_template` must contain the literal `{{context}}`, and `page_chat` must additionally contain `{{message}}`.
 
+Provider model discovery uses `POST /api/v1/private/ai/provider/models` (SuperAdmin) or `POST /api/v1/private/projects/{project_id}/ai/provider/models` (Project Admin/SuperAdmin, active project). An optional body supplies `base_url`, optional `api_key`, and optional `timeout_ms`; no model name is required. With no body, discovery uses the saved provider, including disabled configuration; a missing project provider can use the enabled system fallback. With a body, the saved key is reused only for an unchanged normalized URL. Changing the URL requires a supplied key. Credentials remain on the backend, and discovery neither saves configuration nor makes an inference request.
+
+The backend requests the OpenAI-compatible `/v1/models` endpoint (without duplicating a trailing `/v1`), uses the existing HTTPS/DNS/redirect protections and bounded timeout, and accepts at most 4 MiB / 4096 model entries. Success returns `detail: {"models":["model-a","model-b"]}` with sorted unique IDs; empty lists are valid. Provider errors and unsupported model-list endpoints leave manual model input available. Opening the model chooser fetches the current connection; changed URL/key inputs invalidate its list and late responses. Discovery is configuration access, so Reader/Writer roles and archived project configuration cannot issue these remote requests.
+
 ```sh
 curl -sS "$API_BASE/api/v1/private/ai/provider" \
   -X PUT \
@@ -284,9 +288,11 @@ AI audit metadata includes token usage fields when the provider returns them: `p
 GET  /api/v1/private/ai/provider
 PUT  /api/v1/private/ai/provider
 POST /api/v1/private/ai/provider/test
+POST /api/v1/private/ai/provider/models
 GET  /api/v1/private/projects/{project_id}/ai/provider
 PUT  /api/v1/private/projects/{project_id}/ai/provider
 POST /api/v1/private/projects/{project_id}/ai/provider/test
+POST /api/v1/private/projects/{project_id}/ai/provider/models
 GET  /api/v1/private/ai/prompts
 PUT  /api/v1/private/ai/prompts/{prompt_key}
 GET  /api/v1/private/projects/{project_id}/ai/prompts
@@ -414,8 +420,10 @@ Development builds return `FAILED_PRECONDITION` when checking updates. Network, 
 | Audit Logs | `GET` | `/api/v1/private/audit-logs` | JWT; super admin or scoped project admin |
 | AI | `GET`, `PUT` | `/api/v1/private/ai/provider` | JWT; SuperAdmin |
 | AI | `POST` | `/api/v1/private/ai/provider/test` | JWT; SuperAdmin |
+| AI | `POST` | `/api/v1/private/ai/provider/models` | JWT; SuperAdmin |
 | AI | `GET`, `PUT` | `/api/v1/private/projects/{project_id}/ai/provider` | JWT; Project Admin or SuperAdmin |
 | AI | `POST` | `/api/v1/private/projects/{project_id}/ai/provider/test` | JWT; Project Admin or SuperAdmin |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/ai/provider/models` | JWT; Project Admin or SuperAdmin; active project |
 | AI | `GET` | `/api/v1/private/ai/prompts` | JWT; SuperAdmin |
 | AI | `PUT` | `/api/v1/private/ai/prompts/{prompt_key}` | JWT; SuperAdmin |
 | AI | `GET` | `/api/v1/private/projects/{project_id}/ai/prompts` | JWT; Project Admin or SuperAdmin |

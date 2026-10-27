@@ -87,8 +87,10 @@ var requestBodyContracts = map[string]requestBodyContract{
 	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs":                             {required: true, schemaRef: "#/components/schemas/CreateDiffRequest"},
 	"PUT /api/v1/private/ai/provider":                                                                      {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
 	"POST /api/v1/private/ai/provider/test":                                                                {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/ai/provider/models":                                                              {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
 	"PUT /api/v1/private/projects/{project_id}/ai/provider":                                                {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
 	"POST /api/v1/private/projects/{project_id}/ai/provider/test":                                          {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/provider/models":                                        {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
 	"PUT /api/v1/private/ai/prompts/{prompt_key}":                                                          {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
 	"PUT /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}":                                    {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
 	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions":                                          {required: true, schemaRef: "#/components/schemas/AIChatSessionRequest"},
@@ -271,8 +273,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 35 {
-		t.Fatalf("request body route contract count = %d, want 35", len(requestBodyContracts))
+	if len(requestBodyContracts) != 37 {
+		t.Fatalf("request body route contract count = %d, want 37", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))

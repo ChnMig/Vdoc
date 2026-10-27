@@ -76,6 +76,59 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	}
 }
 
+func TestAIProviderModelsRoutesUseScopedCredentialsAndMaskSecrets(t *testing.T) {
+	router := setupPrivateRouter(t)
+	store := app.DefaultStore()
+	super, err := store.Register("model-admin@example.test", "Admin", privateTestPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := store.CreateUser(super.ID, "model-writer@example.test", "Writer", privateTestPassword, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := store.CreateTeam(super.ID, "Model team", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.CreateProject(super.ID, team.ID, "Models", "", super.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddProjectMember(super.ID, project.ID, writer.ID, app.MemberRoleWriter); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertSystemAIProvider(super.ID, app.AIProviderInput{BaseURL: "https://models.example.test", Model: "saved-model", APIMode: "responses", APIKey: "synthetic-model-secret", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	store.SetAIHTTPClient(&http.Client{Transport: privateAIRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" || r.Header.Get("Authorization") != "Bearer synthetic-model-secret" {
+			t.Fatal("incorrect remote model discovery request")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"model-b"},{"id":"model-a"}]}`)), Header: http.Header{"Content-Type": {"application/json"}}}, nil
+	})})
+	superToken := issuePrivateTestToken(t, super.ID)
+	for _, path := range []string{"/api/v1/private/ai/provider/models", "/api/v1/private/projects/" + project.ID + "/ai/provider/models"} {
+		envelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, path, superToken, ""))
+		var detail struct {
+			Models []string `json:"models"`
+		}
+		if err := json.Unmarshal(envelope.Detail, &detail); err != nil || envelope.Code != 200 || len(detail.Models) != 2 || detail.Models[0] != "model-a" || strings.Contains(string(envelope.Detail), "synthetic-model-secret") {
+			t.Fatalf("model envelope: code=%d detail=%s err=%v", envelope.Code, envelope.Detail, err)
+		}
+	}
+	denied := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/provider/models", issuePrivateTestToken(t, writer.ID), ""))
+	if denied.Code != 403 || calls != 2 {
+		t.Fatalf("model access boundary: code=%d calls=%d", denied.Code, calls)
+	}
+	unsafe := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/ai/provider/models", superToken, `{"base_url":"https://127.0.0.1","api_key":"synthetic-model-secret"}`))
+	if unsafe.Code != 400 || calls != 2 {
+		t.Fatalf("unsafe URL boundary: code=%d calls=%d", unsafe.Code, calls)
+	}
+}
+
 func TestAIProviderRoutes_ReturnDefaultTuning_whenSystemProviderUnset(t *testing.T) {
 	// Given
 	router := setupPrivateRouter(t)
