@@ -297,11 +297,17 @@ GET  /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{ver
 POST /api/v1/private/projects/{project_id}/documents/{document_id}/versions/{version_id}/ai-summary/regenerate
 GET  /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary
 POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary/regenerate
-GET  /api/v1/private/projects/{project_id}/ai/chat-sessions?document_id={document_id}&context_type={draft|version|diff}&context_id={context_id}
+GET  /api/v1/private/projects/{project_id}/ai/chat-sessions?document_id={document_id}&context_type={document|draft|version|diff}&context_id={context_id}
 POST /api/v1/private/projects/{project_id}/ai/chat-sessions
 GET  /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}
 POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages
 ```
+
+Document-wide chat uses `context_type: "document"` and requires `context_id` to equal `document_id`. It reads only sources belonging to that authorized document: published revisions and saved drafts across its branches, including archived branch history. Reader, Writer and Admin project access remains required; public shares and MCP do not gain this access. The Admin workspace keeps this document conversation while its independently scoped revision summary follows the reading selection. Existing revision/diff sessions remain readable through their original context filters.
+
+For each question the server ranks all source metadata by explicit branch/revision matches and recency, diversifying the latest published and draft source per branch. It sends at most 16 bodies, 48,000 body characters and a 12,000-character catalog. Long bodies provide a question-matching excerpt; omissions and source identities are explicit in the prompt. This is bounded retrieval, not a guarantee that every revision's full text fits one request. Name a branch, revision or ID for precise historical questions. Source attribution instructions distinguish reviewed versions from draft state. The server rechecks the entire document source fingerprint, project permission, effective provider/prompt and conversation generation in the completion transaction; concurrent source changes invalidate the answer without saving partial conversation messages.
+
+Migration `012_document_ai_chat.sql` extends only chat-session context types, preserving existing sessions and keeping summary/job targets restricted to draft/version/diff. Deploy the backend and Admin together so the workspace can create document sessions.
 
 ### 6. Public Document Shares
 

@@ -30,6 +30,7 @@ type MutationGuard struct {
 	DraftID                   string
 	ExpectedDraftRevision     string
 	ExpectedDocumentUpdatedAt time.Time
+	ExpectedAIContextRevision string
 }
 
 const (
@@ -147,6 +148,9 @@ func ValidateMutationContext(guard MutationGuard, state *State, now time.Time) e
 		if guard.ExpectedDraftRevision != "" && value.Revision() != guard.ExpectedDraftRevision {
 			return fmt.Errorf("%w: draft changed before the operation was committed", ErrFailedPrecondition)
 		}
+	}
+	if guard.ExpectedAIContextRevision != "" && AIDocumentRevision(state, guard.ProjectID, guard.DocumentID) != guard.ExpectedAIContextRevision {
+		return fmt.Errorf("%w: document AI sources changed before the operation was committed", ErrFailedPrecondition)
 	}
 	return nil
 }

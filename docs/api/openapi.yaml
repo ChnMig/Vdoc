@@ -1467,14 +1467,14 @@ components:
       required: true
       schema:
         type: string
-        enum: [draft, version, diff]
-      description: AI page context type.
+        enum: [draft, version, diff, document]
+      description: AI chat context type; document searches authorized branches, published versions and saved drafts.
     AIChatContextIDQuery:
       name: context_id
       in: query
       required: true
       schema: { type: string }
-      description: Draft, version, or Diff ID for the exact AI page context.
+      description: Draft, version, Diff, or Document ID; document context requires context_id equal to document_id.
   responses:
     VdocEnvelopeResponse:
       description: HTTP 200 response with Vdoc envelope.
@@ -1869,8 +1869,8 @@ components:
       required: [document_id, context_type, context_id]
       properties:
         document_id: { type: string }
-        context_type: { type: string, enum: [draft, version, diff] }
-        context_id: { type: string }
+        context_type: { type: string, enum: [draft, version, diff, document] }
+        context_id: { type: string, description: Document context requires the same value as document_id. }
         title: { type: string }
     AIChatMessageRequest:
       type: object

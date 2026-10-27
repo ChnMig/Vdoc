@@ -49,6 +49,14 @@ func (s *Store) aiCompletionGuardLocked(actorID string, target AISummaryTarget, 
 }
 
 func (s *Store) withAITargetMutationGuardLocked(actorID string, target AISummaryTarget, permission int) (*Store, error) {
+	if target.OwnerType == domainai.ChatContextDocument {
+		if err := s.ensureReadableAIChatTargetLocked(actorID, target); err != nil {
+			return nil, err
+		}
+		guarded := s.withMutationGuard(actorID, target.ProjectID, target.DocumentID, permission)
+		guarded.mutationGuard.ExpectedAIContextRevision = domain.AIDocumentRevision(s.stateLocked(), target.ProjectID, target.DocumentID)
+		return guarded, nil
+	}
 	branchID, err := s.aiTargetBranchLocked(target)
 	if err != nil {
 		return nil, err

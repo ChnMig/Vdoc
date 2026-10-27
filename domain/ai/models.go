@@ -32,8 +32,9 @@ const (
 	SummaryOwnerVersion = "version"
 	SummaryOwnerDiff    = "diff"
 
-	ChatRoleUser      = "user"
-	ChatRoleAssistant = "assistant"
+	ChatRoleUser        = "user"
+	ChatRoleAssistant   = "assistant"
+	ChatContextDocument = "document"
 )
 
 type ProviderConfig struct {

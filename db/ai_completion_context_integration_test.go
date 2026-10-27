@@ -85,10 +85,10 @@ func TestPostgresAICompletionRechecksContextAfterAnotherInstanceWrites(t *testin
 		if markdown {
 			format, documentType, content = "markdown", app.DocumentTypeMarkdown, "# Completion"
 		}
-		for _, chat := range []bool{false, true} {
-			kind, role := "summary", app.MemberRoleAdmin
+		for _, kind := range []string{"summary", "chat", "document-chat"} {
+			chat, role := kind != "summary", app.MemberRoleAdmin
 			if chat {
-				kind, role = "chat", app.MemberRoleReader
+				role = app.MemberRoleReader
 			}
 			for _, change := range []string{"project-archive", "document-archive", "branch-archive", "member-remove", "draft-edit", "provider-override-insert", "prompt-override-insert"} {
 				t.Run(format+"/"+kind+"/"+change, func(t *testing.T) {
@@ -134,6 +134,9 @@ func TestPostgresAICompletionRechecksContextAfterAnotherInstanceWrites(t *testin
 					}
 					target := app.AISummaryTarget{ProjectID: project.ID, DocumentID: document.ID, OwnerType: domainai.SummaryOwnerDraft, OwnerID: draft.ID}
 					sessionID, promptKey := "", domainai.PromptDraftReviewSummary
+					if kind == "document-chat" {
+						target.OwnerType, target.OwnerID = domainai.ChatContextDocument, document.ID
+					}
 					if chat {
 						session, err := first.CreateAIChatSession(actor.ID, app.AIChatSessionInput{ProjectID: project.ID, DocumentID: document.ID, ContextType: target.OwnerType, ContextID: target.OwnerID})
 						if err != nil {

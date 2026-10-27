@@ -46,6 +46,19 @@ func (r *Repository) LockMutationContext(ctx context.Context, guard domain.Mutat
 			return nil, err
 		}
 	}
+	// 文档行锁与所有文档写操作共用；锁后读取集合可覆盖来源新增、删除和跨分支变更。
+	if guard.ExpectedAIContextRevision != "" {
+		scoped := &Repository{database: r.database.Where("document_id = ?", guard.DocumentID)}
+		if err := scoped.loadBranches(ctx, state); err != nil {
+			return nil, err
+		}
+		if err := scoped.loadDrafts(ctx, state); err != nil {
+			return nil, err
+		}
+		if err := scoped.loadVersions(ctx, state); err != nil {
+			return nil, err
+		}
+	}
 	if len(guard.BranchIDs) > 0 {
 		ids := slices.Clone(guard.BranchIDs)
 		slices.Sort(ids)

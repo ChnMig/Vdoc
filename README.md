@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.16 release shares one document reader between Admin and public links, fixes draft review/history navigation, and supports starting drafts from published versions. The backend adds a permission-scoped document activity timeline and projects real draft publication timestamps from immutable versions. No new database migration is required; update Backend and Admin together.
+This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.17 release adds permission-scoped document AI chat across branches, published versions and saved drafts, plus draft-aware source comparisons and clearer sharing in Admin. Startup applies migration 012 for document chat sessions; back up the database and update Backend and Admin together.
 
 API documentation:
 
