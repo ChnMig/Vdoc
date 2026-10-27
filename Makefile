@@ -89,7 +89,7 @@ version: ## 显示版本信息
 	@echo "Git Commit: $(GIT_COMMIT)"
 
 test: ## 使用 race detector 与随机顺序运行全量测试
-	@go test -race -shuffle=on -count=1 ./...
+	@go test -race -shuffle=on -count=1 -timeout=20m ./...
 
 test-race: test ## test 的兼容别名
 

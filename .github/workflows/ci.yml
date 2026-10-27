@@ -56,7 +56,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test -race -shuffle=on -count=1 ./...
+        run: make test-race
 
       - name: Verify modules
         run: |
