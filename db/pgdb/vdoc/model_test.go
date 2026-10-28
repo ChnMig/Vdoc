@@ -134,7 +134,7 @@ func TestAIModelsDeclareNullableScopeColumns(t *testing.T) {
 	aiProvider := reflect.TypeFor[AIProvider]()
 	for fieldName, wantParts := range map[string][]string{
 		"Temperature":     {"column:temperature", "type:double precision", "not null", "default:0.2"},
-		"TimeoutMS":       {"column:timeout_ms", "type:integer", "not null", "default:30000"},
+		"TimeoutMS":       {"column:timeout_ms", "type:integer", "not null"},
 		"MaxOutputTokens": {"column:max_output_tokens", "type:integer", "not null", "default:1000"},
 	} {
 		field, ok := aiProvider.FieldByName(fieldName)

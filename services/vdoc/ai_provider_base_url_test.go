@@ -71,8 +71,8 @@ func TestAIProviderStore_UpsertSystemProviderDefaultsTuning_whenFieldsOmitted(t 
 	if err != nil {
 		t.Fatalf("UpsertSystemAIProvider() error = %v", err)
 	}
-	if provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
-		t.Fatalf("provider tuning = temp %v timeout %d max %d, want 0.2/30000/1000", provider.Temperature, provider.TimeoutMS, provider.MaxOutputTokens)
+	if provider.Temperature != 0.2 || provider.TimeoutMS != 600000 || provider.MaxOutputTokens != 1000 {
+		t.Fatalf("provider tuning = temp %v timeout %d max %d, want 0.2/600000/1000", provider.Temperature, provider.TimeoutMS, provider.MaxOutputTokens)
 	}
 }
 
@@ -84,7 +84,7 @@ func TestAIProviderStore_UpsertSystemProviderRejectsTuningOutOfBounds(t *testing
 		{name: "temperature below minimum", adjust: func(input *AIProviderInput) { input.Temperature = float64Ptr(-0.01) }},
 		{name: "temperature above maximum", adjust: func(input *AIProviderInput) { input.Temperature = float64Ptr(2.01) }},
 		{name: "timeout below minimum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(999) }},
-		{name: "timeout above maximum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(120001) }},
+		{name: "timeout above maximum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(2147483648) }},
 		{name: "max output below minimum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(0) }},
 		{name: "max output above maximum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(32001) }},
 	}

@@ -22,7 +22,7 @@ func TestAPIDocsDescribeAILoopContract(t *testing.T) {
 	document := readDocsMarkdown(t, "API.md")
 	requiredPhrases := []string{
 		"temperature` defaults to `0.2` and accepts `0` through `2`",
-		"timeout_ms` defaults to `30000` and accepts `1000` through `120000`",
+		"timeout_ms` limits total generation time (default `600000`)",
 		"max_output_tokens` defaults to `1000` and accepts `1` through `32000`",
 		"Submitting a draft atomically saves",
 		"Approving a draft atomically publishes",
@@ -140,7 +140,9 @@ func TestAPIDocsDatabaseSchemaDescribesAILoopPersistence(t *testing.T) {
 func assertDocsTuningProperties(t *testing.T, properties map[string]any) {
 	t.Helper()
 	assertDocsNumberProperty(t, properties, docsNumberExpectation{name: "temperature", def: 0.2, min: 0, max: 2})
-	assertDocsNumberProperty(t, properties, docsNumberExpectation{name: "timeout_ms", def: 30000, min: 1000, max: 120000})
+	assertDocsNumberProperty(t, properties, docsNumberExpectation{name: "timeout_ms", def: 600000, min: 0, max: 2147483647})
+	assertDocsNumberProperty(t, properties, docsNumberExpectation{name: "first_response_timeout_ms", def: 180000, min: 0, max: 2147483647})
+	assertDocsNumberProperty(t, properties, docsNumberExpectation{name: "idle_timeout_ms", def: 120000, min: 0, max: 2147483647})
 	assertDocsNumberProperty(t, properties, docsNumberExpectation{name: "max_output_tokens", def: 1000, min: 1, max: 32000})
 }
 

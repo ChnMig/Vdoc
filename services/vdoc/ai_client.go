@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	domainai "vdoc/domain/ai"
 )
@@ -176,9 +175,9 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 	if err != nil {
 		return aiCompletionResult{}, fmt.Errorf("marshal ai request: %w", err)
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(providerTimeoutMS(provider))*time.Millisecond)
-	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	watch := newAIResponseWatchdog(ctx, provider)
+	defer watch.close()
+	req, err := http.NewRequestWithContext(watch.ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return aiCompletionResult{}, fmt.Errorf("create ai request: %w", err)
 	}
@@ -193,7 +192,7 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 	safeClient.CheckRedirect = rejectAIProviderRedirect
 	resp, err := safeClient.Do(req)
 	if err != nil {
-		return aiCompletionResult{}, fmt.Errorf("call ai provider: %w", err)
+		return aiCompletionResult{}, fmt.Errorf("call ai provider: %w", watch.err(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -202,7 +201,7 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 		}
 		return aiCompletionResult{}, fmt.Errorf("%w: provider status %d", ErrFailedPrecondition, resp.StatusCode)
 	}
-	limited := &io.LimitedReader{R: resp.Body, N: aiProviderMaxResponseBytes + 1}
+	limited := &io.LimitedReader{R: aiActivityReader{reader: resp.Body, watch: watch}, N: aiProviderMaxResponseBytes + 1}
 	reader := bufio.NewReader(limited)
 	// 兼容忽略 stream 参数并返回 JSON 的服务，但不把意外的 SSE 当作非流式成功。
 	streaming := strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
@@ -214,14 +213,7 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 	if limited.N <= 0 {
 		return aiCompletionResult{Usage: result.Usage}, fmt.Errorf("%w: provider response exceeds %d bytes", ErrFailedPrecondition, aiProviderMaxResponseBytes)
 	}
-	return result, err
-}
-
-func providerTimeoutMS(provider *AIProviderConfig) int {
-	if provider.TimeoutMS == 0 {
-		return domainai.ProviderDefaultTimeoutMS
-	}
-	return provider.TimeoutMS
+	return result, watch.err(err)
 }
 
 type aiMessagePayload struct {

@@ -103,13 +103,12 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	if model == "" || !validAIMode(mode) {
 		return nil, ErrInvalidArgument
 	}
-	tuning, err := providerTuning(input)
+	existing := s.aiProviders[aiProviderKey(projectID)]
+	tuning, err := providerTuning(input, existing)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	key := aiProviderKey(projectID)
-	existing := s.aiProviders[key]
 	provider := &AIProviderConfig{ID: id.GenerateID(), ProjectID: projectID, CreatedBy: actorID, CreatedAt: now}
 	if existing != nil {
 		copied := *existing
@@ -130,6 +129,8 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	provider.Enabled = input.Enabled
 	provider.Temperature = tuning.temperature
 	provider.TimeoutMS = tuning.timeoutMS
+	provider.FirstResponseTimeoutMS = &tuning.firstResponseTimeoutMS
+	provider.IdleTimeoutMS = &tuning.idleTimeoutMS
 	provider.MaxOutputTokens = tuning.maxOutputTokens
 	provider.UpdatedBy = actorID
 	provider.UpdatedAt = now
@@ -173,13 +174,26 @@ func (s *Store) testAIProvider(actorID, projectID string, input *AIProviderInput
 }
 
 type aiProviderTuning struct {
-	temperature     float64
-	timeoutMS       int
-	maxOutputTokens int
+	temperature            float64
+	timeoutMS              int
+	firstResponseTimeoutMS int
+	idleTimeoutMS          int
+	maxOutputTokens        int
 }
 
-func providerTuning(input AIProviderInput) (aiProviderTuning, error) {
-	tuning := aiProviderTuning{temperature: domainai.ProviderDefaultTemperature, timeoutMS: domainai.ProviderDefaultTimeoutMS, maxOutputTokens: domainai.ProviderDefaultMaxTokens}
+func providerTuning(input AIProviderInput, existing *AIProviderConfig) (aiProviderTuning, error) {
+	tuning := aiProviderTuning{temperature: domainai.ProviderDefaultTemperature, timeoutMS: domainai.ProviderDefaultTimeoutMS, firstResponseTimeoutMS: domainai.ProviderDefaultFirstResponseTimeoutMS, idleTimeoutMS: domainai.ProviderDefaultIdleTimeoutMS, maxOutputTokens: domainai.ProviderDefaultMaxTokens}
+	if existing != nil {
+		tuning.timeoutMS = existing.TimeoutMS
+		tuning.firstResponseTimeoutMS = existing.FirstResponseTimeout()
+		tuning.idleTimeoutMS = existing.IdleTimeout()
+	}
+	if input.FirstResponseTimeoutMS != nil {
+		tuning.firstResponseTimeoutMS = *input.FirstResponseTimeoutMS
+	}
+	if input.IdleTimeoutMS != nil {
+		tuning.idleTimeoutMS = *input.IdleTimeoutMS
+	}
 	if input.Temperature != nil {
 		tuning.temperature = *input.Temperature
 	}
@@ -192,7 +206,7 @@ func providerTuning(input AIProviderInput) (aiProviderTuning, error) {
 	if tuning.temperature < domainai.ProviderMinTemperature || tuning.temperature > domainai.ProviderMaxTemperature {
 		return aiProviderTuning{}, ErrInvalidArgument
 	}
-	if tuning.timeoutMS < domainai.ProviderMinTimeoutMS || tuning.timeoutMS > domainai.ProviderMaxTimeoutMS {
+	if !domainai.ValidProviderTimeoutMS(tuning.timeoutMS) || !domainai.ValidProviderTimeoutMS(tuning.firstResponseTimeoutMS) || !domainai.ValidProviderTimeoutMS(tuning.idleTimeoutMS) {
 		return aiProviderTuning{}, ErrInvalidArgument
 	}
 	if tuning.maxOutputTokens < domainai.ProviderMinMaxTokens || tuning.maxOutputTokens > domainai.ProviderMaxMaxTokens {
@@ -290,6 +304,14 @@ func cloneAIProvider(provider *AIProviderConfig) *AIProviderConfig {
 	if provider.Stream != nil {
 		stream := *provider.Stream
 		copy.Stream = &stream
+	}
+	if provider.FirstResponseTimeoutMS != nil {
+		value := *provider.FirstResponseTimeoutMS
+		copy.FirstResponseTimeoutMS = &value
+	}
+	if provider.IdleTimeoutMS != nil {
+		value := *provider.IdleTimeoutMS
+		copy.IdleTimeoutMS = &value
 	}
 	copy.APIKeyCiphertext = append([]byte(nil), provider.APIKeyCiphertext...)
 	return &copy

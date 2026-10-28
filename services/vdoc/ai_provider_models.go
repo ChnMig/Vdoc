@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 	"unicode"
 
 	domainai "vdoc/domain/ai"
@@ -80,6 +79,12 @@ func (s *Store) resolveProviderForModels(actorID, projectID string, input *AIPro
 	if input != nil {
 		provider.BaseURL = input.BaseURL
 		apiKey = strings.TrimSpace(input.APIKey)
+		if input.FirstResponseTimeoutMS != nil {
+			provider.FirstResponseTimeoutMS = input.FirstResponseTimeoutMS
+		}
+		if input.IdleTimeoutMS != nil {
+			provider.IdleTimeoutMS = input.IdleTimeoutMS
+		}
 		if input.TimeoutMS != nil {
 			provider.TimeoutMS = *input.TimeoutMS
 		}
@@ -89,7 +94,7 @@ func (s *Store) resolveProviderForModels(actorID, projectID string, input *AIPro
 		return nil, "", nil, err
 	}
 	provider.BaseURL = baseURL
-	if provider.TimeoutMS < domainai.ProviderMinTimeoutMS || provider.TimeoutMS > domainai.ProviderMaxTimeoutMS {
+	if !domainai.ValidProviderTimeoutMS(provider.TimeoutMS) || !domainai.ValidProviderTimeoutMS(provider.FirstResponseTimeout()) || !domainai.ValidProviderTimeoutMS(provider.IdleTimeout()) {
 		return nil, "", nil, ErrInvalidArgument
 	}
 	if apiKey == "" {
@@ -110,8 +115,9 @@ func (s *Store) resolveProviderForModels(actorID, projectID string, input *AIPro
 }
 
 func fetchAIProviderModels(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey string) ([]string, error) {
-	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(provider.TimeoutMS)*time.Millisecond)
-	defer cancel()
+	watch := newAIResponseWatchdog(ctx, provider)
+	defer watch.close()
+	requestCtx := watch.ctx
 	endpoint, err := aiProviderEndpoint(provider.BaseURL, "models")
 	if err != nil {
 		return nil, err
@@ -128,7 +134,7 @@ func fetchAIProviderModels(ctx context.Context, client *http.Client, provider *A
 	resp, err := safeClient.Do(req)
 	if err != nil {
 		if requestCtx.Err() != nil {
-			return nil, requestCtx.Err()
+			return nil, watch.err(requestCtx.Err())
 		}
 		// 兼容服务的传输错误可能含请求头，不能原样返回或记录凭证。
 		return nil, fmt.Errorf("%w: unable to retrieve provider models", ErrFailedPrecondition)
@@ -137,10 +143,10 @@ func fetchAIProviderModels(ctx context.Context, client *http.Client, provider *A
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("%w: model list provider status %d", ErrFailedPrecondition, resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, aiProviderMaxResponseBytes+1))
+	data, err := io.ReadAll(io.LimitReader(aiActivityReader{reader: resp.Body, watch: watch}, aiProviderMaxResponseBytes+1))
 	if err != nil {
 		if requestCtx.Err() != nil {
-			return nil, requestCtx.Err()
+			return nil, watch.err(requestCtx.Err())
 		}
 		return nil, fmt.Errorf("%w: unable to read provider models", ErrFailedPrecondition)
 	}

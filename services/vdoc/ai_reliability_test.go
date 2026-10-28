@@ -21,7 +21,7 @@ func TestAIClientUsesConfiguredTimeoutAndEarlierParentDeadline(t *testing.T) {
 	}{
 		{"long provider timeout", 120000, 0, 120 * time.Second},
 		{"short provider timeout", 1500, 0, 1500 * time.Millisecond},
-		{"default provider timeout", 0, 0, 30 * time.Second},
+		{"unlimited provider timeout", 0, 0, 0},
 		{"earlier parent deadline", 120000, time.Second, time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -30,7 +30,7 @@ func TestAIClientUsesConfiguredTimeoutAndEarlierParentDeadline(t *testing.T) {
 				defer r.Body.Close()
 				deadline, ok := r.Context().Deadline()
 				remaining := time.Until(deadline)
-				if !ok || remaining > tc.want || remaining < tc.want-500*time.Millisecond {
+				if (tc.want == 0 && ok) || (tc.want != 0 && (!ok || remaining > tc.want || remaining < tc.want-500*time.Millisecond)) {
 					t.Fatalf("request deadline in %v, want approximately %v", remaining, tc.want)
 				}
 				return aiJSONResponse(`{"choices":[{"message":{"content":"complete"},"finish_reason":"stop"}]}`), nil

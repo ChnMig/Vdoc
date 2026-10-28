@@ -245,6 +245,12 @@ func TestPostgresBoundedReadsAndRecoverableSummaryJobs(t *testing.T) {
 	if second, err := repo.ClaimSummaryJob(ctx, "other-worker"); err != nil || second != nil {
 		t.Fatalf("lease was claimed twice: %+v %v", second, err)
 	}
+	if renewed, err := repo.RenewSummaryJobLease(ctx, job.ID, "wrong-lease"); err != nil || renewed {
+		t.Fatalf("wrong lease renewed: %v %v", renewed, err)
+	}
+	if renewed, err := repo.RenewSummaryJobLease(ctx, job.ID, claimed.LeaseToken); err != nil || !renewed {
+		t.Fatalf("active lease not renewed: %v %v", renewed, err)
+	}
 	if err := repo.FinishSummaryJob(ctx, job.ID, "wrong-lease", false); err != nil {
 		t.Fatal(err)
 	}

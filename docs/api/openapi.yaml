@@ -1993,10 +1993,25 @@ components:
           description: Sampling temperature. Omit to use 0.2. Values from 0 through 2 are accepted.
         timeout_ms:
           type: integer
-          default: 30000
-          minimum: 1000
-          maximum: 120000
-          description: Provider request timeout in milliseconds. Omit to use 30000. Values from 1000 through 120000 are accepted.
+          default: 600000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Total request time in milliseconds. Zero disables this limit; omitted updates preserve the stored value. New providers default to 10 minutes.
+        first_response_timeout_ms:
+          type: integer
+          default: 180000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Wait for the first response body data including connection time. Zero disables this limit. Omitted updates preserve the stored value.
+        idle_timeout_ms:
+          type: integer
+          default: 120000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Maximum gap between response body data; streaming data and heartbeats renew it. Zero disables this limit. Omitted updates preserve the stored value.
         max_output_tokens:
           type: integer
           default: 1000
@@ -2018,9 +2033,25 @@ components:
           description: Unsaved provider credential, used for this request only and never returned. Required for a new or changed URL.
         timeout_ms:
           type: integer
-          minimum: 1000
-          maximum: 120000
-          description: Request timeout; defaults to the saved provider timeout or 30000 for a new connection.
+          default: 600000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Total request time in milliseconds. Zero disables this limit; omitted updates preserve the stored value. New providers default to 10 minutes.
+        first_response_timeout_ms:
+          type: integer
+          default: 180000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Wait for the first response body data including connection time. Zero disables this limit. Omitted updates preserve the stored value.
+        idle_timeout_ms:
+          type: integer
+          default: 120000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Maximum gap between response body data; streaming data and heartbeats renew it. Zero disables this limit. Omitted updates preserve the stored value.
     AIProviderModelsResponse:
       type: object
       additionalProperties: false
@@ -2036,7 +2067,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [api_key_set, enabled, stream, temperature, timeout_ms, max_output_tokens]
+        [api_key_set, enabled, stream, temperature, timeout_ms, first_response_timeout_ms, idle_timeout_ms, max_output_tokens]
       properties:
         id: { type: string }
         scope:
@@ -2069,10 +2100,25 @@ components:
           description: Effective sampling temperature.
         timeout_ms:
           type: integer
-          default: 30000
-          minimum: 1000
-          maximum: 120000
-          description: Effective provider timeout in milliseconds.
+          default: 600000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Total request time in milliseconds. Zero disables this limit; omitted updates preserve the stored value. New providers default to 10 minutes.
+        first_response_timeout_ms:
+          type: integer
+          default: 180000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Wait for the first response body data including connection time. Zero disables this limit. Omitted updates preserve the stored value.
+        idle_timeout_ms:
+          type: integer
+          default: 120000
+          minimum: 0
+          maximum: 2147483647
+          not: { minimum: 1, maximum: 999 }
+          description: Maximum gap between response body data; streaming data and heartbeats renew it. Zero disables this limit. Omitted updates preserve the stored value.
         max_output_tokens:
           type: integer
           default: 1000

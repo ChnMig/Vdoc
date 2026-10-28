@@ -125,7 +125,7 @@ func TestAIProviderModelsRejectUnsafeURLsAndInvalidTimeouts(t *testing.T) {
 			t.Fatalf("unsafe URL accepted: %v", err)
 		}
 	}
-	for _, timeout := range []int{0, 999, 120001} {
+	for _, timeout := range []int{-1, 999, 2147483648} {
 		if _, err := store.ListSystemAIProviderModels("super", &AIProviderInput{BaseURL: testAIProviderBaseURL, APIKey: "key", TimeoutMS: &timeout}); !errors.Is(err, ErrInvalidArgument) {
 			t.Fatalf("invalid timeout accepted: %v", err)
 		}

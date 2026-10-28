@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -102,6 +103,7 @@ const (
 
 type aiSummaryRun struct {
 	JobID         string
+	JobLeaseToken string
 	ActorID       string
 	Target        AISummaryTarget
 	Trigger       aiSummaryTrigger
@@ -122,7 +124,7 @@ func (s *Store) runAISummary(run aiSummaryRun) (*AISummary, error) {
 		return skipped, nil
 	}
 	result, callErr := s.completeAI(s.requestContext(), request.Completion)
-	if err := s.requestContext().Err(); err != nil {
+	if err := context.Cause(s.requestContext()); err != nil {
 		if run.JobID != "" {
 			// 保留任务与生成令牌供 worker 重试，只记录这次已发生的调用。
 			auditCtx, auditCancel := context.WithTimeout(context.WithoutCancel(s.requestContext()), 10*time.Second)
@@ -131,7 +133,7 @@ func (s *Store) runAISummary(run aiSummaryRun) (*AISummary, error) {
 			auditErr := s.WithContext(auditCtx).persistDiscardedAISummaryAuditLocked(run, request, result.Usage)
 			s.mu.Unlock()
 			if auditErr != nil {
-				return nil, auditErr
+				return nil, errors.Join(err, auditErr)
 			}
 			return nil, err
 		}
@@ -205,6 +207,7 @@ func (s *Store) prepareAISummaryRequest(run aiSummaryRun) (aiSummaryRequest, *AI
 	if err != nil {
 		return aiSummaryRequest{}, nil, err
 	}
+	guard.JobID, guard.JobLeaseToken = run.JobID, run.JobLeaseToken
 	provider, apiKey, err := s.effectiveAIProviderLocked(run.Target.ProjectID)
 	if err != nil {
 		if Is(err, ErrFailedPrecondition) {
@@ -259,6 +262,12 @@ func (s *Store) finishAISummary(run aiSummaryRun, completion aiSummaryCompletion
 	summary := s.storeAISummaryLocked(run.ActorID, run.Target, completion.Request.Prompt.PromptKey, completion.Request.Provider.ID, status, errorMessage, completion.Result.Content)
 	audit := s.auditAISummaryLocked(run, aiSummaryAuditInput{Summary: summary, PromptKey: completion.Request.Prompt.PromptKey, ProviderID: completion.Request.Provider.ID, APIMode: completion.Request.Provider.APIMode, Status: status, Usage: completion.Result.Usage})
 	if err := s.persistAISummaryCompletionLocked(summary, audit, completion.Request.GenerationToken, completion.Request.Guard); err != nil {
+		if Is(err, errAISummaryLeaseLost) {
+			if auditErr := s.persistDiscardedAISummaryAuditLocked(run, completion.Request, completion.Result.Usage); auditErr != nil {
+				return nil, errors.Join(err, auditErr)
+			}
+			return nil, err
+		}
 		if isAICompletionContextError(err) || Is(err, ErrFailedPrecondition) {
 			return nil, s.failStaleAISummaryLocked(run, completion.Request, completion.Result.Usage, staleAISummaryRequestError())
 		}
@@ -491,6 +500,8 @@ func sameAIProviderRequest(current, requested *AIProviderConfig) bool {
 		current.Enabled == requested.Enabled &&
 		current.Temperature == requested.Temperature &&
 		current.TimeoutMS == requested.TimeoutMS &&
+		current.FirstResponseTimeout() == requested.FirstResponseTimeout() &&
+		current.IdleTimeout() == requested.IdleTimeout() &&
 		current.MaxOutputTokens == requested.MaxOutputTokens &&
 		current.CipherKID == requested.CipherKID &&
 		bytes.Equal(current.APIKeyCiphertext, requested.APIKeyCiphertext)

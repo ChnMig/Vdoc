@@ -10,9 +10,11 @@ import (
 )
 
 type providerModelsRequest struct {
-	BaseURL   string `json:"base_url"`
-	APIKey    string `json:"api_key"`
-	TimeoutMS *int   `json:"timeout_ms"`
+	BaseURL                string `json:"base_url"`
+	APIKey                 string `json:"api_key"`
+	TimeoutMS              *int   `json:"timeout_ms"`
+	FirstResponseTimeoutMS *int   `json:"first_response_timeout_ms"`
+	IdleTimeoutMS          *int   `json:"idle_timeout_ms"`
 }
 
 type providerModelsDTO struct {
@@ -39,7 +41,7 @@ func listProviderModels(c *gin.Context, projectID string) {
 			shared.ReturnBindError(c, err)
 			return
 		}
-		input = &app.AIProviderInput{BaseURL: req.BaseURL, APIKey: req.APIKey, TimeoutMS: req.TimeoutMS}
+		input = &app.AIProviderInput{BaseURL: req.BaseURL, APIKey: req.APIKey, TimeoutMS: req.TimeoutMS, FirstResponseTimeoutMS: req.FirstResponseTimeoutMS, IdleTimeoutMS: req.IdleTimeoutMS}
 	}
 	var models []string
 	var err error

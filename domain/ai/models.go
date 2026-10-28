@@ -6,17 +6,19 @@ const (
 	ProviderScopeSystem  = "system"
 	ProviderScopeProject = "project"
 
-	ProviderModeChatCompletions = "chat_completions"
-	ProviderModeResponses       = "responses"
-	ProviderDefaultTemperature  = 0.2
-	ProviderMinTemperature      = 0
-	ProviderMaxTemperature      = 2
-	ProviderDefaultTimeoutMS    = 30000
-	ProviderMinTimeoutMS        = 1000
-	ProviderMaxTimeoutMS        = 120000
-	ProviderDefaultMaxTokens    = 1000
-	ProviderMinMaxTokens        = 1
-	ProviderMaxMaxTokens        = 32000
+	ProviderModeChatCompletions           = "chat_completions"
+	ProviderModeResponses                 = "responses"
+	ProviderDefaultTemperature            = 0.2
+	ProviderMinTemperature                = 0
+	ProviderMaxTemperature                = 2
+	ProviderDefaultTimeoutMS              = 600000
+	ProviderDefaultFirstResponseTimeoutMS = 180000
+	ProviderDefaultIdleTimeoutMS          = 120000
+	ProviderMinTimeoutMS                  = 1000
+	ProviderMaxTimeoutMS                  = 2147483647
+	ProviderDefaultMaxTokens              = 1000
+	ProviderMinMaxTokens                  = 1
+	ProviderMaxMaxTokens                  = 32000
 
 	PromptDraftReviewSummary   = "draft_review_summary"
 	PromptVersionChangeSummary = "version_change_summary"
@@ -38,38 +40,42 @@ const (
 )
 
 type ProviderConfig struct {
-	ID               string    `json:"id"`
-	Scope            string    `json:"scope"`
-	ProjectID        string    `json:"project_id,omitempty"`
-	Name             string    `json:"name"`
-	BaseURL          string    `json:"base_url"`
-	Model            string    `json:"model"`
-	APIMode          string    `json:"api_mode"`
-	Stream           *bool     `json:"stream,omitempty"`
-	APIKeyCiphertext []byte    `json:"-"`
-	CipherKID        string    `json:"-"`
-	APIKeyLast4      string    `json:"api_key_last4,omitempty"`
-	Enabled          bool      `json:"enabled"`
-	Temperature      float64   `json:"temperature"`
-	TimeoutMS        int       `json:"timeout_ms"`
-	MaxOutputTokens  int       `json:"max_output_tokens"`
-	CreatedBy        string    `json:"created_by"`
-	UpdatedBy        string    `json:"updated_by"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                     string    `json:"id"`
+	Scope                  string    `json:"scope"`
+	ProjectID              string    `json:"project_id,omitempty"`
+	Name                   string    `json:"name"`
+	BaseURL                string    `json:"base_url"`
+	Model                  string    `json:"model"`
+	APIMode                string    `json:"api_mode"`
+	Stream                 *bool     `json:"stream,omitempty"`
+	APIKeyCiphertext       []byte    `json:"-"`
+	CipherKID              string    `json:"-"`
+	APIKeyLast4            string    `json:"api_key_last4,omitempty"`
+	Enabled                bool      `json:"enabled"`
+	Temperature            float64   `json:"temperature"`
+	TimeoutMS              int       `json:"timeout_ms"`
+	FirstResponseTimeoutMS *int      `json:"first_response_timeout_ms,omitempty"`
+	IdleTimeoutMS          *int      `json:"idle_timeout_ms,omitempty"`
+	MaxOutputTokens        int       `json:"max_output_tokens"`
+	CreatedBy              string    `json:"created_by"`
+	UpdatedBy              string    `json:"updated_by"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 type ProviderInput struct {
-	Name            string
-	BaseURL         string
-	Model           string
-	APIMode         string
-	Stream          *bool
-	APIKey          string
-	Enabled         bool
-	Temperature     *float64
-	TimeoutMS       *int
-	MaxOutputTokens *int
+	Name                   string
+	BaseURL                string
+	Model                  string
+	APIMode                string
+	Stream                 *bool
+	APIKey                 string
+	Enabled                bool
+	Temperature            *float64
+	TimeoutMS              *int
+	FirstResponseTimeoutMS *int
+	IdleTimeoutMS          *int
+	MaxOutputTokens        *int
 }
 
 // 未配置的历史提供商默认使用流式；显式 false 保留非流式选择。
@@ -144,4 +150,23 @@ type ChatMessage struct {
 	Content    string    `json:"content"`
 	ProviderID string    `json:"provider_id,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+// nil 兼容历史内存状态；显式 0 表示不限制该阶段。
+func (p *ProviderConfig) FirstResponseTimeout() int {
+	if p.FirstResponseTimeoutMS == nil {
+		return ProviderDefaultFirstResponseTimeoutMS
+	}
+	return *p.FirstResponseTimeoutMS
+}
+
+func (p *ProviderConfig) IdleTimeout() int {
+	if p.IdleTimeoutMS == nil {
+		return ProviderDefaultIdleTimeoutMS
+	}
+	return *p.IdleTimeoutMS
+}
+
+func ValidProviderTimeoutMS(value int) bool {
+	return value == 0 || (value >= ProviderMinTimeoutMS && value <= ProviderMaxTimeoutMS)
 }

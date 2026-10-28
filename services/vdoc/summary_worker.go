@@ -175,15 +175,17 @@ func (s *Store) summaryWorker(done chan struct{}) {
 				continue
 			}
 		}
-		ctx, cancel := context.WithTimeout(s.requestContext(), 150*time.Second)
-		run := aiSummaryRun{ActorID: job.ActorID, Target: AISummaryTarget{ProjectID: job.ProjectID, DocumentID: job.DocumentID, OwnerType: job.OwnerType, OwnerID: job.OwnerID}, Trigger: aiSummaryTrigger(job.Trigger), RequireManage: job.Trigger == string(aiSummaryTriggerManual), Audit: AuditContext{RequestID: job.RequestID}, JobID: job.ID}
+		ctx, cancel := context.WithCancelCause(s.requestContext())
+		stopLease := keepSummaryJobLease(ctx, repo, job, cancel, time.Minute)
+		run := aiSummaryRun{ActorID: job.ActorID, Target: AISummaryTarget{ProjectID: job.ProjectID, DocumentID: job.DocumentID, OwnerType: job.OwnerType, OwnerID: job.OwnerID}, Trigger: aiSummaryTrigger(job.Trigger), RequireManage: job.Trigger == string(aiSummaryTriggerManual), Audit: AuditContext{RequestID: job.RequestID}, JobID: job.ID, JobLeaseToken: job.LeaseToken}
 		_, runErr := s.WithContext(ctx).runAISummary(run)
-		cancel()
+		stopLease()
+		cancel(context.Canceled)
 		retry := runErr != nil && job.Attempts < 3 && !Is(runErr, ErrPermissionDenied) && !Is(runErr, ErrNotFound) && !Is(runErr, ErrFailedPrecondition)
 		if s.requestContext().Err() != nil {
 			retry = true
 		}
-		if runErr != nil && !retry {
+		if runErr != nil && !retry && !Is(runErr, errAISummaryLeaseLost) {
 			failureCtx, failureCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if failureErr := s.WithContext(failureCtx).failSummaryJob(run); failureErr != nil {
 				retry = true
@@ -232,4 +234,37 @@ func (s *Store) stageSummaryLocked(run aiSummaryRun) {
 	stageSummaryJob(state, run)
 	s.summaryJobs = state.AISummaryJobs
 	s.aiSummaries = state.AISummaries
+}
+
+func keepSummaryJobLease(ctx context.Context, repo domain.SummaryJobRepository, job *domain.AISummaryJob, cancel context.CancelCauseFunc, interval time.Duration) func() {
+	if repo == nil {
+		return func() {}
+	}
+	stopped, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stopped:
+				return
+			case <-ticker.C:
+				renewalCtx, renewalCancel := context.WithTimeout(ctx, 10*time.Second)
+				owned, err := repo.RenewSummaryJobLease(renewalCtx, job.ID, job.LeaseToken)
+				renewalCancel()
+				if err != nil {
+					cancel(err)
+					return
+				}
+				if !owned {
+					cancel(errAISummaryLeaseLost)
+					return
+				}
+			}
+		}
+	}()
+	return func() { close(stopped); <-done }
 }

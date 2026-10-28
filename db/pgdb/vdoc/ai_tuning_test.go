@@ -55,3 +55,12 @@ func TestAIProviderStreamMappingPreservesExplicitFalse(t *testing.T) {
 }
 
 func boolPointer(value bool) *bool { return &value }
+
+func TestAIProviderTimeoutMappingPreservesUnlimited(t *testing.T) {
+	zero := 0
+	provider := &domainvdoc.AIProviderConfig{TimeoutMS: 0, FirstResponseTimeoutMS: &zero, IdleTimeoutMS: &zero}
+	loaded := domainAIProviderFromModel(*aiProviderModelFromDomain(provider))
+	if loaded.TimeoutMS != 0 || loaded.FirstResponseTimeout() != 0 || loaded.IdleTimeout() != 0 {
+		t.Fatal("unlimited timeout changed during persistence mapping")
+	}
+}

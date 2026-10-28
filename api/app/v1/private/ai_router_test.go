@@ -192,7 +192,7 @@ func TestAIProviderRoutes_ReturnDefaultTuning_whenSystemProviderUnset(t *testing
 	if err := json.Unmarshal(envelope.Detail, &provider); err != nil {
 		t.Fatalf("decode provider: %v", err)
 	}
-	if provider.APIKeySet || !provider.Stream || provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
+	if provider.APIKeySet || !provider.Stream || provider.Temperature != 0.2 || provider.TimeoutMS != 600000 || provider.MaxOutputTokens != 1000 {
 		t.Fatalf("provider defaults = %+v", provider)
 	}
 }

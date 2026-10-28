@@ -8,22 +8,24 @@ import (
 
 type AIProvider struct {
 	pgdb.Base
-	Scope            string  `gorm:"column:scope;type:text;not null"`
-	ProjectID        *string `gorm:"column:project_id;type:uuid"`
-	Name             string  `gorm:"column:name;type:text;not null"`
-	BaseURL          string  `gorm:"column:base_url;type:text;not null"`
-	Model            string  `gorm:"column:model;type:text;not null"`
-	APIMode          string  `gorm:"column:api_mode;type:text;not null"`
-	Stream           bool    `gorm:"column:stream;type:boolean;not null"`
-	APIKeyCiphertext []byte  `gorm:"column:api_key_ciphertext;type:bytea;not null"`
-	CipherKID        string  `gorm:"column:cipher_kid;type:text;not null"`
-	APIKeyLast4      string  `gorm:"column:api_key_last4;type:text"`
-	Enabled          bool    `gorm:"column:enabled;type:boolean;not null;default:true"`
-	Temperature      float64 `gorm:"column:temperature;type:double precision;not null;default:0.2"`
-	TimeoutMS        int     `gorm:"column:timeout_ms;type:integer;not null;default:30000"`
-	MaxOutputTokens  int     `gorm:"column:max_output_tokens;type:integer;not null;default:1000"`
-	CreatedBy        string  `gorm:"column:created_by;type:uuid;not null"`
-	UpdatedBy        string  `gorm:"column:updated_by;type:uuid;not null"`
+	Scope                  string  `gorm:"column:scope;type:text;not null"`
+	ProjectID              *string `gorm:"column:project_id;type:uuid"`
+	Name                   string  `gorm:"column:name;type:text;not null"`
+	BaseURL                string  `gorm:"column:base_url;type:text;not null"`
+	Model                  string  `gorm:"column:model;type:text;not null"`
+	APIMode                string  `gorm:"column:api_mode;type:text;not null"`
+	Stream                 bool    `gorm:"column:stream;type:boolean;not null"`
+	APIKeyCiphertext       []byte  `gorm:"column:api_key_ciphertext;type:bytea;not null"`
+	CipherKID              string  `gorm:"column:cipher_kid;type:text;not null"`
+	APIKeyLast4            string  `gorm:"column:api_key_last4;type:text"`
+	Enabled                bool    `gorm:"column:enabled;type:boolean;not null;default:true"`
+	Temperature            float64 `gorm:"column:temperature;type:double precision;not null;default:0.2"`
+	TimeoutMS              int     `gorm:"column:timeout_ms;type:integer;not null"`
+	FirstResponseTimeoutMS int     `gorm:"column:first_response_timeout_ms;type:integer;not null"`
+	IdleTimeoutMS          int     `gorm:"column:idle_timeout_ms;type:integer;not null"`
+	MaxOutputTokens        int     `gorm:"column:max_output_tokens;type:integer;not null;default:1000"`
+	CreatedBy              string  `gorm:"column:created_by;type:uuid;not null"`
+	UpdatedBy              string  `gorm:"column:updated_by;type:uuid;not null"`
 }
 
 func (AIProvider) TableName() string { return TableNameAIProviders }

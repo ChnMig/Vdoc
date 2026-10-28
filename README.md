@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.21 release adds configurable streaming for system and project AI providers, enabled by default, with progressive document chat. Responses and Chat Completions use the selected mode for provider tests, summaries and chat. Startup applies migration 013 to store this preference; back up the database and update Backend and Admin together.
+This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.22 release adds independent AI total, first-response and response-idle timeouts, defaulting to 10, 3 and 2 minutes; each supports unlimited requests with a value of 0. Long AI calls use these settings while preserving cancellation, and summary workers renew their task leases and verify ownership when saving. Startup applies migration 014; back up the database and update Backend and Admin together.
 
 API documentation:
 

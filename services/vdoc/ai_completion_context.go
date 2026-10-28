@@ -3,15 +3,41 @@ package vdoc
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	domainai "vdoc/domain/ai"
 	domain "vdoc/domain/vdoc"
 )
 
 type aiCompletionGuard struct {
-	Mutation domain.MutationGuard
-	Provider *AIProviderConfig
-	Prompt   AIPromptTemplate
+	Mutation      domain.MutationGuard
+	Provider      *AIProviderConfig
+	Prompt        AIPromptTemplate
+	JobID         string
+	JobLeaseToken string
+}
+
+var errAISummaryLeaseLost = fmt.Errorf("%w: AI summary job lease is no longer owned", ErrFailedPrecondition)
+
+func validateAISummaryLease(ctx context.Context, repository domain.Repository, guard *aiCompletionGuard) error {
+	if guard == nil || guard.JobLeaseToken == "" {
+		return nil
+	}
+	repo, ok := repository.(interface {
+		RenewSummaryJobLease(context.Context, string, string) (bool, error)
+	})
+	if !ok {
+		return &aiCompletionContextError{cause: errAISummaryLeaseLost}
+	}
+	// 在保存结果的同一事务中锁定并核对租约，失去租约的旧实例不能提交回答。
+	owned, err := repo.RenewSummaryJobLease(ctx, guard.JobID, guard.JobLeaseToken)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return &aiCompletionContextError{cause: errAISummaryLeaseLost}
+	}
+	return nil
 }
 
 type aiCompletionConfigurationRepository interface {
@@ -72,6 +98,9 @@ func (s *Store) withAITargetMutationGuardLocked(actorID string, target AISummary
 func validateAICompletionContext(ctx context.Context, repository domain.Repository, guard *aiCompletionGuard) error {
 	if guard == nil {
 		return nil
+	}
+	if err := validateAISummaryLease(ctx, repository, guard); err != nil {
+		return err
 	}
 	if err := validateRepositoryMutation(ctx, repository, &guard.Mutation); err != nil {
 		if Is(err, ErrPermissionDenied) || Is(err, ErrFailedPrecondition) || Is(err, ErrNotFound) || Is(err, ErrUnauthenticated) {

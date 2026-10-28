@@ -58,3 +58,10 @@ func (r *Repository) loadSummaryJobs(ctx context.Context, state *domain.State) e
 	}
 	return nil
 }
+
+// 只允许仍持有有效租约的 worker 续期，超时/失联后由其他实例认领。
+func (r *Repository) RenewSummaryJobLease(ctx context.Context, id, leaseToken string) (bool, error) {
+	result := r.database.WithContext(ctx).Exec(`UPDATE ai_summary_jobs SET available_at=now()+interval '180 seconds'
+ WHERE id=? AND lease_token=? AND available_at>now()`, id, leaseToken)
+	return result.RowsAffected == 1, result.Error
+}

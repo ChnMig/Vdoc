@@ -19,6 +19,7 @@ type SummaryJobRepository interface {
 	EnqueueSummaryJob(context.Context, *AISummaryJob) error
 	ClaimSummaryJob(context.Context, string) (*AISummaryJob, error)
 	FinishSummaryJob(context.Context, string, string, bool) error
+	RenewSummaryJobLease(context.Context, string, string) (bool, error)
 }
 
 // SummaryRecoveryRepository 释放旧进程中断后失去队列任务的摘要，不触碰仍可租约重试的任务。

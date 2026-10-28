@@ -32,7 +32,7 @@ Go 后端基于 [ChnMig/go-template](https://github.com/ChnMig/go-template) 的 
 
 ## 当前状态
 
-这个仓库是 Vdoc 的 Go/Gin 后端。配套 v0.3.17-beta.21 为系统／项目 AI 提供商增加默认开启的流式配置，文档聊天逐步显示回答；Responses 与 Chat Completions 的测试、摘要和聊天均使用所选模式。启动自动应用 013 迁移以保存配置；请先备份数据库，再配套升级 Backend 与 Admin。
+这个仓库是 Vdoc 的 Go/Gin 后端。配套 v0.3.17-beta.22 支持独立配置 AI 总时长、首次响应和响应空闲超时，默认分别为 10 分钟、3 分钟、2 分钟，每项都支持值为 0 的无限制设置。AI 长请求使用这些配置并保留取消能力，后台摘要自动续租并在保存时校验任务所有权。启动自动应用 014 迁移；请先备份数据库，再配套升级 Backend 与 Admin。
 
 API 文档：
 
