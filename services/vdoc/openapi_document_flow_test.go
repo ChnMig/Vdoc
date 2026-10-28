@@ -177,6 +177,7 @@ func TestOpenAPIDocumentDraftRejectsMarkdownDocument(t *testing.T) {
 func newOpenAPIDocumentFlowStore(t *testing.T) (*Store, string, string, string) {
 	t.Helper()
 	store := newTask5Store()
+	t.Cleanup(store.StopSummaryWorker)
 	document, err := store.CreateDocument("admin", "project-a", "checkout-openapi", DocumentTypeOpenAPI, "apis/checkout.yaml", "Checkout OpenAPI")
 	if err != nil {
 		t.Fatalf("CreateDocument() error = %v", err)

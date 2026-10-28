@@ -158,6 +158,7 @@ func TestMarkdownDocumentEntrypointsValidateDocumentTypeAndPath(t *testing.T) {
 func newMarkdownDocumentFlowStore(t *testing.T) (*Store, string, string, string) {
 	t.Helper()
 	store := newTask5Store()
+	t.Cleanup(store.StopSummaryWorker)
 	document, err := store.CreateDocument("admin", "project-a", "AGENTS", DocumentTypeMarkdown, "AGENTS.md", "Repository agent instructions")
 	if err != nil {
 		t.Fatalf("CreateDocument(markdown) error = %v", err)
