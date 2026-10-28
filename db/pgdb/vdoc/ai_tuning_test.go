@@ -42,3 +42,16 @@ func TestAIModelsMappingRoundTripsProviderTuningFields(t *testing.T) {
 		t.Fatalf("loaded tuning = temp %v timeout %d max %d, want 0/45000/2048", loaded.Temperature, loaded.TimeoutMS, loaded.MaxOutputTokens)
 	}
 }
+
+func TestAIProviderStreamMappingPreservesExplicitFalse(t *testing.T) {
+	for _, configured := range []*bool{nil, boolPointer(false), boolPointer(true)} {
+		provider := &domainvdoc.AIProviderConfig{Stream: configured}
+		model := aiProviderModelFromDomain(provider)
+		loaded := domainAIProviderFromModel(*model)
+		if model.Stream != provider.StreamingEnabled() || loaded.StreamingEnabled() != provider.StreamingEnabled() {
+			t.Fatal("stream selection changed during persistence mapping")
+		}
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }

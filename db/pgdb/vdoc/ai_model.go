@@ -14,6 +14,7 @@ type AIProvider struct {
 	BaseURL          string  `gorm:"column:base_url;type:text;not null"`
 	Model            string  `gorm:"column:model;type:text;not null"`
 	APIMode          string  `gorm:"column:api_mode;type:text;not null"`
+	Stream           bool    `gorm:"column:stream;type:boolean;not null"`
 	APIKeyCiphertext []byte  `gorm:"column:api_key_ciphertext;type:bytea;not null"`
 	CipherKID        string  `gorm:"column:cipher_kid;type:text;not null"`
 	APIKeyLast4      string  `gorm:"column:api_key_last4;type:text"`

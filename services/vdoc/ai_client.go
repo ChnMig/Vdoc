@@ -1,6 +1,7 @@
 package vdoc
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,6 +20,7 @@ type aiCompletionRequest struct {
 	System   string
 	User     string
 	History  []aiMessagePayload
+	OnDelta  func(string) error
 }
 
 const aiProviderMaxResponseBytes = 4 << 20
@@ -37,6 +39,9 @@ type aiTokenUsage struct {
 }
 
 func (s *Store) completeAI(ctx context.Context, input aiCompletionRequest) (aiCompletionResult, error) {
+	if !input.Provider.StreamingEnabled() {
+		input.OnDelta = nil
+	}
 	client := s.aiHTTP
 	if client == nil {
 		client = http.DefaultClient
@@ -56,11 +61,23 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	messages = append(messages, aiMessagePayload{Role: "system", Content: input.System})
 	messages = append(messages, input.History...)
 	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User})
-	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens}
-	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "chat/completions", payload)
-	if err != nil {
-		return aiCompletionResult{}, err
+	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens, Stream: input.Provider.StreamingEnabled()}
+	if payload.Stream {
+		payload.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	}
+	return postAI(ctx, client, input.Provider, input.APIKey, "chat/completions", payload, func(reader io.Reader, streaming bool) (aiCompletionResult, error) {
+		if streaming {
+			return readChatCompletionStream(reader, input.OnDelta)
+		}
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			return aiCompletionResult{}, err
+		}
+		return parseChatCompletion(body)
+	})
+}
+
+func parseChatCompletion(body []byte) (aiCompletionResult, error) {
 	var out chatCompletionResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		return aiCompletionResult{}, fmt.Errorf("parse chat completions response: %w", err)
@@ -86,11 +103,20 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 }
 
 func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
-	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false}
-	body, err := postAIJSON(ctx, client, input.Provider, input.APIKey, "responses", payload)
-	if err != nil {
-		return aiCompletionResult{}, err
-	}
+	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false, Stream: input.Provider.StreamingEnabled()}
+	return postAI(ctx, client, input.Provider, input.APIKey, "responses", payload, func(reader io.Reader, streaming bool) (aiCompletionResult, error) {
+		if streaming {
+			return readResponsesStream(reader, input.OnDelta)
+		}
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			return aiCompletionResult{}, err
+		}
+		return parseResponses(body)
+	})
+}
+
+func parseResponses(body []byte) (aiCompletionResult, error) {
 	var out responsesResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		return aiCompletionResult{}, fmt.Errorf("parse responses response: %w", err)
@@ -141,22 +167,25 @@ func responsesConversationInput(history []aiMessagePayload, currentUser string) 
 	return strings.Join(parts, "\n\n")
 }
 
-func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey, path string, payload any) ([]byte, error) {
+func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig, apiKey, path string, payload any, consume func(io.Reader, bool) (aiCompletionResult, error)) (aiCompletionResult, error) {
 	endpoint, err := aiProviderEndpoint(provider.BaseURL, path)
 	if err != nil {
-		return nil, err
+		return aiCompletionResult{}, err
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal ai request: %w", err)
+		return aiCompletionResult{}, fmt.Errorf("marshal ai request: %w", err)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(providerTimeoutMS(provider))*time.Millisecond)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create ai request: %w", err)
+		return aiCompletionResult{}, fmt.Errorf("create ai request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if provider.StreamingEnabled() {
+		req.Header.Set("Accept", "text/event-stream, application/json")
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	safeClient := *client
 	// 总请求时限由 provider 配置和上游 context 决定，避免客户端默认值再次缩短。
@@ -164,23 +193,28 @@ func postAIJSON(ctx context.Context, client *http.Client, provider *AIProviderCo
 	safeClient.CheckRedirect = rejectAIProviderRedirect
 	resp, err := safeClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call ai provider: %w", err)
+		return aiCompletionResult{}, fmt.Errorf("call ai provider: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, aiProviderMaxResponseBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read ai response: %w", err)
-	}
-	if len(data) > aiProviderMaxResponseBytes {
-		return nil, fmt.Errorf("%w: provider response exceeds %d bytes", ErrFailedPrecondition, aiProviderMaxResponseBytes)
-	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("%w: provider status 404 (%s); check the Base URL, API mode and model supported by the provider", ErrFailedPrecondition, provider.APIMode)
+			return aiCompletionResult{}, fmt.Errorf("%w: provider status 404 (%s); check the Base URL, API mode and model supported by the provider", ErrFailedPrecondition, provider.APIMode)
 		}
-		return nil, fmt.Errorf("%w: provider status %d", ErrFailedPrecondition, resp.StatusCode)
+		return aiCompletionResult{}, fmt.Errorf("%w: provider status %d", ErrFailedPrecondition, resp.StatusCode)
 	}
-	return data, nil
+	limited := &io.LimitedReader{R: resp.Body, N: aiProviderMaxResponseBytes + 1}
+	reader := bufio.NewReader(limited)
+	// 兼容忽略 stream 参数并返回 JSON 的服务，但不把意外的 SSE 当作非流式成功。
+	streaming := strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
+	if !streaming && provider.StreamingEnabled() {
+		first, _ := reader.Peek(5)
+		streaming = bytes.HasPrefix(first, []byte("data:")) || bytes.HasPrefix(first, []byte("event")) || bytes.HasPrefix(first, []byte(":"))
+	}
+	result, err := consume(reader, streaming)
+	if limited.N <= 0 {
+		return aiCompletionResult{Usage: result.Usage}, fmt.Errorf("%w: provider response exceeds %d bytes", ErrFailedPrecondition, aiProviderMaxResponseBytes)
+	}
+	return result, err
 }
 
 func providerTimeoutMS(provider *AIProviderConfig) int {
@@ -196,10 +230,16 @@ type aiMessagePayload struct {
 }
 
 type chatCompletionPayload struct {
-	Model       string             `json:"model"`
-	Messages    []aiMessagePayload `json:"messages"`
-	Temperature float64            `json:"temperature"`
-	MaxTokens   int                `json:"max_tokens"`
+	Model         string             `json:"model"`
+	Messages      []aiMessagePayload `json:"messages"`
+	Temperature   float64            `json:"temperature"`
+	MaxTokens     int                `json:"max_tokens"`
+	Stream        bool               `json:"stream"`
+	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
+}
+
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatCompletionResponse struct {
@@ -223,6 +263,7 @@ type responsesPayload struct {
 	Temperature     float64 `json:"temperature"`
 	MaxOutputTokens int     `json:"max_output_tokens"`
 	Store           bool    `json:"store"`
+	Stream          bool    `json:"stream"`
 }
 
 type responsesResponse struct {

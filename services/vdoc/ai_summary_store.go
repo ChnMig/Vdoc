@@ -487,6 +487,7 @@ func sameAIProviderRequest(current, requested *AIProviderConfig) bool {
 		current.BaseURL == requested.BaseURL &&
 		current.Model == requested.Model &&
 		current.APIMode == requested.APIMode &&
+		current.StreamingEnabled() == requested.StreamingEnabled() &&
 		current.Enabled == requested.Enabled &&
 		current.Temperature == requested.Temperature &&
 		current.TimeoutMS == requested.TimeoutMS &&

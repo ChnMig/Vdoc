@@ -32,7 +32,7 @@ The Go backend is based on the [`http-services/`](https://github.com/ChnMig/go-t
 
 ## Current Status
 
-This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.17 release adds permission-scoped document AI chat across branches, published versions and saved drafts, plus draft-aware source comparisons and clearer sharing in Admin. Startup applies migration 012 for document chat sessions; back up the database and update Backend and Admin together.
+This repository contains the Go/Gin backend for Vdoc. The coordinated v0.3.17-beta.21 release adds configurable streaming for system and project AI providers, enabled by default, with progressive document chat. Responses and Chat Completions use the selected mode for provider tests, summaries and chat. Startup applies migration 013 to store this preference; back up the database and update Backend and Admin together.
 
 API documentation:
 

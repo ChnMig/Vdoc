@@ -45,6 +45,7 @@ type ProviderConfig struct {
 	BaseURL          string    `json:"base_url"`
 	Model            string    `json:"model"`
 	APIMode          string    `json:"api_mode"`
+	Stream           *bool     `json:"stream,omitempty"`
 	APIKeyCiphertext []byte    `json:"-"`
 	CipherKID        string    `json:"-"`
 	APIKeyLast4      string    `json:"api_key_last4,omitempty"`
@@ -63,11 +64,17 @@ type ProviderInput struct {
 	BaseURL         string
 	Model           string
 	APIMode         string
+	Stream          *bool
 	APIKey          string
 	Enabled         bool
 	Temperature     *float64
 	TimeoutMS       *int
 	MaxOutputTokens *int
+}
+
+// 未配置的历史提供商默认使用流式；显式 false 保留非流式选择。
+func (p *ProviderConfig) StreamingEnabled() bool {
+	return p == nil || p.Stream == nil || *p.Stream
 }
 
 type PromptOverride struct {

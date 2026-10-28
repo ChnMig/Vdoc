@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	writerToken := issuePrivateTestToken(t, writerUser.ID)
 
 	// When
-	body := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-secret-1234","enabled":true,"temperature":0,"timeout_ms":45000,"max_output_tokens":2048}`
+	body := `{"name":"fake","base_url":"https://ai.example.test","model":"gpt-test","api_mode":"chat_completions","api_key":"sk-secret-1234","enabled":true,"stream":false,"temperature":0,"timeout_ms":45000,"max_output_tokens":2048}`
 	created := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/ai/provider", superToken, body))
 	deniedRead := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/ai/provider", writerToken, ""))
 	denied := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPut, "/api/v1/private/projects/"+project.ID+"/ai/provider", writerToken, body))
@@ -67,6 +68,13 @@ func TestAIProviderRoutes_MaskAPIKeyAndEnforcePermissions_whenConfigured(t *test
 	}
 	if _, ok := providerFields["api_key"]; ok {
 		t.Fatalf("provider detail exposes api_key field: %s", string(created.Detail))
+	}
+	if providerFields["stream"] != false {
+		t.Fatalf("explicit non-streaming mode lost: %s", created.Detail)
+	}
+	saved := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/ai/provider", superToken, ""))
+	if err := json.Unmarshal(saved.Detail, &providerFields); err != nil || saved.Code != 200 || providerFields["stream"] != false {
+		t.Fatalf("saved non-streaming mode lost: %s", saved.Detail)
 	}
 	if denied.Code != 403 || denied.Status != "PERMISSION_DENIED" {
 		t.Fatalf("writer provider update response = code %d status %q", denied.Code, denied.Status)
@@ -176,6 +184,7 @@ func TestAIProviderRoutes_ReturnDefaultTuning_whenSystemProviderUnset(t *testing
 	}
 	var provider struct {
 		APIKeySet       bool    `json:"api_key_set"`
+		Stream          bool    `json:"stream"`
 		Temperature     float64 `json:"temperature"`
 		TimeoutMS       int     `json:"timeout_ms"`
 		MaxOutputTokens int     `json:"max_output_tokens"`
@@ -183,7 +192,7 @@ func TestAIProviderRoutes_ReturnDefaultTuning_whenSystemProviderUnset(t *testing
 	if err := json.Unmarshal(envelope.Detail, &provider); err != nil {
 		t.Fatalf("decode provider: %v", err)
 	}
-	if provider.APIKeySet || provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
+	if provider.APIKeySet || !provider.Stream || provider.Temperature != 0.2 || provider.TimeoutMS != 30000 || provider.MaxOutputTokens != 1000 {
 		t.Fatalf("provider defaults = %+v", provider)
 	}
 }
@@ -477,6 +486,84 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 	}
 	if chatHistory.Code != 200 || chatHistory.Total == nil || *chatHistory.Total != 1 || !strings.Contains(string(chatHistory.Detail), session.ID) {
 		t.Fatalf("chat history response = code %d total %v detail %s", chatHistory.Code, chatHistory.Total, string(chatHistory.Detail))
+	}
+
+	for _, scenario := range []struct {
+		name                            string
+		stream, acceptStream, completed bool
+	}{
+		{"stream-complete", true, true, true},
+		{"stream-interrupted", true, true, false},
+		{"legacy-json-client", true, false, true},
+		{"non-stream-provider", false, true, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if _, err := store.UpsertSystemAIProvider(superUser.ID, app.AIProviderInput{BaseURL: "https://ai.example.test", Model: "test", APIMode: "responses", Stream: &scenario.stream, Enabled: true}); err != nil {
+				t.Fatal(err)
+			}
+			store.SetAIHTTPClient(&http.Client{Transport: privateAIRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+				var payload struct {
+					Stream bool `json:"stream"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.Stream != scenario.stream {
+					t.Fatalf("upstream stream=%t", payload.Stream)
+				}
+				if !scenario.stream {
+					return privateAIJSONResponse(`{"status":"completed","output_text":"Complete answer"}`), nil
+				}
+				body := "event: response.output_text.delta\ndata: {\"delta\":\"Partial answer\"}\n\n"
+				if scenario.completed {
+					body += "event: response.completed\ndata: {\"response\":{\"status\":\"completed\",\"output_text\":\"Complete answer\"}}\n\n"
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})})
+			session, err := store.CreateAIChatSession(readerUser.ID, app.AIChatSessionInput{ProjectID: project.ID, DocumentID: document.ID, ContextType: "document", ContextID: document.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := "/api/v1/private/projects/" + project.ID + "/ai/chat-sessions/" + session.ID + "/messages"
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"content":"Explain"}`))
+			req.Header.Set("Authorization", readerToken)
+			req.Header.Set("Content-Type", "application/json")
+			if scenario.acceptStream {
+				req.Header.Set("Accept", "text/event-stream, application/json")
+			}
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d", recorder.Code)
+			}
+			if scenario.stream && scenario.acceptStream {
+				if !recorder.Flushed || !strings.HasPrefix(recorder.Header().Get("Content-Type"), "text/event-stream") || !strings.Contains(recorder.Body.String(), "event: delta\n") {
+					t.Fatalf("not streamed: %s", recorder.Body.String())
+				}
+				terminal := "done"
+				if !scenario.completed {
+					terminal = "error"
+				}
+				if !strings.Contains(recorder.Body.String(), "event: "+terminal+"\n") {
+					t.Fatalf("missing terminal event: %s", recorder.Body.String())
+				}
+				if scenario.completed && !strings.Contains(recorder.Body.String(), `"session_id":"`+session.ID+`"`) {
+					t.Fatal("missing committed message")
+				}
+			} else {
+				envelope := decodePrivateEnvelope(t, recorder)
+				if envelope.Code != 200 || !strings.Contains(string(envelope.Detail), "Complete answer") {
+					t.Fatalf("JSON compatibility lost: %s", recorder.Body.String())
+				}
+			}
+			_, messages, err := store.AIChatSession(readerUser.ID, project.ID, session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario.completed && len(messages) != 2 || !scenario.completed && len(messages) != 0 {
+				t.Fatalf("saved messages=%d", len(messages))
+			}
+		})
 	}
 }
 

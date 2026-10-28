@@ -1,7 +1,6 @@
 package response
 
 import (
-	"net/http"
 	"time"
 
 	"vdoc/utils/apperrors"
@@ -35,7 +34,7 @@ func ReturnErrorWithData(c *gin.Context, data responseData, result any) {
 	data.TraceID = requestTraceID(c)
 	data.Detail = result
 	SetOutcome(c, data.Code, data.Status)
-	c.JSON(http.StatusOK, data)
+	writeEnvelope(c, data)
 	logErrorResponse(l, c, "Returning error response with data", responseForLog(data))
 	// Return directly
 	c.Abort()
@@ -49,7 +48,7 @@ func ReturnOk(c *gin.Context, result any) {
 	data.TraceID = requestTraceID(c)
 	data.Detail = result
 	SetOutcome(c, data.Code, data.Status)
-	c.JSON(http.StatusOK, data)
+	writeEnvelope(c, data)
 	l.Debug("Returning OK response", zap.Any("response", responseForLog(data)))
 	// Return directly
 	c.Abort()
@@ -64,7 +63,7 @@ func ReturnOkWithTotal(c *gin.Context, total int, result any) {
 	data.Detail = result
 	data.Total = &total
 	SetOutcome(c, data.Code, data.Status)
-	c.JSON(http.StatusOK, data)
+	writeEnvelope(c, data)
 	l.Debug("Returning OK response with total", zap.Any("response", responseForLog(data)))
 	// Return directly
 	c.Abort()
@@ -79,7 +78,7 @@ func ReturnError(c *gin.Context, data responseData, message string) {
 		data.Message = message
 	}
 	SetOutcome(c, data.Code, data.Status)
-	c.JSON(http.StatusOK, data)
+	writeEnvelope(c, data)
 	logErrorResponse(l, c, "Returning error response", responseForLog(data))
 	// Return directly
 	c.Abort()
@@ -92,7 +91,7 @@ func ReturnSuccess(c *gin.Context) {
 	data.Timestamp = time.Now().Unix()
 	data.TraceID = requestTraceID(c)
 	SetOutcome(c, data.Code, data.Status)
-	c.JSON(http.StatusOK, data)
+	writeEnvelope(c, data)
 	l.Debug("Returning success response", zap.Any("response", data))
 	// Return directly
 	c.Abort()
@@ -131,6 +130,6 @@ func ReturnPage(c *gin.Context, result any, total *int, hasMore bool, nextCursor
 	data.Detail, data.Total = result, total
 	data.HasMore, data.NextCursor = &hasMore, nextCursor
 	SetOutcome(c, data.Code, data.Status)
-	c.JSON(http.StatusOK, data)
+	writeEnvelope(c, data)
 	c.Abort()
 }

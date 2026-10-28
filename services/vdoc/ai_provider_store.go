@@ -123,6 +123,10 @@ func (s *Store) buildProviderLocked(actorID, projectID string, input AIProviderI
 	provider.BaseURL = baseURL
 	provider.Model = model
 	provider.APIMode = mode
+	if input.Stream != nil {
+		stream := *input.Stream
+		provider.Stream = &stream
+	}
 	provider.Enabled = input.Enabled
 	provider.Temperature = tuning.temperature
 	provider.TimeoutMS = tuning.timeoutMS
@@ -283,6 +287,10 @@ func cloneAIProvider(provider *AIProviderConfig) *AIProviderConfig {
 		return nil
 	}
 	copy := *provider
+	if provider.Stream != nil {
+		stream := *provider.Stream
+		copy.Stream = &stream
+	}
 	copy.APIKeyCiphertext = append([]byte(nil), provider.APIKeyCiphertext...)
 	return &copy
 }

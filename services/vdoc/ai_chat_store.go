@@ -98,9 +98,30 @@ func (s *Store) ListAIChatSessions(actorID string, target AISummaryTarget) ([]*A
 }
 
 func (s *Store) SendAIChatMessage(actorID, projectID, sessionID, content string, auditCtx ...AuditContext) (*AIChatMessage, error) {
+	return s.SendAIChatMessageStream(actorID, projectID, sessionID, content, nil, auditCtx...)
+}
+
+// Stream 只输出临时片段；消息仍在完成校验与事务提交后才作为正式回答返回。
+func (s *Store) SendAIChatMessageStream(actorID, projectID, sessionID, content string, onDelta func(string) error, auditCtx ...AuditContext) (*AIChatMessage, error) {
 	request, err := s.prepareAIChatRequest(actorID, projectID, sessionID, content)
 	if err != nil {
 		return nil, err
+	}
+	if onDelta != nil {
+		var checkedAt time.Time
+		request.Completion.OnDelta = func(delta string) error {
+			if err := s.requestContext().Err(); err != nil {
+				return err
+			}
+			// 长回答期间定期重新确认权限和生成令牌，避免撤权或并发新请求后继续输出。
+			if time.Since(checkedAt) >= 250*time.Millisecond {
+				if err := s.validateAIChatStream(actorID, projectID, sessionID, request); err != nil {
+					return err
+				}
+				checkedAt = time.Now()
+			}
+			return onDelta(delta)
+		}
 	}
 	result, callErr := s.completeAI(s.requestContext(), request.Completion)
 	if err := s.requestContext().Err(); err != nil {
@@ -110,6 +131,32 @@ func (s *Store) SendAIChatMessage(actorID, projectID, sessionID, content string,
 		return nil, err
 	}
 	return s.finishAIChatMessage(actorID, projectID, sessionID, request, result, callErr, auditCtx...)
+}
+
+func (s *Store) validateAIChatStream(actorID, projectID, sessionID string, request aiChatRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return err
+	}
+	session := s.aiChats[sessionID]
+	if session == nil || session.ProjectID != projectID || session.GenerationToken != request.GenerationToken {
+		return staleAIChatRequestError()
+	}
+	if err := s.ensureReadableAIChatTargetLocked(actorID, request.Target); err != nil {
+		return err
+	}
+	if err := s.ensureActiveAIChatTargetLocked(request.Target); err != nil {
+		return err
+	}
+	provider, _, err := s.effectiveAIProviderLocked(projectID)
+	if err != nil {
+		return err
+	}
+	if !sameAIProviderRequest(provider, request.Provider) || s.effectivePromptLocked(projectID, domainai.PromptPageChat) != request.Prompt {
+		return staleAIChatRequestError()
+	}
+	return nil
 }
 
 type aiChatRequest struct {

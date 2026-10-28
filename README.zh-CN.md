@@ -32,7 +32,7 @@ Go 后端基于 [ChnMig/go-template](https://github.com/ChnMig/go-template) 的 
 
 ## 当前状态
 
-这个仓库是 Vdoc 的 Go/Gin 后端。配套 v0.3.17-beta.17 新增受文档权限约束的跨分支、正式版本和草稿 AI 对话，后台支持草稿源码比较并优化分享。启动自动应用文档聊天迁移 012；请先备份数据库，再配套升级 Backend 与 Admin。
+这个仓库是 Vdoc 的 Go/Gin 后端。配套 v0.3.17-beta.21 为系统／项目 AI 提供商增加默认开启的流式配置，文档聊天逐步显示回答；Responses 与 Chat Completions 的测试、摘要和聊天均使用所选模式。启动自动应用 013 迁移以保存配置；请先备份数据库，再配套升级 Backend 与 Admin。
 
 API 文档：
 

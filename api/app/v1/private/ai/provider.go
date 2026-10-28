@@ -15,6 +15,7 @@ type providerRequest struct {
 	BaseURL         string   `json:"base_url"`
 	Model           string   `json:"model"`
 	APIMode         string   `json:"api_mode"`
+	Stream          *bool    `json:"stream"`
 	APIKey          string   `json:"api_key"`
 	Enabled         bool     `json:"enabled"`
 	Temperature     *float64 `json:"temperature"`
@@ -30,6 +31,7 @@ type providerDTO struct {
 	BaseURL         string  `json:"base_url,omitempty"`
 	Model           string  `json:"model,omitempty"`
 	APIMode         string  `json:"api_mode,omitempty"`
+	Stream          bool    `json:"stream"`
 	APIKeySet       bool    `json:"api_key_set"`
 	APIKeyLast4     string  `json:"api_key_last4,omitempty"`
 	Enabled         bool    `json:"enabled"`
@@ -129,7 +131,7 @@ func optionalProvider(c *gin.Context) (*app.AIProviderInput, bool) {
 }
 
 func providerInput(req providerRequest) app.AIProviderInput {
-	return app.AIProviderInput{Name: req.Name, BaseURL: req.BaseURL, Model: req.Model, APIMode: req.APIMode, APIKey: req.APIKey, Enabled: req.Enabled, Temperature: req.Temperature, TimeoutMS: req.TimeoutMS, MaxOutputTokens: req.MaxOutputTokens}
+	return app.AIProviderInput{Name: req.Name, BaseURL: req.BaseURL, Model: req.Model, APIMode: req.APIMode, Stream: req.Stream, APIKey: req.APIKey, Enabled: req.Enabled, Temperature: req.Temperature, TimeoutMS: req.TimeoutMS, MaxOutputTokens: req.MaxOutputTokens}
 }
 
 func returnProvider(c *gin.Context, provider *app.AIProviderConfig, err error) {
@@ -150,7 +152,7 @@ func returnTestResult(c *gin.Context, content string, err error) {
 
 func providerView(provider *app.AIProviderConfig) providerDTO {
 	if provider == nil {
-		return providerDTO{Temperature: domainai.ProviderDefaultTemperature, TimeoutMS: domainai.ProviderDefaultTimeoutMS, MaxOutputTokens: domainai.ProviderDefaultMaxTokens}
+		return providerDTO{Stream: true, Temperature: domainai.ProviderDefaultTemperature, TimeoutMS: domainai.ProviderDefaultTimeoutMS, MaxOutputTokens: domainai.ProviderDefaultMaxTokens}
 	}
-	return providerDTO{ID: provider.ID, Scope: provider.Scope, ProjectID: provider.ProjectID, Name: provider.Name, BaseURL: provider.BaseURL, Model: provider.Model, APIMode: provider.APIMode, APIKeySet: len(provider.APIKeyCiphertext) > 0, APIKeyLast4: provider.APIKeyLast4, Enabled: provider.Enabled, Temperature: provider.Temperature, TimeoutMS: provider.TimeoutMS, MaxOutputTokens: provider.MaxOutputTokens}
+	return providerDTO{ID: provider.ID, Scope: provider.Scope, ProjectID: provider.ProjectID, Name: provider.Name, BaseURL: provider.BaseURL, Model: provider.Model, APIMode: provider.APIMode, Stream: provider.StreamingEnabled(), APIKeySet: len(provider.APIKeyCiphertext) > 0, APIKeyLast4: provider.APIKeyLast4, Enabled: provider.Enabled, Temperature: provider.Temperature, TimeoutMS: provider.TimeoutMS, MaxOutputTokens: provider.MaxOutputTokens}
 }

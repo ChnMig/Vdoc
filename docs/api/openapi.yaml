@@ -1298,6 +1298,7 @@ paths:
     post:
       tags: [AI]
       summary: Send a message in a page-scoped AI chat session.
+      description: Send Accept text/event-stream to receive provisional delta events when the effective provider streams. The done event contains the normal success envelope with the committed assistant message; error contains a normal error envelope. EOF without done is failure. Non-streaming providers, JSON-compatible upstreams, preflight errors and clients without this Accept header retain the JSON envelope.
       operationId: sendAIChatMessage
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1306,7 +1307,7 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/AIChatMessageRequest" }
       responses:
-        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+        "200": { $ref: "#/components/responses/AIChatMessageResponse" }
   /api/v1/private/mcp-tokens:
     get:
       tags: [MCP Tokens]
@@ -1527,6 +1528,15 @@ components:
       schema: { type: string }
       description: Draft, version, Diff, or Document ID; document context requires context_id equal to document_id.
   responses:
+    AIChatMessageResponse:
+      description: A JSON envelope or negotiated SSE chat response.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/VdocEnvelope" }
+        text/event-stream:
+          schema:
+            type: string
+            description: SSE delta events with JSON delta strings, then a done or error event containing the standard envelope. Only done confirms persistence.
     VdocEnvelopeResponse:
       description: HTTP 200 response with Vdoc envelope.
       content:
@@ -1970,6 +1980,10 @@ components:
         enabled:
           type: boolean
           description: Whether this provider can be used for summaries and chat.
+        stream:
+          type: boolean
+          default: true
+          description: Stream upstream Responses or Chat Completions calls for tests, summaries and chat. New and historical configurations default to true. An omitted update preserves the saved setting; false requests non-streaming responses.
         temperature:
           type: number
           format: double
@@ -2022,7 +2036,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [api_key_set, enabled, temperature, timeout_ms, max_output_tokens]
+        [api_key_set, enabled, stream, temperature, timeout_ms, max_output_tokens]
       properties:
         id: { type: string }
         scope:
@@ -2042,6 +2056,10 @@ components:
           type: string
           description: Last four characters of the stored provider key, returned for operator confirmation only.
         enabled: { type: boolean }
+        stream:
+          type: boolean
+          default: true
+          description: Effective upstream streaming mode. Historical and unset configurations default to true.
         temperature:
           type: number
           format: double

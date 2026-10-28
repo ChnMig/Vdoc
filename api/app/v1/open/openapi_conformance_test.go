@@ -182,6 +182,22 @@ func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
 			if response != "#/components/responses/MCPJSONRPCResponse" {
 				t.Fatalf("%s response = %q", key, response)
 			}
+		case "POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages":
+			if response != "#/components/responses/AIChatMessageResponse" {
+				t.Fatalf("%s response = %q, want JSON/SSE chat response", key, response)
+			}
+			root := parseOpenAPI(t)
+			components := asMap(t, root["components"], "components")
+			responses := asMap(t, components["responses"], "responses")
+			chat := asMap(t, responses["AIChatMessageResponse"], "AIChatMessageResponse")
+			content := asMap(t, chat["content"], "chat content")
+			jsonContent := asMap(t, content["application/json"], "JSON content")
+			jsonSchema := asMap(t, jsonContent["schema"], "JSON schema")
+			streamContent := asMap(t, content["text/event-stream"], "SSE content")
+			streamSchema := asMap(t, streamContent["schema"], "SSE schema")
+			if jsonSchema["$ref"] != "#/components/schemas/VdocEnvelope" || streamSchema["type"] != "string" {
+				t.Fatal("chat must document both the original JSON envelope and SSE")
+			}
 		default:
 			if _, ok := listRouteKeys[key]; ok {
 				if response != "#/components/responses/VdocListEnvelopeResponse" {

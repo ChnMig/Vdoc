@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"strings"
 	"vdoc/api/app/v1/private/shared"
 	"vdoc/api/middleware"
 	"vdoc/api/response"
@@ -76,7 +77,11 @@ func sendChatMessage(c *gin.Context) {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	message, err := shared.Store(c).SendAIChatMessage(userID, c.Param("project_id"), c.Param("session_id"), req.Content, shared.AuditContextFromGin(c))
+	var onDelta func(string) error
+	if strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
+		onDelta = func(delta string) error { return response.StreamDelta(c, delta) }
+	}
+	message, err := shared.Store(c).SendAIChatMessageStream(userID, c.Param("project_id"), c.Param("session_id"), req.Content, onDelta, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
