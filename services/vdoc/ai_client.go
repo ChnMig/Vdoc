@@ -21,7 +21,9 @@ type aiCompletionRequest struct {
 	History         []aiMessagePayload
 	Attachments     []domainai.ChatAttachment
 	ReasoningEffort string
-	OnDelta         func(string) error
+	// 辅助任务可省略强度，同时保留思考模型要求的 token 与采样参数格式。
+	UseReasoningParameters bool
+	OnDelta                func(string) error
 }
 
 const aiProviderMaxResponseBytes = 4 << 20
@@ -63,7 +65,7 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	messages = append(messages, input.History...)
 	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User, Attachments: input.Attachments})
 	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens, Stream: input.Provider.StreamingEnabled()}
-	if input.ReasoningEffort != "" {
+	if input.ReasoningEffort != "" || input.UseReasoningParameters {
 		payload.ReasoningEffort = input.ReasoningEffort
 		payload.MaxCompletionTokens, payload.MaxTokens = payload.MaxTokens, 0
 		payload.OmitTemperature = true
@@ -112,8 +114,8 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false, Stream: input.Provider.StreamingEnabled()}
 	if input.ReasoningEffort != "" {
 		payload.Reasoning = &reasoningPayload{Effort: input.ReasoningEffort}
-		payload.OmitTemperature = true
 	}
+	payload.OmitTemperature = input.ReasoningEffort != "" || input.UseReasoningParameters
 	if hasAIChatAttachments(input) {
 		payload.MultimodalInput = responsesMultimodalInput(input)
 	}
