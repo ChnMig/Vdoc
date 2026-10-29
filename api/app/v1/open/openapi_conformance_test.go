@@ -93,6 +93,7 @@ var requestBodyContracts = map[string]requestBodyContract{
 	"POST /api/v1/private/projects/{project_id}/ai/provider/models":                                        {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
 	"PUT /api/v1/private/ai/prompts/{prompt_key}":                                                          {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
 	"PUT /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}":                                    {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}":                            {required: true, schemaRef: "#/components/schemas/AIChatReasoningRequest"},
 	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions":                                          {required: true, schemaRef: "#/components/schemas/AIChatSessionRequest"},
 	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages":                    {required: true, schemaRef: "#/components/schemas/AIChatMessageRequest"},
 	"POST /api/v1/private/mcp-tokens":                                                                      {required: true, schemaRef: "#/components/schemas/CreateMCPTokenRequest"},

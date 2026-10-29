@@ -1301,12 +1301,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [reasoning_effort]
-              properties:
-                reasoning_effort: { $ref: "#/components/schemas/AIReasoningEffort" }
+            schema: { $ref: "#/components/schemas/AIChatReasoningRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/title:
@@ -1954,6 +1949,12 @@ components:
       properties:
         from_version_id: { type: string }
         to_version_id: { type: string }
+    AIChatReasoningRequest:
+      type: object
+      additionalProperties: false
+      required: [reasoning_effort]
+      properties:
+        reasoning_effort: { $ref: "#/components/schemas/AIReasoningEffort" }
     AIReasoningEffort:
       type: string
       enum: ["", none, minimal, low, medium, high, xhigh, max]
