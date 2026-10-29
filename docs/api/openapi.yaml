@@ -1936,9 +1936,28 @@ components:
     AIChatMessageRequest:
       type: object
       additionalProperties: false
-      required: [content]
+      anyOf:
+        - required: [content]
+          properties:
+            content: { minLength: 1 }
+        - required: [attachments]
+          properties:
+            attachments: { minItems: 1 }
       properties:
-        content: { type: string, minLength: 1, maxLength: 4000 }
+        content: { type: string, maxLength: 4000 }
+        attachments:
+          type: array
+          maxItems: 4
+          description: Inline attachments; each decoded file is at most 4 MiB, combined at most 6 MiB. Text files are UTF-8 and at most 100 KiB.
+          items: { $ref: "#/components/schemas/AIChatAttachment" }
+    AIChatAttachment:
+      type: object
+      additionalProperties: false
+      required: [name, media_type, data]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        media_type: { type: string, enum: [image/png, image/jpeg, image/webp, image/gif, application/pdf, text/plain] }
+        data: { type: string, format: byte, description: Standard base64 of the file bytes, without a data URL prefix. }
     CreateMCPTokenRequest:
       type: object
       additionalProperties: false

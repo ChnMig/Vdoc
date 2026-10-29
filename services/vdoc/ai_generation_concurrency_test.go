@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -158,7 +159,7 @@ func TestSendAIChatMessageIncludesBoundedSessionHistory(t *testing.T) {
 	if len(firstPayload.Messages) != 2 {
 		t.Fatalf("first payload messages = %+v, want system and current user", firstPayload.Messages)
 	}
-	if len(secondPayload.Messages) != 4 || secondPayload.Messages[1] != (aiMessagePayload{Role: domainai.ChatRoleUser, Content: "first question"}) || secondPayload.Messages[2] != (aiMessagePayload{Role: domainai.ChatRoleAssistant, Content: "first answer"}) {
+	if len(secondPayload.Messages) != 4 || !reflect.DeepEqual(secondPayload.Messages[1], aiMessagePayload{Role: domainai.ChatRoleUser, Content: "first question"}) || !reflect.DeepEqual(secondPayload.Messages[2], aiMessagePayload{Role: domainai.ChatRoleAssistant, Content: "first answer"}) {
 		t.Fatalf("second payload history = %+v, want prior user and assistant messages", secondPayload.Messages)
 	}
 	if len([]rune(secondPayload.Messages[1].Content))+len([]rune(secondPayload.Messages[2].Content)) > aiChatHistoryMaxRunes {

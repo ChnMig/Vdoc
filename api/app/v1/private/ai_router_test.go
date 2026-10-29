@@ -474,7 +474,15 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 	if err := json.Unmarshal(chatSession.Detail, &session); err != nil {
 		t.Fatalf("decode chat session: %v", err)
 	}
-	message := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID+"/messages", readerToken, `{"content":"What changed?"}`))
+	message := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID+"/messages", readerToken, `{"content":"What changed?","attachments":[{"name":"notes.md","media_type":"text/plain","data":"QXR0YWNoZWQgZmFjdA=="}]}`))
+	messageHistory := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID, readerToken, ""))
+	if messageHistory.Code != 200 || !strings.Contains(string(messageHistory.Detail), `"name":"notes.md"`) || !strings.Contains(string(messageHistory.Detail), `QXR0YWNoZWQgZmFjdA==`) {
+		t.Fatal("committed attachment missing from API conversation history")
+	}
+	invalidAttachment := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID+"/messages", readerToken, `{"content":"Read","attachments":[{"name":"x.svg","media_type":"image/svg+xml","data":"PHN2Zz4="}]}`))
+	if invalidAttachment.Code != 400 || invalidAttachment.Status != "INVALID_ARGUMENT" {
+		t.Fatal("invalid attachment accepted by API")
+	}
 	chatHistory := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions?document_id="+document.ID+"&context_type=diff&context_id="+diff.ID, readerToken, ""))
 
 	// Then

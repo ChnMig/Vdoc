@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"vdoc/db/pgdb"
+	domainai "vdoc/domain/ai"
 )
 
 type AIProvider struct {
@@ -79,10 +80,11 @@ func (AIChatSession) TableName() string { return TableNameAIChatSessions }
 
 type AIChatMessage struct {
 	pgdb.Base
-	SessionID  string  `gorm:"column:session_id;type:uuid;not null"`
-	Role       string  `gorm:"column:role;type:text;not null"`
-	Content    string  `gorm:"column:content;type:text;not null"`
-	ProviderID *string `gorm:"column:provider_id;type:uuid"`
+	SessionID   string                    `gorm:"column:session_id;type:uuid;not null"`
+	Role        string                    `gorm:"column:role;type:text;not null"`
+	Content     string                    `gorm:"column:content;type:text;not null"`
+	Attachments []domainai.ChatAttachment `gorm:"column:attachments;type:jsonb;serializer:json;not null;default:'[]'"`
+	ProviderID  *string                   `gorm:"column:provider_id;type:uuid"`
 }
 
 func (AIChatMessage) TableName() string { return TableNameAIChatMessages }

@@ -3,9 +3,26 @@ package vdoc
 import (
 	"testing"
 	"time"
+	domainai "vdoc/domain/ai"
 
 	domainvdoc "vdoc/domain/vdoc"
 )
+
+func TestAIChatAttachmentsRoundTripWithoutSharingMutableSlices(t *testing.T) {
+	message := &domainvdoc.AIChatMessage{ID: "message-id", SessionID: "session-id", Role: "user", Attachments: []domainai.ChatAttachment{{Name: "notes.txt", MediaType: "text/plain", Data: "bm90ZXM="}}}
+	model := aiChatMessageModelFromDomain(message)
+	loaded := domainAIChatMessageFromModel(*model)
+	if len(loaded.Attachments) != 1 || loaded.Attachments[0] != message.Attachments[0] {
+		t.Fatal("attachment changed during persistence mapping")
+	}
+	loaded.Attachments[0].Name = "changed.txt"
+	if model.Attachments[0].Name != "notes.txt" || message.Attachments[0].Name != "notes.txt" {
+		t.Fatal("attachment slices share mutable storage")
+	}
+	if aiChatMessageModelFromDomain(&domainvdoc.AIChatMessage{}).Attachments == nil {
+		t.Fatal("empty attachments must persist as an array")
+	}
+}
 
 func TestAIModelsMappingRoundTripsProviderTuningFields(t *testing.T) {
 	// Given

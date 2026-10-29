@@ -6,6 +6,7 @@ import (
 	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
+	domainai "vdoc/domain/ai"
 
 	"github.com/gin-gonic/gin"
 )
@@ -71,7 +72,8 @@ func sendChatMessage(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Content string `json:"content"`
+		Content     string                    `json:"content"`
+		Attachments []domainai.ChatAttachment `json:"attachments"`
 	}
 	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
@@ -81,7 +83,7 @@ func sendChatMessage(c *gin.Context) {
 	if strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
 		onDelta = func(delta string) error { return response.StreamDelta(c, delta) }
 	}
-	message, err := shared.Store(c).SendAIChatMessageStream(userID, c.Param("project_id"), c.Param("session_id"), req.Content, onDelta, shared.AuditContextFromGin(c))
+	message, err := shared.Store(c).SendAIChatMessageWithAttachmentsStream(userID, c.Param("project_id"), c.Param("session_id"), req.Content, req.Attachments, onDelta, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return

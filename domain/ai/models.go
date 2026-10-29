@@ -144,12 +144,13 @@ type ChatSession struct {
 }
 
 type ChatMessage struct {
-	ID         string    `json:"id"`
-	SessionID  string    `json:"session_id"`
-	Role       string    `json:"role"`
-	Content    string    `json:"content"`
-	ProviderID string    `json:"provider_id,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID          string           `json:"id"`
+	SessionID   string           `json:"session_id"`
+	Role        string           `json:"role"`
+	Content     string           `json:"content"`
+	Attachments []ChatAttachment `json:"attachments,omitempty"`
+	ProviderID  string           `json:"provider_id,omitempty"`
+	CreatedAt   time.Time        `json:"created_at"`
 }
 
 // nil 兼容历史内存状态；显式 0 表示不限制该阶段。

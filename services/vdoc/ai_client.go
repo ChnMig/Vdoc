@@ -14,12 +14,13 @@ import (
 )
 
 type aiCompletionRequest struct {
-	Provider *AIProviderConfig
-	APIKey   string
-	System   string
-	User     string
-	History  []aiMessagePayload
-	OnDelta  func(string) error
+	Provider    *AIProviderConfig
+	APIKey      string
+	System      string
+	User        string
+	History     []aiMessagePayload
+	Attachments []domainai.ChatAttachment
+	OnDelta     func(string) error
 }
 
 const aiProviderMaxResponseBytes = 4 << 20
@@ -59,7 +60,7 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	messages := make([]aiMessagePayload, 0, len(input.History)+2)
 	messages = append(messages, aiMessagePayload{Role: "system", Content: input.System})
 	messages = append(messages, input.History...)
-	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User})
+	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User, Attachments: input.Attachments})
 	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens, Stream: input.Provider.StreamingEnabled()}
 	if payload.Stream {
 		payload.StreamOptions = &chatStreamOptions{IncludeUsage: true}
@@ -103,6 +104,9 @@ func parseChatCompletion(body []byte) (aiCompletionResult, error) {
 
 func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
 	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false, Stream: input.Provider.StreamingEnabled()}
+	if hasAIChatAttachments(input) {
+		payload.MultimodalInput = responsesMultimodalInput(input)
+	}
 	return postAI(ctx, client, input.Provider, input.APIKey, "responses", payload, func(reader io.Reader, streaming bool) (aiCompletionResult, error) {
 		if streaming {
 			return readResponsesStream(reader, input.OnDelta)
@@ -217,8 +221,9 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 }
 
 type aiMessagePayload struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role        string                    `json:"role"`
+	Content     string                    `json:"content"`
+	Attachments []domainai.ChatAttachment `json:"-"`
 }
 
 type chatCompletionPayload struct {
@@ -249,13 +254,14 @@ type chatCompletionResponse struct {
 }
 
 type responsesPayload struct {
-	Model           string  `json:"model"`
-	Instructions    string  `json:"instructions"`
-	Input           string  `json:"input"`
-	Temperature     float64 `json:"temperature"`
-	MaxOutputTokens int     `json:"max_output_tokens"`
-	Store           bool    `json:"store"`
-	Stream          bool    `json:"stream"`
+	Model           string                    `json:"model"`
+	Instructions    string                    `json:"instructions"`
+	Input           string                    `json:"input"`
+	Temperature     float64                   `json:"temperature"`
+	MaxOutputTokens int                       `json:"max_output_tokens"`
+	Store           bool                      `json:"store"`
+	Stream          bool                      `json:"stream"`
+	MultimodalInput []responsesMessagePayload `json:"-"`
 }
 
 type responsesResponse struct {

@@ -301,11 +301,11 @@ func aiChatMessageModelFromDomain(message *domainvdoc.AIChatMessage) *AIChatMess
 		return nil
 	}
 	createdAt := nonZeroTime(message.CreatedAt)
-	return &AIChatMessage{Base: pgdb.Base{ID: message.ID, CreatedAt: createdAt, UpdatedAt: createdAt}, SessionID: message.SessionID, Role: message.Role, Content: message.Content, ProviderID: stringPtr(message.ProviderID)}
+	return &AIChatMessage{Base: pgdb.Base{ID: message.ID, CreatedAt: createdAt, UpdatedAt: createdAt}, SessionID: message.SessionID, Role: message.Role, Content: message.Content, Attachments: append([]domainai.ChatAttachment{}, message.Attachments...), ProviderID: stringPtr(message.ProviderID)}
 }
 
 func domainAIChatMessageFromModel(model AIChatMessage) *domainvdoc.AIChatMessage {
-	return &domainvdoc.AIChatMessage{ID: domainID(model.ID), SessionID: domainID(model.SessionID), Role: model.Role, Content: model.Content, ProviderID: stringValueID(model.ProviderID), CreatedAt: model.CreatedAt}
+	return &domainvdoc.AIChatMessage{ID: domainID(model.ID), SessionID: domainID(model.SessionID), Role: model.Role, Content: model.Content, Attachments: append([]domainai.ChatAttachment(nil), model.Attachments...), ProviderID: stringValueID(model.ProviderID), CreatedAt: model.CreatedAt}
 }
 
 func aiProviderStateKey(provider *domainvdoc.AIProviderConfig) string {
