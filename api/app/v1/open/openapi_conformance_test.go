@@ -290,8 +290,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 37 {
-		t.Fatalf("request body route contract count = %d, want 37", len(requestBodyContracts))
+	if len(requestBodyContracts) != 38 {
+		t.Fatalf("request body route contract count = %d, want 38", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))
