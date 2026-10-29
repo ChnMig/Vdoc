@@ -475,6 +475,21 @@ func TestAISummaryAndChatRoutes_UseProviderWithinReadablePageScope(t *testing.T)
 		t.Fatalf("decode chat session: %v", err)
 	}
 	message := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID+"/messages", readerToken, `{"content":"What changed?","attachments":[{"name":"notes.md","media_type":"text/plain","data":"QXR0YWNoZWQgZmFjdA=="}]}`))
+	settingsPath := "/api/v1/private/projects/" + project.ID + "/ai/chat-sessions/" + session.ID
+	for _, invalidBody := range []string{`{}`, `{"reasoning_effort":"invalid"}`} {
+		invalid := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPatch, settingsPath, readerToken, invalidBody))
+		if invalid.Code != 400 {
+			t.Fatalf("invalid reasoning accepted: %s", invalid.Detail)
+		}
+	}
+	updated := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPatch, settingsPath, readerToken, `{"reasoning_effort":"high"}`))
+	if updated.Code != 200 || !strings.Contains(string(updated.Detail), `"reasoning_effort":"high"`) {
+		t.Fatalf("settings update: %s", updated.Detail)
+	}
+	titled := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, settingsPath+"/title", readerToken, ""))
+	if titled.Code != 200 || !strings.Contains(string(titled.Detail), `"title_generated":true`) {
+		t.Fatalf("generated title: %s", titled.Detail)
+	}
 	messageHistory := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/projects/"+project.ID+"/ai/chat-sessions/"+session.ID, readerToken, ""))
 	if messageHistory.Code != 200 || !strings.Contains(string(messageHistory.Detail), `"name":"notes.md"`) || !strings.Contains(string(messageHistory.Detail), `QXR0YWNoZWQgZmFjdA==`) {
 		t.Fatal("committed attachment missing from API conversation history")

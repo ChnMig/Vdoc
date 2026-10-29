@@ -78,11 +78,28 @@ func responsesMultimodalInput(input aiCompletionRequest) []responsesMessagePaylo
 
 func (payload responsesPayload) MarshalJSON() ([]byte, error) {
 	type plain responsesPayload
-	if payload.MultimodalInput == nil {
+	var input any = payload.Input
+	if payload.MultimodalInput != nil {
+		input = payload.MultimodalInput
+	}
+	var temperature *float64
+	if !payload.OmitTemperature {
+		temperature = &payload.Temperature
+	}
+	return json.Marshal(struct {
+		plain
+		Input       any      `json:"input"`
+		Temperature *float64 `json:"temperature,omitempty"`
+	}{plain: plain(payload), Input: input, Temperature: temperature})
+}
+
+func (payload chatCompletionPayload) MarshalJSON() ([]byte, error) {
+	type plain chatCompletionPayload
+	if !payload.OmitTemperature {
 		return json.Marshal(plain(payload))
 	}
 	return json.Marshal(struct {
 		plain
-		Input []responsesMessagePayload `json:"input"`
-	}{plain(payload), payload.MultimodalInput})
+		Temperature *float64 `json:"temperature,omitempty"`
+	}{plain: plain(payload)})
 }

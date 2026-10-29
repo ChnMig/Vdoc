@@ -2,12 +2,14 @@ package vdoc
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"vdoc/db/pgdb"
 	domainai "vdoc/domain/ai"
 	domainvdoc "vdoc/domain/vdoc"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -80,7 +82,21 @@ func (r *Repository) UpsertAIChatSessionIfUnchanged(ctx context.Context, session
 	if model == nil {
 		return nil
 	}
-	return r.upsertByIDIfUnchanged(ctx, model, model.ID, domainUpdatedAt(previous))
+	if previous == nil {
+		return r.upsertByIDIfUnchanged(ctx, model, model.ID, nil)
+	}
+	// 生成预留不改变 updated_at；配置和标题写入还必须核对令牌，避免覆盖并发请求。
+	return mapPostgresError(r.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current AIChatSession
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("updated_at", "generation_token").Where("id = ?", model.ID).Take(&current).Error; err != nil {
+			return mapRecordLookupError(err)
+		}
+		if !current.UpdatedAt.Equal(previous.UpdatedAt) || current.GenerationToken != previous.GenerationToken {
+			return fmt.Errorf("%w: chat session changed since it was loaded", domainvdoc.ErrFailedPrecondition)
+		}
+		touchModelUpdatedAt(model, time.Now().UTC())
+		return upsertIncludingDatabaseDefaults(tx, model)
+	}))
 }
 
 func (r *Repository) UpsertAIChatMessage(ctx context.Context, message *domainvdoc.AIChatMessage) error {
@@ -289,11 +305,11 @@ func aiChatSessionModelFromDomain(session *domainvdoc.AIChatSession) *AIChatSess
 	if session == nil {
 		return nil
 	}
-	return &AIChatSession{Base: pgdb.Base{ID: session.ID, CreatedAt: nonZeroTime(session.CreatedAt), UpdatedAt: nonZeroTime(session.UpdatedAt)}, ProjectID: session.ProjectID, DocumentID: stringPtr(session.DocumentID), ContextType: session.ContextType, ContextID: session.ContextID, Title: session.Title, CreatedBy: session.CreatedBy, GenerationToken: session.GenerationToken, GenerationStartedAt: nullableTime(session.GenerationStartedAt)}
+	return &AIChatSession{Base: pgdb.Base{ID: session.ID, CreatedAt: nonZeroTime(session.CreatedAt), UpdatedAt: nonZeroTime(session.UpdatedAt)}, ProjectID: session.ProjectID, DocumentID: stringPtr(session.DocumentID), ContextType: session.ContextType, ContextID: session.ContextID, Title: session.Title, TitleGenerated: session.TitleGenerated, ReasoningEffort: session.ReasoningEffort, CreatedBy: session.CreatedBy, GenerationToken: session.GenerationToken, GenerationStartedAt: nullableTime(session.GenerationStartedAt)}
 }
 
 func domainAIChatSessionFromModel(model AIChatSession) *domainvdoc.AIChatSession {
-	return &domainvdoc.AIChatSession{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: stringValueID(model.DocumentID), ContextType: model.ContextType, ContextID: domainID(model.ContextID), Title: model.Title, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt, GenerationToken: model.GenerationToken, GenerationStartedAt: timeFromPtr(model.GenerationStartedAt, time.Time{})}
+	return &domainvdoc.AIChatSession{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: stringValueID(model.DocumentID), ContextType: model.ContextType, ContextID: domainID(model.ContextID), Title: model.Title, TitleGenerated: model.TitleGenerated, ReasoningEffort: model.ReasoningEffort, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt, GenerationToken: model.GenerationToken, GenerationStartedAt: timeFromPtr(model.GenerationStartedAt, time.Time{})}
 }
 
 func aiChatMessageModelFromDomain(message *domainvdoc.AIChatMessage) *AIChatMessage {

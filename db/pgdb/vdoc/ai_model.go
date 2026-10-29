@@ -71,6 +71,8 @@ type AIChatSession struct {
 	ContextType         string     `gorm:"column:context_type;type:text;not null"`
 	ContextID           string     `gorm:"column:context_id;type:uuid;not null"`
 	Title               string     `gorm:"column:title;type:text;not null"`
+	TitleGenerated      bool       `gorm:"column:title_generated;not null;default:false"`
+	ReasoningEffort     string     `gorm:"column:reasoning_effort;type:text;not null;default:''"`
 	CreatedBy           string     `gorm:"column:created_by;type:uuid;not null"`
 	GenerationToken     string     `gorm:"column:generation_token;type:text;not null;default:''"`
 	GenerationStartedAt *time.Time `gorm:"column:generation_started_at;type:timestamptz"`

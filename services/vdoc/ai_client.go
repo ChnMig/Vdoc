@@ -14,13 +14,14 @@ import (
 )
 
 type aiCompletionRequest struct {
-	Provider    *AIProviderConfig
-	APIKey      string
-	System      string
-	User        string
-	History     []aiMessagePayload
-	Attachments []domainai.ChatAttachment
-	OnDelta     func(string) error
+	Provider        *AIProviderConfig
+	APIKey          string
+	System          string
+	User            string
+	History         []aiMessagePayload
+	Attachments     []domainai.ChatAttachment
+	ReasoningEffort string
+	OnDelta         func(string) error
 }
 
 const aiProviderMaxResponseBytes = 4 << 20
@@ -62,6 +63,11 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	messages = append(messages, input.History...)
 	messages = append(messages, aiMessagePayload{Role: "user", Content: input.User, Attachments: input.Attachments})
 	payload := chatCompletionPayload{Model: input.Provider.Model, Messages: messages, Temperature: input.Provider.Temperature, MaxTokens: input.Provider.MaxOutputTokens, Stream: input.Provider.StreamingEnabled()}
+	if input.ReasoningEffort != "" {
+		payload.ReasoningEffort = input.ReasoningEffort
+		payload.MaxCompletionTokens, payload.MaxTokens = payload.MaxTokens, 0
+		payload.OmitTemperature = true
+	}
 	if payload.Stream {
 		payload.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	}
@@ -104,6 +110,10 @@ func parseChatCompletion(body []byte) (aiCompletionResult, error) {
 
 func callResponses(ctx context.Context, client *http.Client, input aiCompletionRequest) (aiCompletionResult, error) {
 	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false, Stream: input.Provider.StreamingEnabled()}
+	if input.ReasoningEffort != "" {
+		payload.Reasoning = &reasoningPayload{Effort: input.ReasoningEffort}
+		payload.OmitTemperature = true
+	}
 	if hasAIChatAttachments(input) {
 		payload.MultimodalInput = responsesMultimodalInput(input)
 	}
@@ -227,12 +237,15 @@ type aiMessagePayload struct {
 }
 
 type chatCompletionPayload struct {
-	Model         string             `json:"model"`
-	Messages      []aiMessagePayload `json:"messages"`
-	Temperature   float64            `json:"temperature"`
-	MaxTokens     int                `json:"max_tokens"`
-	Stream        bool               `json:"stream"`
-	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
+	Model               string             `json:"model"`
+	Messages            []aiMessagePayload `json:"messages"`
+	Temperature         float64            `json:"temperature"`
+	MaxTokens           int                `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int                `json:"max_completion_tokens,omitempty"`
+	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
+	OmitTemperature     bool               `json:"-"`
+	Stream              bool               `json:"stream"`
+	StreamOptions       *chatStreamOptions `json:"stream_options,omitempty"`
 }
 
 type chatStreamOptions struct {
@@ -261,7 +274,13 @@ type responsesPayload struct {
 	MaxOutputTokens int                       `json:"max_output_tokens"`
 	Store           bool                      `json:"store"`
 	Stream          bool                      `json:"stream"`
+	Reasoning       *reasoningPayload         `json:"reasoning,omitempty"`
+	OmitTemperature bool                      `json:"-"`
 	MultimodalInput []responsesMessagePayload `json:"-"`
+}
+
+type reasoningPayload struct {
+	Effort string `json:"effort"`
 }
 
 type responsesResponse struct {

@@ -314,6 +314,8 @@ POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_i
 GET  /api/v1/private/projects/{project_id}/ai/chat-sessions?document_id={document_id}&context_type={document|draft|version|diff}&context_id={context_id}
 POST /api/v1/private/projects/{project_id}/ai/chat-sessions
 GET  /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}
+PATCH /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}
+POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/title
 POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages
 ```
 
@@ -324,6 +326,10 @@ For each question the server ranks all source metadata by explicit branch/revisi
 Migration `012_document_ai_chat.sql` extends only chat-session context types, preserving existing sessions and keeping summary/job targets restricted to draft/version/diff. Deploy the backend and Admin together so the workspace can create document sessions.
 
 Chat message requests accept `{"content":"Explain this file","attachments":[{"name":"notes.md","media_type":"text/plain","data":"...standard base64..."}]}`. A message needs nonblank text or at least one attachment. Text is limited to 4,000 characters. Up to four files are allowed, with a 4 MiB per-file and 6 MiB combined decoded limit (within the default 10 MB request-body limit). Supported media types are PNG, JPEG, WebP, GIF, PDF and UTF-8 text; text files are limited to 100 KiB. The server validates filenames, base64, media signatures and text encoding. URLs, SVG and arbitrary binary files are rejected.
+
+Migration `016_ai_chat_preferences.sql` adds `title_generated` and `reasoning_effort` to chat sessions. Create accepts optional `reasoning_effort`; PATCH requires it. Empty string omits the upstream reasoning parameter; `none` explicitly requests off, and `minimal`, `low`, `medium`, `high`, `xhigh`, `max` request a model-dependent effort. Explicit efforts use `reasoning.effort` for Responses or `reasoning_effort` plus `max_completion_tokens` for Chat Completions and omit temperature. Unsupported settings return provider errors without silently changing the user's choice. Changing effort during a reply is rejected.
+
+POST `.../chat-sessions/{session_id}/title` generates a title using bounded first-turn excerpts and attachment names in a separate request, capped at 20 seconds. It is idempotent after success and rechecks access before saving. It never modifies messages; failure preserves the provisional title. Generic provider APIs do not automatically name threads; ChatKit's automatic titling is a different integration. The Admin calls this after a completed turn, displays message timestamps and role avatars in expanded view, and remembers the last selected effort per account in this browser for new sessions. The server retains each existing session's own effort across clients.
 
 Migration `015_ai_chat_attachments.sql` stores attachment data with its committed user message. Failed or cancelled generations save neither partial messages nor attachments. Session reads return the attachments for preview/download, subject to the same project permissions. Both provider modes send images and PDFs as native content parts; text files are decoded into labeled source data. The configured provider/model must support image/PDF inputs. Follow-up questions retain bounded attachment context; earlier attachments omitted by the history budget are explicitly labeled as omitted. No attachment content is added to audit metadata.
 
@@ -449,7 +455,8 @@ Development builds return `FAILED_PRECONDITION` when checking updates. Network, 
 | AI | `GET` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary` | JWT |
 | AI | `POST` | `/api/v1/private/projects/{project_id}/documents/{document_id}/diffs/{diff_id}/ai-summary/regenerate` | JWT |
 | AI | `GET`, `POST` | `/api/v1/private/projects/{project_id}/ai/chat-sessions` | JWT |
-| AI | `GET` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}` | JWT |
+| AI | `GET`, `PATCH` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}` | JWT |
+| AI | `POST` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/title` | JWT |
 | AI | `POST` | `/api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages` | JWT |
 | MCP Tokens | `GET`, `POST` | `/api/v1/private/mcp-tokens` | JWT |
 | MCP Tokens | `GET` | `/api/v1/private/mcp-usage` | JWT; owner-scoped unless SuperAdmin supplies `token_id` |

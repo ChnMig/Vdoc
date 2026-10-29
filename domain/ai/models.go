@@ -127,15 +127,17 @@ type Summary struct {
 }
 
 type ChatSession struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	DocumentID  string    `json:"document_id,omitempty"`
-	ContextType string    `json:"context_type"`
-	ContextID   string    `json:"context_id"`
-	Title       string    `json:"title"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	ProjectID       string    `json:"project_id"`
+	DocumentID      string    `json:"document_id,omitempty"`
+	ContextType     string    `json:"context_type"`
+	ContextID       string    `json:"context_id"`
+	Title           string    `json:"title"`
+	TitleGenerated  bool      `json:"title_generated"`
+	ReasoningEffort string    `json:"reasoning_effort"`
+	CreatedBy       string    `json:"created_by"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 
 	// GenerationToken provides latest-request-wins ordering for asynchronous
 	// provider calls across processes. These coordination fields are internal.

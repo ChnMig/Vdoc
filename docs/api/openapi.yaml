@@ -1257,7 +1257,7 @@ paths:
       - { $ref: "#/components/parameters/ProjectID" }
     get:
       tags: [AI]
-      summary: List AI chat sessions for an exact draft, version, or diff context.
+      summary: List AI chat sessions for an exact document, draft, version, or diff context.
       description: Returns retained sessions newest-updated first, including after the Project, Document, or target Branch is archived.
       operationId: listAIChatSessions
       security: [{ JWTAuth: [] }]
@@ -1269,7 +1269,7 @@ paths:
         "200": { $ref: "#/components/responses/VdocListEnvelopeResponse" }
     post:
       tags: [AI]
-      summary: Create an AI chat session scoped to a draft, version, or diff.
+      summary: Create an AI chat session scoped to a document, draft, version, or diff.
       description: Requires an active Project, Document, and target Branch. Existing sessions remain readable after archive.
       operationId: createAIChatSession
       security: [{ JWTAuth: [] }]
@@ -1288,6 +1288,36 @@ paths:
       tags: [AI]
       summary: Get an AI chat session and messages.
       operationId: getAIChatSession
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+    patch:
+      tags: [AI]
+      summary: Save the conversation reasoning effort.
+      description: Empty string follows the configured model; none explicitly disables reasoning. Supported effort values depend on the provider/model. Rejects changes during a reply. Requires an active target and project read access.
+      operationId: updateAIChatReasoning
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reasoning_effort]
+              properties:
+                reasoning_effort: { $ref: "#/components/schemas/AIReasoningEffort" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/title:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { $ref: "#/components/parameters/AIChatSessionID" }
+    post:
+      tags: [AI]
+      summary: Generate a short conversation title after the first completed turn.
+      description: Idempotent after success. Uses bounded excerpts and attachment names, never attachment contents. A separate provider request with a 20-second cap; failure leaves the existing title and messages intact. Requires active target and project read access.
+      operationId: generateAIChatTitle
       security: [{ JWTAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
@@ -1924,6 +1954,9 @@ components:
       properties:
         from_version_id: { type: string }
         to_version_id: { type: string }
+    AIReasoningEffort:
+      type: string
+      enum: ["", none, minimal, low, medium, high, xhigh, max]
     AIChatSessionRequest:
       type: object
       additionalProperties: false
@@ -1933,6 +1966,7 @@ components:
         context_type: { type: string, enum: [draft, version, diff, document] }
         context_id: { type: string, description: Document context requires the same value as document_id. }
         title: { type: string }
+        reasoning_effort: { $ref: "#/components/schemas/AIReasoningEffort" }
     AIChatMessageRequest:
       type: object
       additionalProperties: false

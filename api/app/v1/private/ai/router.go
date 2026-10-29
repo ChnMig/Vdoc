@@ -26,5 +26,7 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	private.POST("/projects/:project_id/ai/chat-sessions", createChatSession)
 	private.GET("/projects/:project_id/ai/chat-sessions", listChatSessions)
 	private.GET("/projects/:project_id/ai/chat-sessions/:session_id", getChatSession)
+	private.PATCH("/projects/:project_id/ai/chat-sessions/:session_id", updateChatSession)
+	private.POST("/projects/:project_id/ai/chat-sessions/:session_id/title", generateChatTitle)
 	private.POST("/projects/:project_id/ai/chat-sessions/:session_id/messages", sendChatMessage)
 }

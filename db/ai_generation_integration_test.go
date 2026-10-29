@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -99,8 +100,18 @@ func TestPostgresAIRequestGenerationRejectsSupersededCompletions(t *testing.T) {
 	if err := repository.UpsertAIChatSession(context.Background(), session); err != nil {
 		t.Fatalf("UpsertAIChatSession: %v", err)
 	}
+	originalState, err := repository.LoadState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalSession := originalState.AIChats[strings.ReplaceAll(sessionID, "-", "")]
 	if updated, err := repository.ReserveAIChatGeneration(context.Background(), sessionID, chatKeyA, now); err != nil || !updated {
 		t.Fatalf("ReserveAIChatGeneration(A) updated=%t error=%v", updated, err)
+	}
+	staleSettings := *originalSession
+	staleSettings.ReasoningEffort = "high"
+	if err := repository.UpsertAIChatSessionIfUnchanged(context.Background(), &staleSettings, originalSession); !errors.Is(err, domainvdoc.ErrFailedPrecondition) {
+		t.Fatalf("stale settings overwrote a generation reservation: %v", err)
 	}
 	if updated, err := repository.ReserveAIChatGeneration(context.Background(), sessionID, chatKeyB, now.Add(time.Second)); err != nil || !updated {
 		t.Fatalf("ReserveAIChatGeneration(B) updated=%t error=%v", updated, err)
@@ -128,6 +139,20 @@ func TestPostgresAIRequestGenerationRejectsSupersededCompletions(t *testing.T) {
 	storedSession := loaded.AIChats[strings.ReplaceAll(sessionID, "-", "")]
 	if storedSession == nil || storedSession.GenerationToken != "" || !storedSession.UpdatedAt.Equal(finishedAt) {
 		t.Fatalf("stored chat session = %+v, want newest completed generation", storedSession)
+	}
+	preferences := *storedSession
+	preferences.ReasoningEffort = "high"
+	preferences.Title, preferences.TitleGenerated = "Generated title", true
+	if err := repository.UpsertAIChatSessionIfUnchanged(context.Background(), &preferences, storedSession); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := repository.LoadState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := reloaded.AIChats[storedSession.ID]
+	if saved.ReasoningEffort != "high" || !saved.TitleGenerated || saved.Title != "Generated title" {
+		t.Fatal("preferences did not survive reload")
 	}
 }
 
