@@ -127,17 +127,21 @@ type Summary struct {
 }
 
 type ChatSession struct {
-	ID              string    `json:"id"`
-	ProjectID       string    `json:"project_id"`
-	DocumentID      string    `json:"document_id,omitempty"`
-	ContextType     string    `json:"context_type"`
-	ContextID       string    `json:"context_id"`
-	Title           string    `json:"title"`
-	TitleGenerated  bool      `json:"title_generated"`
-	ReasoningEffort string    `json:"reasoning_effort"`
-	CreatedBy       string    `json:"created_by"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                    string    `json:"id"`
+	ProjectID             string    `json:"project_id"`
+	DocumentID            string    `json:"document_id,omitempty"`
+	ContextType           string    `json:"context_type"`
+	ContextID             string    `json:"context_id"`
+	Title                 string    `json:"title"`
+	TitleGenerated        bool      `json:"title_generated"`
+	ReasoningEffort       string    `json:"reasoning_effort"`
+	ContextSummary        string    `json:"-"`
+	ContextSummaryThrough string    `json:"-"`
+	ContextSummaryCount   int       `json:"context_summary_count"`
+	ContextCompactedAt    time.Time `json:"context_compacted_at,omitempty"`
+	CreatedBy             string    `json:"created_by"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 
 	// GenerationToken provides latest-request-wins ordering for asynchronous
 	// provider calls across processes. These coordination fields are internal.
@@ -150,6 +154,8 @@ type ChatMessage struct {
 	SessionID   string           `json:"session_id"`
 	Role        string           `json:"role"`
 	Content     string           `json:"content"`
+	Reasoning   string           `json:"reasoning,omitempty"`
+	RetryOf     string           `json:"retry_of,omitempty"`
 	Attachments []ChatAttachment `json:"attachments,omitempty"`
 	ProviderID  string           `json:"provider_id,omitempty"`
 	CreatedAt   time.Time        `json:"created_at"`

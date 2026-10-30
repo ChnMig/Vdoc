@@ -255,21 +255,14 @@ func TestSendAIChatMessageKeepsNewestConversationTurn_whenRequestsFinishOutOfOrd
 	}
 }
 
-func TestLimitedAIChatHistoryKeepsRecentContentWithinRuneBudget(t *testing.T) {
+func TestAIChatMemoryHistoryDoesNotSilentlyTruncateOriginalMessages(t *testing.T) {
 	messages := []*AIChatMessage{
-		{ID: "1", Role: domainai.ChatRoleUser, Content: strings.Repeat("旧", aiChatHistoryMaxRunes), CreatedAt: time.Unix(1, 0)},
-		{ID: "2", Role: domainai.ChatRoleAssistant, Content: strings.Repeat("新", aiChatHistoryMaxRunes), CreatedAt: time.Unix(2, 0)},
+		{ID: "1", Role: domainai.ChatRoleUser, Content: strings.Repeat("旧", aiChatHistoryMaxRunes)},
+		{ID: "2", Role: domainai.ChatRoleAssistant, Content: strings.Repeat("新", aiChatHistoryMaxRunes)},
 	}
-	history := limitedAIChatHistory(messages)
-	total := 0
-	for _, message := range history {
-		total += len([]rune(message.Content))
-	}
-	if total > aiChatHistoryMaxRunes {
-		t.Fatalf("history runes = %d, want <= %d", total, aiChatHistoryMaxRunes)
-	}
-	if len(history) != 1 || history[0].Role != domainai.ChatRoleAssistant || !strings.HasPrefix(history[0].Content, "新") {
-		t.Fatalf("history = %+v, want most recent assistant content", history)
+	history := aiChatMemoryHistory("Earlier important facts", messages)
+	if len(history) != 3 || !strings.Contains(history[0].Content, "Earlier important facts") || history[1].Content != messages[0].Content || history[2].Content != messages[1].Content {
+		t.Fatal("history was truncated before compaction")
 	}
 }
 

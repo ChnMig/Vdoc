@@ -69,25 +69,32 @@ func getChatSession(c *gin.Context) {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	response.ReturnOk(c, gin.H{"session": chatSessionDTOFrom(session), "messages": messages})
+	response.ReturnOk(c, gin.H{"session": chatSessionDTOFrom(session), "messages": chatMessageDTOs(messages)})
 }
 
 type chatSessionDTO struct {
-	ID              string    `json:"id"`
-	ProjectID       string    `json:"project_id"`
-	DocumentID      string    `json:"document_id,omitempty"`
-	ContextType     string    `json:"context_type"`
-	ContextID       string    `json:"context_id"`
-	Title           string    `json:"title"`
-	TitleGenerated  bool      `json:"title_generated"`
-	ReasoningEffort string    `json:"reasoning_effort"`
-	CreatedBy       string    `json:"created_by"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                  string     `json:"id"`
+	ProjectID           string     `json:"project_id"`
+	DocumentID          string     `json:"document_id,omitempty"`
+	ContextType         string     `json:"context_type"`
+	ContextID           string     `json:"context_id"`
+	Title               string     `json:"title"`
+	TitleGenerated      bool       `json:"title_generated"`
+	ReasoningEffort     string     `json:"reasoning_effort"`
+	ContextSummaryCount int        `json:"context_summary_count"`
+	ContextCompactedAt  *time.Time `json:"context_compacted_at,omitempty"`
+	CreatedBy           string     `json:"created_by"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 func chatSessionDTOFrom(session *domainai.ChatSession) chatSessionDTO {
-	return chatSessionDTO{ID: session.ID, ProjectID: session.ProjectID, DocumentID: session.DocumentID, ContextType: session.ContextType, ContextID: session.ContextID, Title: session.Title, TitleGenerated: session.TitleGenerated, ReasoningEffort: session.ReasoningEffort, CreatedBy: session.CreatedBy, CreatedAt: session.CreatedAt, UpdatedAt: session.UpdatedAt}
+	var compactedAt *time.Time
+	if !session.ContextCompactedAt.IsZero() {
+		value := session.ContextCompactedAt
+		compactedAt = &value
+	}
+	return chatSessionDTO{ContextSummaryCount: session.ContextSummaryCount, ContextCompactedAt: compactedAt, ID: session.ID, ProjectID: session.ProjectID, DocumentID: session.DocumentID, ContextType: session.ContextType, ContextID: session.ContextID, Title: session.Title, TitleGenerated: session.TitleGenerated, ReasoningEffort: session.ReasoningEffort, CreatedBy: session.CreatedBy, CreatedAt: session.CreatedAt, UpdatedAt: session.UpdatedAt}
 }
 
 func updateChatSession(c *gin.Context) {
@@ -135,19 +142,51 @@ func sendChatMessage(c *gin.Context) {
 	var req struct {
 		Content     string                    `json:"content"`
 		Attachments []domainai.ChatAttachment `json:"attachments"`
+		RetryOf     string                    `json:"retry_of"`
 	}
 	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
 		return
 	}
-	var onDelta func(string) error
+	events := app.AIChatEvents{}
 	if strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
-		onDelta = func(delta string) error { return response.StreamDelta(c, delta) }
+		events.OnDelta = func(delta string) error { return response.StreamDelta(c, delta) }
+		events.OnReasoning = func(delta string) error { return response.StreamAIEvent(c, "reasoning", gin.H{"delta": delta}) }
+		events.OnContext = func(state app.AIChatContextState) error {
+			data := gin.H{"status": state.Status, "summary_count": state.SummaryCount}
+			if !state.CompactedAt.IsZero() {
+				data["compacted_at"] = state.CompactedAt
+			}
+			return response.StreamAIEvent(c, "context", data)
+		}
 	}
-	message, err := shared.Store(c).SendAIChatMessageWithAttachmentsStream(userID, c.Param("project_id"), c.Param("session_id"), req.Content, req.Attachments, onDelta, shared.AuditContextFromGin(c))
+	message, err := shared.Store(c).SendAIChatMessageWithEvents(userID, c.Param("project_id"), c.Param("session_id"), req.Content, req.Attachments, req.RetryOf, events, shared.AuditContextFromGin(c))
 	if err != nil {
 		shared.ReturnAppError(c, err)
 		return
 	}
-	response.ReturnOk(c, message)
+	response.ReturnOk(c, chatMessageDTOFrom(message))
+}
+
+type chatMessageDTO struct {
+	ID          string                    `json:"id"`
+	SessionID   string                    `json:"session_id"`
+	Role        string                    `json:"role"`
+	Content     string                    `json:"content"`
+	Reasoning   string                    `json:"reasoning,omitempty"`
+	RetryOf     string                    `json:"retry_of,omitempty"`
+	Attachments []domainai.ChatAttachment `json:"attachments,omitempty"`
+	ProviderID  string                    `json:"provider_id,omitempty"`
+	CreatedAt   time.Time                 `json:"created_at"`
+}
+
+func chatMessageDTOFrom(message *domainai.ChatMessage) chatMessageDTO {
+	return chatMessageDTO{ID: message.ID, SessionID: message.SessionID, Role: message.Role, Content: message.Content, Reasoning: message.Reasoning, RetryOf: message.RetryOf, Attachments: message.Attachments, ProviderID: message.ProviderID, CreatedAt: message.CreatedAt}
+}
+func chatMessageDTOs(messages []*domainai.ChatMessage) []chatMessageDTO {
+	out := make([]chatMessageDTO, 0, len(messages))
+	for _, message := range messages {
+		out = append(out, chatMessageDTOFrom(message))
+	}
+	return out
 }

@@ -14,13 +14,15 @@ import (
 )
 
 type aiCompletionRequest struct {
-	Provider        *AIProviderConfig
-	APIKey          string
-	System          string
-	User            string
-	History         []aiMessagePayload
-	Attachments     []domainai.ChatAttachment
-	ReasoningEffort string
+	Provider         *AIProviderConfig
+	APIKey           string
+	System           string
+	User             string
+	History          []aiMessagePayload
+	Attachments      []domainai.ChatAttachment
+	ReasoningEffort  string
+	ReasoningSummary bool
+	OnReasoningDelta func(string) error
 	// 辅助任务可省略强度，同时保留思考模型要求的 token 与采样参数格式。
 	UseReasoningParameters bool
 	OnDelta                func(string) error
@@ -29,8 +31,9 @@ type aiCompletionRequest struct {
 const aiProviderMaxResponseBytes = 4 << 20
 
 type aiCompletionResult struct {
-	Content string
-	Usage   aiTokenUsage
+	Content   string
+	Reasoning string
+	Usage     aiTokenUsage
 }
 
 type aiTokenUsage struct {
@@ -44,6 +47,7 @@ type aiTokenUsage struct {
 func (s *Store) completeAI(ctx context.Context, input aiCompletionRequest) (aiCompletionResult, error) {
 	if !input.Provider.StreamingEnabled() {
 		input.OnDelta = nil
+		input.OnReasoningDelta = nil
 	}
 	client := s.aiHTTP
 	if client == nil {
@@ -75,7 +79,7 @@ func callChatCompletions(ctx context.Context, client *http.Client, input aiCompl
 	}
 	return postAI(ctx, client, input.Provider, input.APIKey, "chat/completions", payload, func(reader io.Reader, streaming bool) (aiCompletionResult, error) {
 		if streaming {
-			return readChatCompletionStream(reader, input.OnDelta)
+			return readChatCompletionStreamWithReasoning(reader, input.OnDelta, input.OnReasoningDelta)
 		}
 		body, err := io.ReadAll(reader)
 		if err != nil {
@@ -92,6 +96,9 @@ func parseChatCompletion(body []byte) (aiCompletionResult, error) {
 	}
 	// 文本被拒收也可能已消耗 token；仅保留上游明确返回的用量。
 	result := aiCompletionResult{Usage: aiTokenUsage{PromptTokens: out.Usage.PromptTokens, CompletionTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}}
+	if len(out.Error) > 0 && string(out.Error) != "null" {
+		return result, providerStreamError(out.Error)
+	}
 	if len(out.Choices) == 0 {
 		return result, fmt.Errorf("%w: provider returned no choices", ErrFailedPrecondition)
 	}
@@ -107,6 +114,7 @@ func parseChatCompletion(body []byte) (aiCompletionResult, error) {
 		return result, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
 	result.Content = content
+	result.Reasoning = strings.TrimSpace(out.Choices[0].Message.Reasoning)
 	return result, nil
 }
 
@@ -114,6 +122,9 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 	payload := responsesPayload{Model: input.Provider.Model, Instructions: input.System, Input: responsesConversationInput(input.History, input.User), Temperature: input.Provider.Temperature, MaxOutputTokens: input.Provider.MaxOutputTokens, Store: false, Stream: input.Provider.StreamingEnabled()}
 	if input.ReasoningEffort != "" {
 		payload.Reasoning = &reasoningPayload{Effort: input.ReasoningEffort}
+		if input.ReasoningSummary && input.ReasoningEffort != "none" {
+			payload.Reasoning.Summary = "auto"
+		}
 	}
 	payload.OmitTemperature = input.ReasoningEffort != "" || input.UseReasoningParameters
 	if hasAIChatAttachments(input) {
@@ -121,7 +132,7 @@ func callResponses(ctx context.Context, client *http.Client, input aiCompletionR
 	}
 	return postAI(ctx, client, input.Provider, input.APIKey, "responses", payload, func(reader io.Reader, streaming bool) (aiCompletionResult, error) {
 		if streaming {
-			return readResponsesStream(reader, input.OnDelta)
+			return readResponsesStreamWithReasoning(reader, input.OnDelta, input.OnReasoningDelta)
 		}
 		body, err := io.ReadAll(reader)
 		if err != nil {
@@ -137,6 +148,9 @@ func parseResponses(body []byte) (aiCompletionResult, error) {
 		return aiCompletionResult{}, fmt.Errorf("parse responses response: %w", err)
 	}
 	result := aiCompletionResult{Usage: aiTokenUsage{InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, TotalTokens: out.Usage.TotalTokens}}
+	if len(out.Error) > 0 && string(out.Error) != "null" {
+		return result, providerStreamError(out.Error)
+	}
 	if out.Status == "incomplete" {
 		if out.IncompleteDetails.Reason == "max_output_tokens" {
 			return result, truncatedAIOutputError()
@@ -159,6 +173,17 @@ func parseResponses(body []byte) (aiCompletionResult, error) {
 		return result, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
 	result.Content = content
+	var summaries []string
+	for _, output := range out.Output {
+		if output.Type == "reasoning" {
+			for _, summary := range output.Summary {
+				if summary.Type == "summary_text" && strings.TrimSpace(summary.Text) != "" {
+					summaries = append(summaries, summary.Text)
+				}
+			}
+		}
+	}
+	result.Reasoning = strings.TrimSpace(strings.Join(summaries, "\n\n"))
 	return result, nil
 }
 
@@ -208,14 +233,11 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 	safeClient.CheckRedirect = rejectAIProviderRedirect
 	resp, err := safeClient.Do(req)
 	if err != nil {
-		return aiCompletionResult{}, fmt.Errorf("call ai provider: %w", watch.err(err))
+		return aiCompletionResult{}, safeAIRequestError(fmt.Errorf("call ai provider: %w", watch.err(err)), 0, apiKey)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		if resp.StatusCode == http.StatusNotFound {
-			return aiCompletionResult{}, fmt.Errorf("%w: provider status 404 (%s); check the Base URL, API mode and model supported by the provider", ErrFailedPrecondition, provider.APIMode)
-		}
-		return aiCompletionResult{}, fmt.Errorf("%w: provider status %d", ErrFailedPrecondition, resp.StatusCode)
+		return aiCompletionResult{}, aiHTTPError(resp, apiKey)
 	}
 	limited := &io.LimitedReader{R: aiActivityReader{reader: resp.Body, watch: watch}, N: aiProviderMaxResponseBytes + 1}
 	reader := bufio.NewReader(limited)
@@ -229,7 +251,7 @@ func postAI(ctx context.Context, client *http.Client, provider *AIProviderConfig
 	if limited.N <= 0 {
 		return aiCompletionResult{Usage: result.Usage}, fmt.Errorf("%w: provider response exceeds %d bytes", ErrFailedPrecondition, aiProviderMaxResponseBytes)
 	}
-	return result, watch.err(err)
+	return result, safeAIRequestError(watch.err(err), 0, apiKey)
 }
 
 type aiMessagePayload struct {
@@ -255,10 +277,12 @@ type chatStreamOptions struct {
 }
 
 type chatCompletionResponse struct {
+	Error   json.RawMessage `json:"error"`
 	Choices []struct {
 		FinishReason string `json:"finish_reason"`
 		Message      struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			Reasoning string `json:"reasoning_content"`
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
@@ -282,17 +306,24 @@ type responsesPayload struct {
 }
 
 type reasoningPayload struct {
-	Effort string `json:"effort"`
+	Effort  string `json:"effort"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type responsesResponse struct {
-	Status            string `json:"status"`
+	Error             json.RawMessage `json:"error"`
+	Status            string          `json:"status"`
 	IncompleteDetails struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
 	OutputText string `json:"output_text"`
 	Output     []struct {
+		Type    string `json:"type"`
 		Status  string `json:"status"`
+		Summary []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"summary"`
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
@@ -307,6 +338,9 @@ type responsesResponse struct {
 func (r responsesResponse) JoinedText() string {
 	parts := []string{}
 	for _, output := range r.Output {
+		if output.Type != "" && output.Type != "message" {
+			continue
+		}
 		for _, content := range output.Content {
 			if text := strings.TrimSpace(content.Text); text != "" {
 				parts = append(parts, text)

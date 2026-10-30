@@ -49,8 +49,13 @@ func emitAIDelta(onDelta func(string) error, delta string) error {
 }
 
 func readChatCompletionStream(reader io.Reader, onDelta func(string) error) (aiCompletionResult, error) {
+	return readChatCompletionStreamWithReasoning(reader, onDelta, nil)
+}
+
+func readChatCompletionStreamWithReasoning(reader io.Reader, onDelta, onReasoning func(string) error) (aiCompletionResult, error) {
 	var result aiCompletionResult
 	var text strings.Builder
+	var reasoning strings.Builder
 	var finished bool
 	var finishReason string
 	err := readAIEvents(reader, func(_ string, data []byte) (bool, error) {
@@ -65,7 +70,8 @@ func readChatCompletionStream(reader io.Reader, onDelta func(string) error) (aiC
 			Choices []struct {
 				Index int `json:"index"`
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -82,16 +88,20 @@ func readChatCompletionStream(reader io.Reader, onDelta func(string) error) (aiC
 			result.Usage = aiTokenUsage{PromptTokens: chunk.Usage.PromptTokens, CompletionTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
-			return false, fmt.Errorf("%w: provider returned a stream error", ErrFailedPrecondition)
+			return false, providerStreamError(data)
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Index != 0 {
 				continue
 			}
-			if finished && choice.Delta.Content != "" {
+			if finished && (choice.Delta.Content != "" || choice.Delta.Reasoning != "") {
 				return false, fmt.Errorf("%w: provider sent content after completion", ErrFailedPrecondition)
 			}
 			text.WriteString(choice.Delta.Content)
+			reasoning.WriteString(choice.Delta.Reasoning)
+			if err := emitAIDelta(onReasoning, choice.Delta.Reasoning); err != nil {
+				return false, err
+			}
 			if err := emitAIDelta(onDelta, choice.Delta.Content); err != nil {
 				return false, err
 			}
@@ -111,6 +121,7 @@ func readChatCompletionStream(reader io.Reader, onDelta func(string) error) (aiC
 		return result, fmt.Errorf("%w: provider did not complete a text response", ErrFailedPrecondition)
 	}
 	result.Content = strings.TrimSpace(text.String())
+	result.Reasoning = strings.TrimSpace(reasoning.String())
 	if result.Content == "" {
 		return result, fmt.Errorf("%w: provider returned empty content", ErrFailedPrecondition)
 	}
@@ -118,8 +129,13 @@ func readChatCompletionStream(reader io.Reader, onDelta func(string) error) (aiC
 }
 
 func readResponsesStream(reader io.Reader, onDelta func(string) error) (aiCompletionResult, error) {
+	return readResponsesStreamWithReasoning(reader, onDelta, nil)
+}
+
+func readResponsesStreamWithReasoning(reader io.Reader, onDelta, onReasoning func(string) error) (aiCompletionResult, error) {
 	var result aiCompletionResult
 	var text strings.Builder
+	var reasoning strings.Builder
 	err := readAIEvents(reader, func(event string, data []byte) (bool, error) {
 		var chunk struct {
 			Type     string          `json:"type"`
@@ -133,6 +149,9 @@ func readResponsesStream(reader io.Reader, onDelta func(string) error) (aiComple
 			event = chunk.Type
 		}
 		switch event {
+		case "response.reasoning_summary_text.delta":
+			reasoning.WriteString(chunk.Delta)
+			return false, emitAIDelta(onReasoning, chunk.Delta)
 		case "response.output_text.delta":
 			text.WriteString(chunk.Delta)
 			return false, emitAIDelta(onDelta, chunk.Delta)
@@ -150,6 +169,15 @@ func readResponsesStream(reader io.Reader, onDelta func(string) error) (aiComple
 			}
 			// 最终事件是权威正文；不能把 incomplete 或断流的片段作为成功结果。
 			result.Content = parsed.Content
+			result.Reasoning = parsed.Reasoning
+			if result.Reasoning == "" {
+				result.Reasoning = strings.TrimSpace(reasoning.String())
+			}
+			if reasoning.Len() == 0 && result.Reasoning != "" {
+				if err := emitAIDelta(onReasoning, result.Reasoning); err != nil {
+					return false, err
+				}
+			}
 			if text.Len() == 0 {
 				if err := emitAIDelta(onDelta, parsed.Content); err != nil {
 					return false, err
@@ -157,7 +185,7 @@ func readResponsesStream(reader io.Reader, onDelta func(string) error) (aiComple
 			}
 			return true, nil
 		case "error":
-			return false, fmt.Errorf("%w: provider returned a stream error", ErrFailedPrecondition)
+			return false, providerStreamError(data)
 		}
 		return false, nil
 	})

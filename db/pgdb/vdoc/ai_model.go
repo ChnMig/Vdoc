@@ -66,16 +66,20 @@ func (AISummary) TableName() string { return TableNameAISummaries }
 
 type AIChatSession struct {
 	pgdb.Base
-	ProjectID           string     `gorm:"column:project_id;type:uuid;not null"`
-	DocumentID          *string    `gorm:"column:document_id;type:uuid"`
-	ContextType         string     `gorm:"column:context_type;type:text;not null"`
-	ContextID           string     `gorm:"column:context_id;type:uuid;not null"`
-	Title               string     `gorm:"column:title;type:text;not null"`
-	TitleGenerated      bool       `gorm:"column:title_generated;not null;default:false"`
-	ReasoningEffort     string     `gorm:"column:reasoning_effort;type:text;not null;default:''"`
-	CreatedBy           string     `gorm:"column:created_by;type:uuid;not null"`
-	GenerationToken     string     `gorm:"column:generation_token;type:text;not null;default:''"`
-	GenerationStartedAt *time.Time `gorm:"column:generation_started_at;type:timestamptz"`
+	ProjectID             string     `gorm:"column:project_id;type:uuid;not null"`
+	DocumentID            *string    `gorm:"column:document_id;type:uuid"`
+	ContextType           string     `gorm:"column:context_type;type:text;not null"`
+	ContextID             string     `gorm:"column:context_id;type:uuid;not null"`
+	Title                 string     `gorm:"column:title;type:text;not null"`
+	TitleGenerated        bool       `gorm:"column:title_generated;not null;default:false"`
+	ReasoningEffort       string     `gorm:"column:reasoning_effort;type:text;not null;default:''"`
+	ContextSummary        string     `gorm:"column:context_summary;type:text;not null;default:''"`
+	ContextSummaryThrough string     `gorm:"column:context_summary_through;type:text;not null;default:''"`
+	ContextSummaryCount   int        `gorm:"column:context_summary_count;not null;default:0"`
+	ContextCompactedAt    *time.Time `gorm:"column:context_compacted_at;type:timestamptz"`
+	CreatedBy             string     `gorm:"column:created_by;type:uuid;not null"`
+	GenerationToken       string     `gorm:"column:generation_token;type:text;not null;default:''"`
+	GenerationStartedAt   *time.Time `gorm:"column:generation_started_at;type:timestamptz"`
 }
 
 func (AIChatSession) TableName() string { return TableNameAIChatSessions }
@@ -85,6 +89,8 @@ type AIChatMessage struct {
 	SessionID   string                    `gorm:"column:session_id;type:uuid;not null"`
 	Role        string                    `gorm:"column:role;type:text;not null"`
 	Content     string                    `gorm:"column:content;type:text;not null"`
+	Reasoning   string                    `gorm:"column:reasoning;type:text;not null;default:''"`
+	RetryOf     string                    `gorm:"column:retry_of;type:text;not null;default:''"`
 	Attachments []domainai.ChatAttachment `gorm:"column:attachments;type:jsonb;serializer:json;not null;default:'[]'"`
 	ProviderID  *string                   `gorm:"column:provider_id;type:uuid"`
 }

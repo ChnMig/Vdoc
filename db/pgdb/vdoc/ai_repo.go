@@ -305,11 +305,11 @@ func aiChatSessionModelFromDomain(session *domainvdoc.AIChatSession) *AIChatSess
 	if session == nil {
 		return nil
 	}
-	return &AIChatSession{Base: pgdb.Base{ID: session.ID, CreatedAt: nonZeroTime(session.CreatedAt), UpdatedAt: nonZeroTime(session.UpdatedAt)}, ProjectID: session.ProjectID, DocumentID: stringPtr(session.DocumentID), ContextType: session.ContextType, ContextID: session.ContextID, Title: session.Title, TitleGenerated: session.TitleGenerated, ReasoningEffort: session.ReasoningEffort, CreatedBy: session.CreatedBy, GenerationToken: session.GenerationToken, GenerationStartedAt: nullableTime(session.GenerationStartedAt)}
+	return &AIChatSession{Base: pgdb.Base{ID: session.ID, CreatedAt: nonZeroTime(session.CreatedAt), UpdatedAt: nonZeroTime(session.UpdatedAt)}, ProjectID: session.ProjectID, DocumentID: stringPtr(session.DocumentID), ContextType: session.ContextType, ContextID: session.ContextID, Title: session.Title, TitleGenerated: session.TitleGenerated, ReasoningEffort: session.ReasoningEffort, ContextSummary: session.ContextSummary, ContextSummaryThrough: session.ContextSummaryThrough, ContextSummaryCount: session.ContextSummaryCount, ContextCompactedAt: nullableTime(session.ContextCompactedAt), CreatedBy: session.CreatedBy, GenerationToken: session.GenerationToken, GenerationStartedAt: nullableTime(session.GenerationStartedAt)}
 }
 
 func domainAIChatSessionFromModel(model AIChatSession) *domainvdoc.AIChatSession {
-	return &domainvdoc.AIChatSession{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: stringValueID(model.DocumentID), ContextType: model.ContextType, ContextID: domainID(model.ContextID), Title: model.Title, TitleGenerated: model.TitleGenerated, ReasoningEffort: model.ReasoningEffort, CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt, GenerationToken: model.GenerationToken, GenerationStartedAt: timeFromPtr(model.GenerationStartedAt, time.Time{})}
+	return &domainvdoc.AIChatSession{ID: domainID(model.ID), ProjectID: domainID(model.ProjectID), DocumentID: stringValueID(model.DocumentID), ContextType: model.ContextType, ContextID: domainID(model.ContextID), Title: model.Title, TitleGenerated: model.TitleGenerated, ReasoningEffort: model.ReasoningEffort, ContextSummary: model.ContextSummary, ContextSummaryThrough: model.ContextSummaryThrough, ContextSummaryCount: model.ContextSummaryCount, ContextCompactedAt: timeFromPtr(model.ContextCompactedAt, time.Time{}), CreatedBy: domainID(model.CreatedBy), CreatedAt: model.CreatedAt, UpdatedAt: model.UpdatedAt, GenerationToken: model.GenerationToken, GenerationStartedAt: timeFromPtr(model.GenerationStartedAt, time.Time{})}
 }
 
 func aiChatMessageModelFromDomain(message *domainvdoc.AIChatMessage) *AIChatMessage {
@@ -317,11 +317,11 @@ func aiChatMessageModelFromDomain(message *domainvdoc.AIChatMessage) *AIChatMess
 		return nil
 	}
 	createdAt := nonZeroTime(message.CreatedAt)
-	return &AIChatMessage{Base: pgdb.Base{ID: message.ID, CreatedAt: createdAt, UpdatedAt: createdAt}, SessionID: message.SessionID, Role: message.Role, Content: message.Content, Attachments: append([]domainai.ChatAttachment{}, message.Attachments...), ProviderID: stringPtr(message.ProviderID)}
+	return &AIChatMessage{Base: pgdb.Base{ID: message.ID, CreatedAt: createdAt, UpdatedAt: createdAt}, SessionID: message.SessionID, Role: message.Role, Content: message.Content, Reasoning: message.Reasoning, RetryOf: message.RetryOf, Attachments: append([]domainai.ChatAttachment{}, message.Attachments...), ProviderID: stringPtr(message.ProviderID)}
 }
 
 func domainAIChatMessageFromModel(model AIChatMessage) *domainvdoc.AIChatMessage {
-	return &domainvdoc.AIChatMessage{ID: domainID(model.ID), SessionID: domainID(model.SessionID), Role: model.Role, Content: model.Content, Attachments: append([]domainai.ChatAttachment(nil), model.Attachments...), ProviderID: stringValueID(model.ProviderID), CreatedAt: model.CreatedAt}
+	return &domainvdoc.AIChatMessage{ID: domainID(model.ID), SessionID: domainID(model.SessionID), Role: model.Role, Content: model.Content, Reasoning: model.Reasoning, RetryOf: model.RetryOf, Attachments: append([]domainai.ChatAttachment(nil), model.Attachments...), ProviderID: stringValueID(model.ProviderID), CreatedAt: model.CreatedAt}
 }
 
 func aiProviderStateKey(provider *domainvdoc.AIProviderConfig) string {

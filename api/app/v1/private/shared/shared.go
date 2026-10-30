@@ -8,6 +8,7 @@ import (
 
 	"vdoc/api/response"
 	app "vdoc/appstore"
+	domainai "vdoc/domain/ai"
 	"vdoc/utils/contextkey"
 
 	"github.com/gin-gonic/gin"
@@ -60,6 +61,14 @@ func ReturnBindError(c *gin.Context, err error) {
 }
 
 func ReturnAppError(c *gin.Context, err error) {
+	var aiError *domainai.RequestError
+	if errors.As(err, &aiError) {
+		data := response.FAILED_PRECONDITION
+		data.Message = aiError.Message
+		response.ReturnErrorWithData(c, data, gin.H{"ai_error": gin.H{"code": aiError.Code, "message": aiError.Message, "provider_message": aiError.ProviderMessage, "retryable": aiError.Retryable, "upstream_status": aiError.UpstreamStatus, "retry_after_seconds": aiError.RetryAfterSeconds, "provider_request_id": aiError.ProviderRequestID}})
+		return
+	}
+
 	switch {
 	case errors.Is(err, context.Canceled):
 		response.ReturnError(c, response.CANCELLED, "请求已取消")

@@ -143,6 +143,10 @@ func TestPostgresAIRequestGenerationRejectsSupersededCompletions(t *testing.T) {
 	preferences := *storedSession
 	preferences.ReasoningEffort = "high"
 	preferences.Title, preferences.TitleGenerated = "Generated title", true
+	preferences.ContextSummary = "Important deadline: 2031-09-19"
+	preferences.ContextSummaryThrough = "88888888888888888888888888888888"
+	preferences.ContextSummaryCount = 6
+	preferences.ContextCompactedAt = now
 	if err := repository.UpsertAIChatSessionIfUnchanged(context.Background(), &preferences, storedSession); err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +157,24 @@ func TestPostgresAIRequestGenerationRejectsSupersededCompletions(t *testing.T) {
 	saved := reloaded.AIChats[storedSession.ID]
 	if saved.ReasoningEffort != "high" || !saved.TitleGenerated || saved.Title != "Generated title" {
 		t.Fatal("preferences did not survive reload")
+	}
+	if saved.ContextSummary != preferences.ContextSummary || saved.ContextSummaryThrough != preferences.ContextSummaryThrough || saved.ContextSummaryCount != 6 || !saved.ContextCompactedAt.Equal(now) {
+		t.Fatal("conversation memory did not survive reload")
+	}
+	message := &domainvdoc.AIChatMessage{ID: "99999999999999999999999999999999", SessionID: saved.ID, Role: domainai.ChatRoleAssistant, Content: "Regenerated answer", Reasoning: "Provider-visible reasoning summary", RetryOf: "88888888888888888888888888888888", CreatedAt: now}
+	if err := repository.InsertAIChatMessageIfAbsent(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err = repository.LoadState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedMessage := reloaded.AIMessages[message.ID]
+	if storedMessage == nil || storedMessage.Reasoning != message.Reasoning || storedMessage.RetryOf != message.RetryOf {
+		t.Fatal("reasoning/retry identity lost on reload")
+	}
+	if err := databasepkg.RunMigrations(context.Background(), database); err != nil {
+		t.Fatal("migration rerun", err)
 	}
 }
 
