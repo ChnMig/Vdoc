@@ -93,6 +93,7 @@ type storeState struct {
 	persistence         *postgresPersistence
 	persisted           *domainvdoc.State
 	objects             ObjectStorage
+	repoMemory          *repositoryMemory
 	cipherKeyring       encryption.Keyring
 }
 
@@ -130,7 +131,11 @@ func (s *Store) requestContext() context.Context {
 	return context.Background()
 }
 
-func ResetDefaultStoreForTest() { defaultStore.StopSummaryWorker(); defaultStore = NewStore() }
+func ResetDefaultStoreForTest() {
+	defaultStore.StopRepositoryAutomation()
+	defaultStore.StopSummaryWorker()
+	defaultStore = NewStore()
+}
 
 func (s *Store) refreshLocked() error {
 	if err := s.requestContext().Err(); err != nil {
@@ -553,6 +558,13 @@ var mcpUsageMetadataKeys = []string{
 	"from_version_id",
 	"to_version_id",
 	"diff_id",
+	"commit_id",
+	"from_commit_id",
+	"to_commit_id",
+	"expected_head_commit_id",
+	"release_id",
+	"merge_request_id",
+	"analysis_id",
 }
 
 func sanitizedMCPUsageAudit(audit *AuditLog) *AuditLog {
@@ -4008,6 +4020,16 @@ func (s *Store) ensureActiveBranchLocked(branchID, serviceID string) error {
 }
 
 func (s *Store) ensureActiveDraftContextLocked(projectID, serviceID, branchID string) error {
+	if s.mutationGuard != nil {
+		s.mutationGuard.LegacyContentWrite = true
+	}
+	if storage := s.repositoryStorageLocked(); storage != nil {
+		if _, err := storage.RepositoryRecord(s.requestContext(), projectID, "metadata", "converted"); err == nil {
+			return fmt.Errorf("%w: repository converted; use commit_changes instead of legacy drafts", ErrFailedPrecondition)
+		} else if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
 	if err := s.ensureActiveDocumentContextLocked(projectID, serviceID); err != nil {
 		return err
 	}

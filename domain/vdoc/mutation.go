@@ -22,9 +22,11 @@ type MutationGuard struct {
 	Permission                int
 	ProjectWrite              bool
 	AllowArchived             bool
+	LegacyContentWrite        bool
 	ExpectedPasswordHash      string
 	TokenID                   string
 	TokenScope                int
+	TokenScopes               []int
 	RevealTokenID             string
 	RevealShareID             string
 	DraftID                   string
@@ -117,6 +119,11 @@ func ValidateMutationContext(guard MutationGuard, state *State, now time.Time) e
 		}
 		if guard.TokenScope == 0 || !slices.Contains(value.Scopes, guard.TokenScope) {
 			return ErrPermissionDenied
+		}
+		for _, scope := range guard.TokenScopes {
+			if !slices.Contains(value.Scopes, scope) {
+				return ErrPermissionDenied
+			}
 		}
 	}
 	if guard.RevealTokenID != "" {

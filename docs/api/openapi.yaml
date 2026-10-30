@@ -41,6 +41,10 @@ tags:
     description: User MCP token lifecycle.
   - name: AI
     description: Built-in Admin AI provider, prompt, summary, and page chat APIs. AI can summarize and explain only; it cannot approve, request changes, reject, publish, or modify drafts or versions. Draft submit and version publish attempt summaries after the state change is saved. Skipped or failed summaries are stored without blocking submit or publish. AI audit metadata may include prompt_tokens, completion_tokens, and total_tokens, but never raw API keys, JWTs, MCP tokens, or Authorization headers.
+  - name: Repository Automation
+    description: Immutable commit AI analysis and reliable event subscriptions.
+  - name: Repository
+    description: Project branches, immutable commits, pinned human reviews and server-generated releases.
 paths:
   /api/v1/open/health:
     get:
@@ -1397,6 +1401,854 @@ paths:
       security: [{ JWTAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/projects/{project_id}/repository/ai/analyses:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository Automation
+      summary: List immutable commit analysis history.
+      description: Requires current project read access. Results retain exact input
+        commit IDs when branch HEAD changes.
+      operationId: listRepositoryAnalyses
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryAnalysesEnvelope"
+      parameters:
+      - name: after
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Exclusive record sequence cursor. Use the last returned sequence;
+          pages contain at most 100 records.
+    post:
+      tags:
+      - Repository Automation
+      summary: Analyze an exact commit or comparison.
+      description: Synchronous explicit AI request, independent of content saves and
+        publication. Omitted from_commit_id selects the first parent, or the root snapshot
+        for a parentless commit. Evidence is bounded to 128 KiB and 32 changed files;
+        evidence_truncated discloses omissions. The server generates the analysis ID
+        and persists succeeded or failed results. User, token, provider and prompt configuration
+        are rechecked transactionally before success. Interrupted running requests expire
+        after ten minutes. Retry creates a new analysis against the same immutable commit
+        IDs. A message asks a question about these sources; the service does not generate
+        or apply patches.
+      operationId: createRepositoryAnalysis
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryAnalysisEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryAnalysisRequest"
+  /api/v1/private/projects/{project_id}/repository/ai/analyses/{analysis_id}:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: analysis_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Repository Automation
+      summary: Get one saved commit analysis.
+      description: Requires current project read access. Input IDs, source hashes and
+        input_fingerprint identify fixed sources.
+      operationId: getRepositoryAnalysis
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryAnalysisEnvelope"
+  /api/v1/private/projects/{project_id}/repository/subscriptions:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository Automation
+      summary: List project event subscriptions.
+      description: Project administrators only. At most 100 subscriptions per project.
+        Signing secret plaintext and ciphertext are never returned by this endpoint.
+      operationId: listRepositorySubscriptions
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositorySubscriptionsEnvelope"
+    post:
+      tags:
+      - Repository Automation
+      summary: Create a durable event subscription.
+      description: Project administrators only. Starts after the current event sequence.
+        Empty event_types defaults to release.published; * matches all events. Optional
+        branch_id and document_id narrow delivery. in_app stores an administrative notification
+        ledger entry. webhook requires a public HTTPS URL; its server-generated signing
+        secret is returned only once. Private, loopback and metadata destinations are
+        blocked at configuration and connection time. Redirects are never followed.
+        At-least-once delivery uses X-Vdoc-Event-ID for deduplication. X-Vdoc-Signature
+        is sha256=hex(HMAC-SHA256(secret, X-Vdoc-Timestamp + "." + raw request body)).
+        External delivery never blocks or rolls back content commits.
+      operationId: createRepositorySubscription
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCreatedSubscriptionEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositorySubscriptionRequest"
+  /api/v1/private/projects/{project_id}/repository/subscriptions/{subscription_id}/pause:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: subscription_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository Automation
+      summary: Pause an event subscription.
+      description: Project administrators only. Pausing retains the cursor; resuming
+        catches up retained events. Losing creator administration access pauses the
+        subscription and marks its due delivery failed.
+      operationId: pauseRepositorySubscription
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositorySubscriptionEnvelope"
+  /api/v1/private/projects/{project_id}/repository/subscriptions/{subscription_id}/resume:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: subscription_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository Automation
+      summary: Resume an event subscription.
+      description: Project administrators only. Pausing retains the cursor; resuming
+        catches up retained events. Losing creator administration access pauses the
+        subscription and marks its due delivery failed.
+      operationId: resumeRepositorySubscription
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositorySubscriptionEnvelope"
+  /api/v1/private/projects/{project_id}/repository/event-deliveries:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository Automation
+      summary: List the durable event delivery ledger.
+      description: Project administrators only. event_sequence identifies the source
+        event; sequence is the delivery cursor. A worker runs every three seconds. Transport
+        failures, HTTP 408, 429 and 5xx retry up to eight attempts with exponential
+        backoff. Other failures, including redirects, do not retry automatically. A
+        two-minute processing lease permits interruption recovery.
+      operationId: listRepositoryEventDeliveries
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryDeliveriesEnvelope"
+      parameters:
+      - name: after
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Exclusive record sequence cursor. Use the last returned sequence;
+          pages contain at most 100 records.
+  /api/v1/private/projects/{project_id}/repository/event-deliveries/{delivery_id}/retry:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: delivery_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository Automation
+      summary: Retry a failed delivery with its original event ID.
+      description: Project administrators only. Resets a failed delivery to pending
+        and attempt count to zero. Event identity and payload remain fixed. A paused
+        subscription stays paused.
+      operationId: retryRepositoryEventDelivery
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryDeliveryEnvelope"
+  /api/v1/private/projects/{project_id}/repository/branches:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository
+      summary: List project branches and legacy import state.
+      operationId: listRepositoryBranches
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryBranchListEnvelope"
+      description: Lazily creates only the protected empty main/genesis for a new repository.
+        import_required=true means legacy drafts or versions exist and an administrator
+        must explicitly bootstrap before repository content writes. Metadata-only old
+        documents do not require import.
+    post:
+      tags:
+      - Repository
+      summary: Create a branch from a fixed commit.
+      operationId: createRepositoryBranch
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryBranchEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryBranchInput"
+      description: Writers may create working branches. Creating a protected branch
+        requires project administration. No client commit or version identifier is accepted.
+  /api/v1/private/projects/{project_id}/repository/bootstrap:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    post:
+      tags:
+      - Repository
+      summary: Import every provable legacy snapshot without rewriting old data.
+      operationId: bootstrapRepository
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryBranchListEnvelope"
+      description: Administrator only, explicit one-time operation. Every available
+        old published version and current unpublished draft receives a protected legacy
+        reference. The initial main tree is explicitly marked synthetic; historical
+        atomic project trees or overwritten draft saves are not invented. Legacy published
+        paths are preserved when recorded. Old tables and public links remain readable.
+        New legacy content writes are refused once conversion commits.
+  /api/v1/private/projects/{project_id}/repository/commits:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository
+      summary: Read bounded first-parent branch or document history.
+      operationId: listRepositoryCommits
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryHistoryEnvelope"
+          headers:
+            X-Next-Cursor:
+              schema:
+                type: string
+              description: Next scan node when more history remains.
+      description: Use page=true for {commits,next_cursor}; an empty filtered page may
+        still have next_cursor. At most 50 results or 2000 scanned nodes per page. Feed
+        back the exact server cursor until empty. The default array format remains for
+        compatibility and also exposes X-Next-Cursor. Full file metadata is included;
+        raw bodies use the content endpoint.
+      parameters:
+      - name: branch_id
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+      - name: document_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+  /api/v1/private/projects/{project_id}/repository/branches/{branch_id}/commits:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: branch_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Atomically commit changed files with server-generated identity.
+      operationId: saveRepositoryCommit
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositorySaveInput"
+      description: All changes form one immutable complete tree. The server generates
+        the SHA-256 commit ID and new document IDs (omit document_id for a new upsert).
+        Original UTF-8 bytes, including CRLF, are retained. Expected HEAD+generation
+        prevent lost updates; stale writes return FAILED_PRECONDITION with REF_CONFLICT.
+        The same idempotency key and identical request return the original commit, including
+        after later saves; changing the request under that key is INVALID_ARGUMENT.
+        Protected branches require a reviewed merge request. LEGACY_IMPORT_REQUIRED
+        prevents bypassing legacy import. No version_name input exists.
+  /api/v1/private/projects/{project_id}/repository/commits/{commit_id}:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: commit_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Repository
+      summary: Read an immutable complete commit snapshot.
+      operationId: getRepositoryCommit
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+  /api/v1/private/projects/{project_id}/repository/commits/{commit_id}/documents/{document_id}/content:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: commit_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Repository
+      summary: Read exact stored content from a fixed commit.
+      operationId: getRepositoryCommitContent
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryContentEnvelope"
+  /api/v1/private/projects/{project_id}/repository/comparisons:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    post:
+      tags:
+      - Repository
+      summary: Compare raw content and OpenAPI semantics between fixed commits.
+      operationId: compareRepositoryCommits
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryComparisonEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryCompareInput"
+      description: At most 100 changed files and 8 MiB cumulative old/new source bytes.
+        Larger comparisons return FAILED_PRECONDITION with COMPARISON_LIMIT; select
+        document_id to narrow the comparison. Invalid OpenAPI remains committed and
+        source-comparable with semantic_status=invalid; it cannot be approved/published.
+        Comparison source bytes are not silently truncated.
+  /api/v1/private/projects/{project_id}/repository/merge-requests:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository
+      summary: List pinned merge review rounds.
+      operationId: listRepositoryMergeRequests
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestListEnvelope"
+    post:
+      tags:
+      - Repository
+      summary: Create a three-way merge review of fixed branch heads.
+      operationId: createRepositoryMergeRequest
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryMergeInput"
+      description: Records source/target IDs, generations, a proven lowest common ancestor
+        and the exact result_files candidate. Supports disjoint line edits within one
+        file and independent metadata changes. Conflicts contain document IDs, plus
+        path-conflict for colliding result paths. Criss-cross histories with multiple
+        lowest common ancestors fail explicitly rather than inventing a base.
+  /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/documents/{document_id}/content:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: request_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Repository
+      summary: Read the exact pinned result candidate before review.
+      operationId: getRepositoryMergeCandidateContent
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeContentEnvelope"
+      description: Returns content from result_files, which can differ from both input
+        commits after automatic three-way merging. Content never comes from an arbitrary
+        client object key. A stale review round stays readable, but approval and merge
+        fail REVIEW_STALE until a new round is created.
+  /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/resolve:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: request_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Save a complete conflict resolution as a new commit and review round.
+      operationId: resolveRepositoryMergeRequest
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryResolveInput"
+      description: 'Writer only; source branch must be unprotected. All expected review/head/generation
+        values are required. files is the COMPLETE desired tree: every item is an upsert
+        with a document_id; omit a document to delete it, and send [] to remove all
+        files. Produces a two-parent immutable resolution commit on the source branch,
+        marks the old review superseded and returns a NEW review ID. Human administration
+        approval of the new round is still required. Idempotent retries return the same
+        new review.'
+  /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/approve:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: request_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Approve exactly the pinned current result candidate.
+      operationId: approveRepositoryMergeRequest
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestEnvelope"
+      description: Project administrator review. Conflicts, invalid OpenAPI, closed
+        rounds or moved source/target HEAD/generation are refused. An empty JSON body
+        is accepted. Approval does not publish a release.
+  /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/merge:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: request_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Merge the currently approved pinned review.
+      operationId: mergeRepositoryMergeRequest
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+      description: Project administrator only. Rechecks both HEADs and generations,
+        refusing stale approvals with REVIEW_STALE. Fast-forwards where the target is
+        the base; otherwise creates a server-generated commit with target+source parents.
+        Original snapshots remain immutable.
+  /api/v1/private/projects/{project_id}/repository/branches/{branch_id}/reverts:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: branch_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Revert a commit through a new inverse-change commit.
+      operationId: revertRepositoryCommit
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryRevertInput"
+      description: Writer only on unprotected working branches. Parent index selects
+        the mainline parent for a merge commit. Preserves unrelated later edits, refuses
+        overlapping inverse changes with REVERT_CONFLICT and supports idempotent retries.
+        History is never reset or deleted.
+  /api/v1/private/projects/{project_id}/repository/releases:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository
+      summary: List immutable publication references.
+      operationId: listRepositoryReleases
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryReleaseListEnvelope"
+    post:
+      tags:
+      - Repository
+      summary: Publish a fixed commit with a server-generated version name.
+      operationId: publishRepositoryRelease
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryReleaseEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryPublishInput"
+      description: Human project administrator only; MCP cannot publish. commit_id must
+        still equal the supplied branch HEAD and expected_generation must match. The
+        server creates release ID and version_name; client version_name is rejected.
+        Validates all OpenAPI files. Release content remains fixed after the branch
+        moves.
+  /api/v1/private/projects/{project_id}/repository/events:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags:
+      - Repository
+      summary: Read the append-only project event ledger.
+      operationId: listRepositoryEvents
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryEventListEnvelope"
+      description: Use exclusive after_sequence and the last returned sequence to continue
+        (at most 100 events per request). Identity is generated by the server. Events
+        include commit.created, branch.created/updated, merge_request.created/approved/resolved/merged
+        and release.published.
+      parameters:
+      - name: after_sequence
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+  /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: release_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Repository
+      summary: List capabilities bound to a fixed release document.
+      operationId: listRepositoryReleaseShares
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryShareListEnvelope"
+      description: Human project administrators only. Responses never contain capability
+        secrets.
+    post:
+      tags:
+      - Repository
+      summary: Create a fixed-release public document capability.
+      operationId: createRepositoryReleaseShare
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryShareSecretEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryShareInput"
+      description: Human project administrators only. Password length is 12–72 UTF-8
+        bytes when present. Returns a secret only in create/reveal responses. The public
+        document-shares route accepts this new release capability and exposes its fixed
+        release ID as version_id; it never follows branch HEAD.
+  /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares/{share_id}/reveal:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: release_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: share_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Reveal an active fixed-release capability secret.
+      operationId: revealRepositoryReleaseShare
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryShareSecretEnvelope"
+      description: Human project administrators only; secrets stay out of list responses
+        and audit metadata.
+  /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares/{share_id}/revoke:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    - name: release_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: share_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Repository
+      summary: Revoke a fixed-release capability.
+      operationId: revokeRepositoryReleaseShare
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryShareEnvelope"
+      description: Human project administrators only. Existing public capability/proofs
+        stop working; the release remains immutable.
 components:
   securitySchemes:
     JWTAuth:
@@ -2273,3 +3125,1112 @@ components:
         - update_doc_draft
         - submit_doc_draft
         - get_doc_draft
+    RepositoryAnalysisRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - to_commit_id
+      properties:
+        from_commit_id:
+          type: string
+        to_commit_id:
+          type: string
+          description: Full immutable commit ID generated by the server.
+        document_id:
+          type: string
+        message:
+          type: string
+          maxLength: 8000
+        language:
+          type: string
+          maxLength: 32
+    RepositoryAnalysis:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - sequence
+      - project_id
+      - to_commit_id
+      - input_fingerprint
+      - status
+      - content
+      - evidence_truncated
+      - created_by
+      - created_at
+      properties:
+        id:
+          type: string
+        sequence:
+          type: integer
+        project_id:
+          type: string
+        from_commit_id:
+          type: string
+        to_commit_id:
+          type: string
+        document_id:
+          type: string
+        message:
+          type: string
+        language:
+          type: string
+        input_fingerprint:
+          type: string
+        provider_id:
+          type: string
+        model:
+          type: string
+        status:
+          type: string
+          enum:
+          - running
+          - succeeded
+          - failed
+        content:
+          type: string
+        error_message:
+          type: string
+        evidence_truncated:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    RepositorySubscriptionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - kind
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kind:
+          type: string
+          enum:
+          - in_app
+          - webhook
+        event_types:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          default:
+          - release.published
+        branch_id:
+          type: string
+        document_id:
+          type: string
+        url:
+          type: string
+          description: Public HTTPS destination; required only for webhook.
+    RepositorySubscription:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - project_id
+      - name
+      - kind
+      - event_types
+      - paused
+      - last_sequence
+      - generation
+      - created_by
+      - created_at
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kind:
+          type: string
+          enum:
+          - in_app
+          - webhook
+        event_types:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          default:
+          - release.published
+        branch_id:
+          type: string
+        document_id:
+          type: string
+        url:
+          type: string
+          description: Public HTTPS destination; required only for webhook.
+        id:
+          type: string
+        project_id:
+          type: string
+        paused:
+          type: boolean
+        last_sequence:
+          type: integer
+        generation:
+          type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    RepositoryCreatedSubscription:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - project_id
+      - name
+      - kind
+      - event_types
+      - paused
+      - last_sequence
+      - generation
+      - created_by
+      - created_at
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kind:
+          type: string
+          enum:
+          - in_app
+          - webhook
+        event_types:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          default:
+          - release.published
+        branch_id:
+          type: string
+        document_id:
+          type: string
+        url:
+          type: string
+          description: Public HTTPS destination; required only for webhook.
+        id:
+          type: string
+        project_id:
+          type: string
+        paused:
+          type: boolean
+        last_sequence:
+          type: integer
+        generation:
+          type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        secret:
+          type: string
+          description: 64 hexadecimal characters returned only once on webhook creation.
+            Store securely.
+    RepositoryDelivery:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - sequence
+      - subscription_id
+      - event_id
+      - event_sequence
+      - event_type
+      - status
+      - attempt_count
+      - created_at
+      properties:
+        id:
+          type: string
+        sequence:
+          type: integer
+        subscription_id:
+          type: string
+        event_id:
+          type: string
+        event_sequence:
+          type: integer
+        event_type:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - processing
+          - succeeded
+          - failed
+        attempt_count:
+          type: integer
+        last_error:
+          type: string
+        http_status:
+          type: integer
+        next_attempt_at:
+          type: string
+          format: date-time
+        attempted_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    RepositoryAnalysisEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryAnalysis"
+    RepositoryAnalysesEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryAnalysis"
+    RepositorySubscriptionEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositorySubscription"
+    RepositorySubscriptionsEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositorySubscription"
+    RepositoryCreatedSubscriptionEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryCreatedSubscription"
+    RepositoryDeliveryEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryDelivery"
+    RepositoryDeliveriesEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryDelivery"
+    RepositoryFile:
+      type: object
+      properties:
+        document_id:
+          type: string
+        relative_path:
+          type: string
+        name:
+          type: string
+        document_type:
+          type: integer
+          enum:
+          - 1
+          - 2
+          - 3
+        description:
+          type: string
+        content_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+      required:
+      - document_id
+      - relative_path
+      - name
+      - document_type
+      - content_hash
+    RepositoryCommit:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        project_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        parent_ids:
+          type: array
+          items:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+        tree_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        message:
+          type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RepositoryFile"
+          maxItems: 5000
+        provenance:
+          type: string
+      required:
+      - id
+      - project_id
+      - parent_ids
+      - tree_hash
+      - message
+      - created_by
+      - created_at
+      - files
+    RepositoryBranch:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        project_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        name:
+          type: string
+        head_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+        is_protected:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        import_required:
+          type: boolean
+      required:
+      - id
+      - name
+      - head_commit_id
+      - generation
+      - is_protected
+      - import_required
+    RepositoryBranchInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        from_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        is_protected:
+          type: boolean
+      required:
+      - name
+      additionalProperties: false
+    RepositoryUpsert:
+      type: object
+      properties:
+        operation:
+          const: upsert
+        document_id:
+          type: string
+          maxLength: 256
+        relative_path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        document_type:
+          type: integer
+          enum:
+          - 1
+          - 2
+          - 3
+        description:
+          type: string
+          maxLength: 4000
+        content:
+          type: string
+      required:
+      - operation
+      - relative_path
+      - name
+      - document_type
+      - content
+      additionalProperties: false
+    RepositoryDelete:
+      type: object
+      properties:
+        operation:
+          const: delete
+        document_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+      - operation
+      - document_id
+      additionalProperties: false
+    RepositoryChange:
+      oneOf:
+      - "$ref": "#/components/schemas/RepositoryUpsert"
+      - "$ref": "#/components/schemas/RepositoryDelete"
+    RepositorySaveInput:
+      type: object
+      properties:
+        expected_head_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 200
+        message:
+          type: string
+          maxLength: 4000
+        changes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RepositoryChange"
+          minItems: 1
+          maxItems: 1000
+      required:
+      - expected_head_commit_id
+      - expected_generation
+      - idempotency_key
+      - changes
+      additionalProperties: false
+    RepositoryHistoryPage:
+      type: object
+      properties:
+        commits:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RepositoryCommit"
+          maxItems: 50
+        next_cursor:
+          type: string
+      required:
+      - commits
+      - next_cursor
+    RepositoryContent:
+      type: object
+      properties:
+        commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        content:
+          type: string
+        document:
+          "$ref": "#/components/schemas/RepositoryFile"
+      required:
+      - commit_id
+      - content
+      - document
+    RepositoryCompareInput:
+      type: object
+      properties:
+        from_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        to_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        document_id:
+          type: string
+      required:
+      - from_commit_id
+      - to_commit_id
+      additionalProperties: false
+    RepositoryFileChange:
+      type: object
+      properties:
+        document_id:
+          type: string
+        relative_path:
+          type: string
+        old_relative_path:
+          type: string
+        change_type:
+          type: string
+          enum:
+          - added
+          - deleted
+          - modified
+          - renamed
+        old_content:
+          type: string
+        new_content:
+          type: string
+        document_type:
+          type: integer
+        semantic_status:
+          type: string
+          enum:
+          - ready
+          - invalid
+          - not_applicable
+        semantic_diff:
+          type: object
+      required:
+      - document_id
+      - relative_path
+      - change_type
+      - old_content
+      - new_content
+      - document_type
+      - semantic_status
+    RepositoryComparison:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        from_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        to_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RepositoryFileChange"
+          maxItems: 100
+      required:
+      - id
+      - from_commit_id
+      - to_commit_id
+      - files
+    RepositoryMergeInput:
+      type: object
+      properties:
+        source_branch_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        target_branch_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        title:
+          type: string
+        expected_source_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_target_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+      required:
+      - source_branch_id
+      - target_branch_id
+      additionalProperties: false
+    RepositoryMergeRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        project_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        title:
+          type: string
+        source_branch_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        target_branch_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        source_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        target_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        source_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        target_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        base_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        result_files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RepositoryFile"
+        conflicts:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+          - open
+          - approved
+          - merged
+          - superseded
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        approved_by:
+          type: string
+        approved_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        merged_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+        resolves_request_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+      required:
+      - id
+      - source_branch_id
+      - target_branch_id
+      - source_commit_id
+      - target_commit_id
+      - source_generation
+      - target_generation
+      - base_commit_id
+      - result_files
+      - conflicts
+      - status
+      - generation
+    RepositoryResolveInput:
+      type: object
+      properties:
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        expected_source_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_target_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_source_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        expected_target_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 200
+        message:
+          type: string
+          maxLength: 4000
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RepositoryUpsert"
+          maxItems: 5000
+      required:
+      - expected_generation
+      - expected_source_commit_id
+      - expected_target_commit_id
+      - expected_source_generation
+      - expected_target_generation
+      - idempotency_key
+      - files
+      additionalProperties: false
+    RepositoryMergeContent:
+      type: object
+      properties:
+        merge_request_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+        content:
+          type: string
+        document:
+          "$ref": "#/components/schemas/RepositoryFile"
+      required:
+      - merge_request_id
+      - generation
+      - content
+      - document
+    RepositoryRevertInput:
+      type: object
+      properties:
+        commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_head_commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 200
+        parent_index:
+          type: integer
+          minimum: 0
+      required:
+      - commit_id
+      - expected_head_commit_id
+      - expected_generation
+      - idempotency_key
+      additionalProperties: false
+    RepositoryPublishInput:
+      type: object
+      properties:
+        branch_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        message:
+          type: string
+      required:
+      - branch_id
+      - commit_id
+      - expected_generation
+      additionalProperties: false
+    RepositoryRelease:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        project_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        branch_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        commit_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        version_name:
+          type: string
+        message:
+          type: string
+        published_by:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - project_id
+      - branch_id
+      - commit_id
+      - version_name
+      - published_by
+      - published_at
+    RepositoryEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        event_type:
+          type: string
+        project_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        branch_id:
+          type: string
+        before_commit_id:
+          type: string
+        after_commit_id:
+          type: string
+        ref_generation:
+          type: integer
+        actor_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        resource_id:
+          type: string
+      required:
+      - id
+      - sequence
+      - event_type
+      - project_id
+      - actor_id
+      - created_at
+    RepositoryShareInput:
+      type: object
+      properties:
+        expiry_preset:
+          type: string
+          enum:
+          - 1_month
+          - 3_months
+          - 6_months
+          - 1_year
+          - permanent
+        password:
+          type: string
+          minLength: 12
+          maxLength: 72
+      required:
+      - expiry_preset
+      additionalProperties: false
+    RepositoryShare:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        project_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        release_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        document_id:
+          type: string
+        status:
+          type: integer
+          enum:
+          - 1
+          - 2
+        password_protected:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        revoked_by:
+          type: string
+        revoked_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - project_id
+      - release_id
+      - document_id
+      - status
+      - password_protected
+      - created_at
+      - updated_at
+    RepositoryShareSecret:
+      type: object
+      properties:
+        share:
+          "$ref": "#/components/schemas/RepositoryShare"
+        secret:
+          type: string
+      required:
+      - share
+      - secret
+    RepositoryCommitEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryCommit"
+    RepositoryBranchEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryBranch"
+    RepositoryContentEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryContent"
+    RepositoryComparisonEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryComparison"
+    RepositoryMergeRequestEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryMergeRequest"
+    RepositoryMergeContentEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryMergeContent"
+    RepositoryReleaseEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryRelease"
+    RepositoryShareEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryShare"
+    RepositoryShareSecretEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            "$ref": "#/components/schemas/RepositoryShareSecret"
+    RepositoryCommitListEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryCommit"
+    RepositoryBranchListEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryBranch"
+    RepositoryMergeRequestListEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryMergeRequest"
+    RepositoryReleaseListEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryRelease"
+    RepositoryEventListEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryEvent"
+    RepositoryShareListEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              "$ref": "#/components/schemas/RepositoryShare"
+    RepositoryHistoryEnvelope:
+      allOf:
+      - "$ref": "#/components/schemas/VdocEnvelope"
+      - type: object
+        properties:
+          detail:
+            oneOf:
+            - "$ref": "#/components/schemas/RepositoryHistoryPage"
+            - type: array
+              items:
+                "$ref": "#/components/schemas/RepositoryCommit"
+              maxItems: 50

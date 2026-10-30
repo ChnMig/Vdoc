@@ -262,6 +262,20 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 		"update_doc_draft":         false,
 		"submit_doc_draft":         false,
 		"get_doc_draft":            false,
+		"resolve_ref":              false,
+		"list_branches":            false,
+		"create_branch":            false,
+		"list_commits":             false,
+		"get_commit":               false,
+		"get_document_at_commit":   false,
+		"commit_changes":           false,
+		"compare_commits":          false,
+		"list_merge_requests":      false,
+		"create_merge_request":     false,
+		"list_releases":            false,
+		"get_release":              false,
+		"analyze_changes":          false,
+		"list_repository_events":   false,
 	}
 	for _, tool := range result.Tools {
 		if tool.Name == "list_"+"services" {

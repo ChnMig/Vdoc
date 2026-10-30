@@ -154,8 +154,8 @@ func Is(err, target error) bool { return app.Is(err, target) }
 
 func DefaultStore() *Store { return app.DefaultStore() }
 
-func WithMCPToken(ctx context.Context, tokenID string) context.Context {
-	return app.WithMCPToken(ctx, tokenID)
+func WithMCPToken(ctx context.Context, tokenID string, scopes ...int) context.Context {
+	return app.WithMCPToken(ctx, tokenID, scopes...)
 }
 
 func ResetDefaultStoreForTest() { app.ResetDefaultStoreForTest() }

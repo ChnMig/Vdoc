@@ -33,6 +33,9 @@ func metadata(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
+	if repositoryShare(c, shareID, secret, "metadata", "") {
+		return
+	}
 	value, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareMetadata(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
@@ -55,6 +58,9 @@ func unlock(c *gin.Context) {
 	}
 	if err := middleware.BindJSONParam(&req, c); err != nil {
 		returnUnavailable(c)
+		return
+	}
+	if repositoryShare(c, shareID, secret, "unlock", req.Password) {
 		return
 	}
 	proof, expiresAt, err := app.DefaultStore().WithContext(c.Request.Context()).UnlockPublicDocumentShare(shareID, secret, req.Password, auditContext(c))
@@ -85,6 +91,9 @@ func versions(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
+	if repositoryShare(c, shareID, secret, "versions", "") {
+		return
+	}
 	values, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareVersions(shareID, secret, c.GetHeader(unlockHeader), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
@@ -99,6 +108,9 @@ func content(c *gin.Context) {
 		returnUnavailable(c)
 		return
 	}
+	if repositoryShare(c, shareID, secret, "content", "") {
+		return
+	}
 	value, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareContent(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))
 	if err != nil {
 		returnPublicShareError(c, err)
@@ -111,6 +123,9 @@ func download(c *gin.Context) {
 	shareID, secret, ok := publicCapability(c)
 	if !ok {
 		returnUnavailable(c)
+		return
+	}
+	if repositoryShare(c, shareID, secret, "download", "") {
 		return
 	}
 	value, err := app.DefaultStore().WithContext(c.Request.Context()).PublicDocumentShareDownload(shareID, secret, c.GetHeader(unlockHeader), c.Param("version_id"), auditContext(c))

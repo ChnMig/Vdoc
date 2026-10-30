@@ -14,6 +14,8 @@ import (
 	"vdoc/api/app/v1/private/mcptoken"
 	"vdoc/api/app/v1/private/member"
 	"vdoc/api/app/v1/private/project"
+	"vdoc/api/app/v1/private/repository"
+	"vdoc/api/app/v1/private/repositoryshare"
 	"vdoc/api/app/v1/private/system"
 	"vdoc/api/app/v1/private/systemuser"
 	"vdoc/api/app/v1/private/team"
@@ -36,6 +38,8 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	systemuser.RegisterRoutes(private)
 	team.RegisterRoutes(private)
 	project.RegisterRoutes(private)
+	repository.RegisterRoutes(private)
+	repositoryshare.RegisterRoutes(private)
 	member.RegisterRoutes(private)
 	document.RegisterRoutes(private)
 	documentfolder.RegisterRoutes(private)

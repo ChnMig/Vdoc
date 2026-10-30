@@ -2,8 +2,12 @@ package vdoc
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"time"
+
+	documentrepo "vdoc/domain/documentrepo"
 
 	domain "vdoc/domain/vdoc"
 )
@@ -39,6 +43,7 @@ func (s *Store) validateMutationGuardLocked() error {
 	}
 	if tokenID := mcpMutationTokenID(s.requestContext()); tokenID != "" {
 		s.mutationGuard.TokenID = tokenID
+		s.mutationGuard.TokenScopes = mcpAuthenticatedScopes(s.requestContext())
 		scope := ScopeAPIDraft
 		if document := s.apiServices[s.mutationGuard.DocumentID]; document != nil && isTextDocumentType(document.DocumentType) {
 			scope = ScopeDocDraft
@@ -64,7 +69,22 @@ func validateRepositoryMutation(ctx context.Context, repository domain.Repositor
 		if err != nil {
 			return err
 		}
-		return domain.ValidateMutationContext(*guard, state, time.Now())
+		if err = domain.ValidateMutationContext(*guard, state, time.Now()); err != nil {
+			return err
+		}
+	}
+	// 与新提交保持用户/项目/令牌 → 文档仓库的锁顺序，防止旧写入与转换同时发生时互相等待。
+	if guard.LegacyContentWrite {
+		if storage, ok := repository.(documentrepo.Storage); ok {
+			if err := storage.LockRepository(ctx, guard.ProjectID); err != nil {
+				return err
+			}
+			if _, err := storage.RepositoryRecord(ctx, guard.ProjectID, "metadata", "converted"); err == nil {
+				return fmt.Errorf("%w: repository converted; use commit_changes instead of legacy drafts", domain.ErrFailedPrecondition)
+			} else if !errors.Is(err, domain.ErrNotFound) {
+				return err
+			}
+		}
 	}
 	return nil
 }

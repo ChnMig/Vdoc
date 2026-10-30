@@ -23,10 +23,11 @@ func TestMCPToolArgumentManifest(t *testing.T) {
 	}
 	var manifest struct {
 		Tools []struct {
-			Name          string     `json:"name"`
-			Required      []string   `json:"required"`
-			Optional      []string   `json:"optional"`
-			RequiredAnyOf [][]string `json:"required_any_of"`
+			Name            string                    `json:"name"`
+			Required        []string                  `json:"required"`
+			Optional        []string                  `json:"optional"`
+			RequiredAnyOf   [][]string                `json:"required_any_of"`
+			ArgumentSchemas map[string]map[string]any `json:"argument_schemas"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(body, &manifest); err != nil {
@@ -50,6 +51,18 @@ func TestMCPToolArgumentManifest(t *testing.T) {
 			required := slices.Clone(tool.InputSchema["required"].([]string))
 			optional := []string{}
 			for key := range tool.InputSchema["properties"].(gin.H) {
+				property := tool.InputSchema["properties"].(gin.H)[key].(gin.H)
+				declaredSchema, typed := declared.ArgumentSchemas[key]
+				if property["type"] != "string" && (!typed || declaredSchema["type"] != property["type"]) {
+					t.Errorf("%s %s runtime type=%v; manifest schema=%v", tool.Name, key, property["type"], declaredSchema)
+				}
+				if typed {
+					actual, _ := json.Marshal(withoutSchemaDescriptions(property))
+					want, _ := json.Marshal(declaredSchema)
+					if string(actual) != string(want) {
+						t.Errorf("%s %s runtime schema=%s; manifest schema=%s", tool.Name, key, actual, want)
+					}
+				}
 				if !slices.Contains(required, key) {
 					optional = append(optional, key)
 				}
@@ -74,6 +87,27 @@ func TestMCPToolArgumentManifest(t *testing.T) {
 		if !found {
 			t.Errorf("unknown manifest tool %s", declared.Name)
 		}
+	}
+}
+
+func withoutSchemaDescriptions(value any) any {
+	switch current := value.(type) {
+	case gin.H:
+		out := map[string]any{}
+		for key, item := range current {
+			if _, isText := item.(string); key != "description" || !isText {
+				out[key] = withoutSchemaDescriptions(item)
+			}
+		}
+		return out
+	case []gin.H:
+		out := make([]any, 0, len(current))
+		for _, item := range current {
+			out = append(out, withoutSchemaDescriptions(item))
+		}
+		return out
+	default:
+		return value
 	}
 }
 

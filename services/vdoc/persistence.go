@@ -147,6 +147,12 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 			}
 		}
 	}
+	if err := store.InitRepositoryShares(); err != nil {
+		if cfg.DatabaseClose != nil {
+			_ = cfg.DatabaseClose()
+		}
+		return fmt.Errorf("initialize repository shares: %w", err)
+	}
 	if err := store.SeedInitialAdmin(cfg.InitialAdminEmail, cfg.InitialAdminName, cfg.InitialAdminPassword); err != nil {
 		if cfg.DatabaseClose != nil {
 			_ = cfg.DatabaseClose()
@@ -167,6 +173,12 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 	}
 	// 启动 context 只约束初始化；常驻请求和 worker 使用各自的 context。
 	store = store.WithContext(context.Background())
+	if err := store.InitRepositoryAutomation(); err != nil {
+		if cfg.DatabaseClose != nil {
+			_ = cfg.DatabaseClose()
+		}
+		return fmt.Errorf("initialize repository automation: %w", err)
+	}
 	defaultStore = store
 	if _, ok := cfg.DatabaseRepository.(domainvdoc.SummaryJobRepository); ok {
 		store.StartSummaryWorker()
@@ -192,6 +204,7 @@ func CheckDefaultObjectStorage(ctx context.Context) error {
 
 func CloseDefaultStore() error {
 	if defaultStore != nil {
+		defaultStore.StopRepositoryAutomation()
 		defaultStore.StopSummaryWorker()
 	}
 	if defaultStore == nil || defaultStore.persistence == nil {
