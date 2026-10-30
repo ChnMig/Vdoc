@@ -59,44 +59,88 @@ type requestBodyContract struct {
 }
 
 var requestBodyContracts = map[string]requestBodyContract{
-	"POST /api/v1/open/auth/register":                                                                      {required: true, schemaRef: "#/components/schemas/AuthRequest"},
-	"POST /api/v1/open/auth/login":                                                                         {required: true, schemaRef: "#/components/schemas/AuthRequest"},
-	"POST /api/v1/open/mcp":                                                                                {required: true, schemaRef: "#/components/schemas/MCPCallRequest"},
-	"POST /api/v1/open/document-shares/{share_id}/unlock":                                                  {required: true, schemaRef: "#/components/schemas/DocumentShareUnlockRequest"},
-	"POST /api/v1/private/identity/me/password":                                                            {required: true, schemaRef: "#/components/schemas/ChangePasswordRequest"},
-	"POST /api/v1/private/system/users":                                                                    {required: true, schemaRef: "#/components/schemas/CreateUserRequest"},
-	"PATCH /api/v1/private/system/users/{user_id}":                                                         {required: true, schemaRef: "#/components/schemas/PatchUserRequest"},
-	"POST /api/v1/private/teams":                                                                           {required: true, schemaRef: "#/components/schemas/NameDescriptionRequest"},
-	"PATCH /api/v1/private/teams/{team_id}":                                                                {required: true, schemaRef: "#/components/schemas/PatchNameDescriptionRequest"},
-	"POST /api/v1/private/projects":                                                                        {required: true, schemaRef: "#/components/schemas/CreateProjectRequest"},
-	"PATCH /api/v1/private/projects/{project_id}":                                                          {required: true, schemaRef: "#/components/schemas/PatchNameDescriptionRequest"},
-	"POST /api/v1/private/projects/{project_id}/members":                                                   {required: true, schemaRef: "#/components/schemas/AddProjectMemberRequest"},
-	"PATCH /api/v1/private/projects/{project_id}/members/{user_id}/role":                                   {required: true, schemaRef: "#/components/schemas/PatchProjectMemberRoleRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents":                                                 {required: true, schemaRef: "#/components/schemas/DocumentRequest"},
-	"POST /api/v1/private/projects/{project_id}/folders":                                                   {required: true, schemaRef: "#/components/schemas/CreateFolderRequest"},
-	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}":                                  {required: true, schemaRef: "#/components/schemas/PatchDocumentRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                            {required: true, schemaRef: "#/components/schemas/CreateDocumentShareRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                          {required: true, schemaRef: "#/components/schemas/CreateBranchRequest"},
-	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}/branches/{branch_id}":             {required: true, schemaRef: "#/components/schemas/PatchBranchRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                            {required: true, schemaRef: "#/components/schemas/DraftRequest"},
-	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}":                {required: true, schemaRef: "#/components/schemas/PatchDraftRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/approve":         {required: true, schemaRef: "#/components/schemas/ReviewRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/request-changes": {required: true, schemaRef: "#/components/schemas/ReviewRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/reject":          {required: true, schemaRef: "#/components/schemas/ReviewRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/promote":                    {required: true, schemaRef: "#/components/schemas/PromoteDraftRequest"},
-	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs":                             {required: true, schemaRef: "#/components/schemas/CreateDiffRequest"},
-	"PUT /api/v1/private/ai/provider":                                                                      {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
-	"POST /api/v1/private/ai/provider/test":                                                                {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
-	"POST /api/v1/private/ai/provider/models":                                                              {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
-	"PUT /api/v1/private/projects/{project_id}/ai/provider":                                                {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
-	"POST /api/v1/private/projects/{project_id}/ai/provider/test":                                          {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
-	"POST /api/v1/private/projects/{project_id}/ai/provider/models":                                        {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
-	"PUT /api/v1/private/ai/prompts/{prompt_key}":                                                          {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
-	"PUT /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}":                                    {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
-	"PATCH /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}":                            {required: true, schemaRef: "#/components/schemas/AIChatReasoningRequest"},
-	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions":                                          {required: true, schemaRef: "#/components/schemas/AIChatSessionRequest"},
-	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages":                    {required: true, schemaRef: "#/components/schemas/AIChatMessageRequest"},
-	"POST /api/v1/private/mcp-tokens":                                                                      {required: true, schemaRef: "#/components/schemas/CreateMCPTokenRequest"},
+	"POST /api/v1/open/auth/register":                                                                            {required: true, schemaRef: "#/components/schemas/AuthRequest"},
+	"POST /api/v1/open/auth/login":                                                                               {required: true, schemaRef: "#/components/schemas/AuthRequest"},
+	"POST /api/v1/open/mcp":                                                                                      {required: true, schemaRef: "#/components/schemas/MCPCallRequest"},
+	"POST /api/v1/open/document-shares/{share_id}/unlock":                                                        {required: true, schemaRef: "#/components/schemas/DocumentShareUnlockRequest"},
+	"POST /api/v1/private/identity/me/password":                                                                  {required: true, schemaRef: "#/components/schemas/ChangePasswordRequest"},
+	"POST /api/v1/private/system/users":                                                                          {required: true, schemaRef: "#/components/schemas/CreateUserRequest"},
+	"PATCH /api/v1/private/system/users/{user_id}":                                                               {required: true, schemaRef: "#/components/schemas/PatchUserRequest"},
+	"POST /api/v1/private/teams":                                                                                 {required: true, schemaRef: "#/components/schemas/NameDescriptionRequest"},
+	"PATCH /api/v1/private/teams/{team_id}":                                                                      {required: true, schemaRef: "#/components/schemas/PatchNameDescriptionRequest"},
+	"POST /api/v1/private/projects":                                                                              {required: true, schemaRef: "#/components/schemas/CreateProjectRequest"},
+	"PATCH /api/v1/private/projects/{project_id}":                                                                {required: true, schemaRef: "#/components/schemas/PatchNameDescriptionRequest"},
+	"POST /api/v1/private/projects/{project_id}/members":                                                         {required: true, schemaRef: "#/components/schemas/AddProjectMemberRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/members/{user_id}/role":                                         {required: true, schemaRef: "#/components/schemas/PatchProjectMemberRoleRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents":                                                       {required: true, schemaRef: "#/components/schemas/DocumentRequest"},
+	"POST /api/v1/private/projects/{project_id}/folders":                                                         {required: true, schemaRef: "#/components/schemas/CreateFolderRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}":                                        {required: true, schemaRef: "#/components/schemas/PatchDocumentRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                                  {required: true, schemaRef: "#/components/schemas/CreateDocumentShareRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                                {required: true, schemaRef: "#/components/schemas/CreateBranchRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}/branches/{branch_id}":                   {required: true, schemaRef: "#/components/schemas/PatchBranchRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts":                                  {required: true, schemaRef: "#/components/schemas/DraftRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}":                      {required: true, schemaRef: "#/components/schemas/PatchDraftRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/approve":               {required: true, schemaRef: "#/components/schemas/ReviewRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/request-changes":       {required: true, schemaRef: "#/components/schemas/ReviewRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/{draft_id}/reject":                {required: true, schemaRef: "#/components/schemas/ReviewRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/drafts/promote":                          {required: true, schemaRef: "#/components/schemas/PromoteDraftRequest"},
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/diffs":                                   {required: true, schemaRef: "#/components/schemas/CreateDiffRequest"},
+	"PUT /api/v1/private/ai/provider":                                                                            {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/ai/provider/test":                                                                      {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/ai/provider/models":                                                                    {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
+	"PUT /api/v1/private/projects/{project_id}/ai/provider":                                                      {required: true, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/provider/test":                                                {required: false, schemaRef: "#/components/schemas/AIProviderRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/provider/models":                                              {required: false, schemaRef: "#/components/schemas/AIProviderModelsRequest"},
+	"PUT /api/v1/private/ai/prompts/{prompt_key}":                                                                {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
+	"PUT /api/v1/private/projects/{project_id}/ai/prompts/{prompt_key}":                                          {required: true, schemaRef: "#/components/schemas/AIPromptRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}":                                  {required: true, schemaRef: "#/components/schemas/AIChatReasoningRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions":                                                {required: true, schemaRef: "#/components/schemas/AIChatSessionRequest"},
+	"POST /api/v1/private/projects/{project_id}/ai/chat-sessions/{session_id}/messages":                          {required: true, schemaRef: "#/components/schemas/AIChatMessageRequest"},
+	"POST /api/v1/private/mcp-tokens":                                                                            {required: true, schemaRef: "#/components/schemas/CreateMCPTokenRequest"},
+	"POST /api/v1/private/projects/{project_id}/repository/ai/analyses":                                          {required: true, schemaRef: "#/components/schemas/RepositoryAnalysisRequest"},
+	"POST /api/v1/private/projects/{project_id}/repository/branches":                                             {required: true, schemaRef: "#/components/schemas/RepositoryBranchInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/branches/{branch_id}/commits":                         {required: true, schemaRef: "#/components/schemas/RepositorySaveInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/branches/{branch_id}/reverts":                         {required: true, schemaRef: "#/components/schemas/RepositoryRevertInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/comparisons":                                          {required: true, schemaRef: "#/components/schemas/RepositoryCompareInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/merge-requests":                                       {required: true, schemaRef: "#/components/schemas/RepositoryMergeInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/resolve":                  {required: true, schemaRef: "#/components/schemas/RepositoryResolveInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/releases":                                             {required: true, schemaRef: "#/components/schemas/RepositoryPublishInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares": {required: true, schemaRef: "#/components/schemas/RepositoryShareInput"},
+	"POST /api/v1/private/projects/{project_id}/repository/subscriptions":                                        {required: true, schemaRef: "#/components/schemas/RepositorySubscriptionRequest"},
+}
+
+var repositoryResponseSchemas = map[string]string{
+	"GET /api/v1/private/projects/{project_id}/repository/ai/analyses":                                                             "#/components/schemas/RepositoryAnalysesEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/ai/analyses/{analysis_id}":                                               "#/components/schemas/RepositoryAnalysisEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/branches":                                                                "#/components/schemas/RepositoryBranchListEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/commits":                                                                 "#/components/schemas/RepositoryHistoryEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/commits/{commit_id}":                                                     "#/components/schemas/RepositoryCommitEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/commits/{commit_id}/documents/{document_id}/content":                     "#/components/schemas/RepositoryContentEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/event-deliveries":                                                        "#/components/schemas/RepositoryDeliveriesEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/events":                                                                  "#/components/schemas/RepositoryEventListEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/merge-requests":                                                          "#/components/schemas/RepositoryMergeRequestListEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/documents/{document_id}/content":             "#/components/schemas/RepositoryMergeContentEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/releases":                                                                "#/components/schemas/RepositoryReleaseListEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares":                    "#/components/schemas/RepositoryShareListEnvelope",
+	"GET /api/v1/private/projects/{project_id}/repository/subscriptions":                                                           "#/components/schemas/RepositorySubscriptionsEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/ai/analyses":                                                            "#/components/schemas/RepositoryAnalysisEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/bootstrap":                                                              "#/components/schemas/RepositoryBranchListEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/branches":                                                               "#/components/schemas/RepositoryBranchEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/branches/{branch_id}/commits":                                           "#/components/schemas/RepositoryCommitEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/branches/{branch_id}/reverts":                                           "#/components/schemas/RepositoryCommitEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/comparisons":                                                            "#/components/schemas/RepositoryComparisonEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/event-deliveries/{delivery_id}/retry":                                   "#/components/schemas/RepositoryDeliveryEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/merge-requests":                                                         "#/components/schemas/RepositoryMergeRequestEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/approve":                                    "#/components/schemas/RepositoryMergeRequestEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/merge":                                      "#/components/schemas/RepositoryCommitEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/merge-requests/{request_id}/resolve":                                    "#/components/schemas/RepositoryMergeRequestEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/releases":                                                               "#/components/schemas/RepositoryReleaseEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares":                   "#/components/schemas/RepositoryShareSecretEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares/{share_id}/reveal": "#/components/schemas/RepositoryShareSecretEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/releases/{release_id}/documents/{document_id}/shares/{share_id}/revoke": "#/components/schemas/RepositoryShareEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/subscriptions":                                                          "#/components/schemas/RepositoryCreatedSubscriptionEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/subscriptions/{subscription_id}/pause":                                  "#/components/schemas/RepositorySubscriptionEnvelope",
+	"POST /api/v1/private/projects/{project_id}/repository/subscriptions/{subscription_id}/resume":                                 "#/components/schemas/RepositorySubscriptionEnvelope",
 }
 
 var requiredMCPTools = []string{
@@ -122,6 +166,20 @@ var requiredMCPTools = []string{
 	"update_doc_draft",
 	"submit_doc_draft",
 	"get_doc_draft",
+	"resolve_ref",
+	"list_branches",
+	"create_branch",
+	"list_commits",
+	"get_commit",
+	"get_document_at_commit",
+	"commit_changes",
+	"compare_commits",
+	"list_merge_requests",
+	"create_merge_request",
+	"list_releases",
+	"get_release",
+	"analyze_changes",
+	"list_repository_events",
 }
 
 func TestOpenAPISpecRouteServesCheckedInSpec(t *testing.T) {
@@ -149,6 +207,7 @@ func TestOpenAPISpecRouteServesCheckedInSpec(t *testing.T) {
 }
 
 func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
+	root := parseOpenAPI(t)
 	registered := registeredAPIRouteSet()
 	specRoutes, operations := specRouteSet(t)
 
@@ -167,6 +226,11 @@ func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
 		}
 		if key == "POST /api/v1/open/mcp" && !operationHasSecurity(op, "MCPTokenAuth") {
 			t.Fatalf("%s must declare MCPTokenAuth security", key)
+		}
+
+		if schema, ok := repositoryResponseSchemas[key]; ok {
+			assertRepositoryResponseEnvelope(t, root, op, key, schema)
+			continue
 		}
 
 		response := responseRef(op)
@@ -290,8 +354,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 38 {
-		t.Fatalf("request body route contract count = %d, want 38", len(requestBodyContracts))
+	if len(requestBodyContracts) != 48 {
+		t.Fatalf("request body route contract count = %d, want 48", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))
@@ -421,6 +485,33 @@ func asMap(t *testing.T, value any, name string) map[string]any {
 		t.Fatalf("%s has type %T, want map", name, value)
 	}
 	return mapped
+}
+
+// 新仓库接口保留明确的 detail 类型，同时验证它仍继承统一响应信封。
+func assertRepositoryResponseEnvelope(t *testing.T, root, operation map[string]any, key, expected string) {
+	t.Helper()
+	responses := asMap(t, operation["responses"], key+" responses")
+	response := asMap(t, responses["200"], key+" response")
+	content := asMap(t, response["content"], key+" content")
+	media := asMap(t, content["application/json"], key+" JSON")
+	schema := asMap(t, media["schema"], key+" schema")
+	if schema["$ref"] != expected {
+		t.Fatalf("%s response schema = %v, want %s", key, schema["$ref"], expected)
+	}
+	components := asMap(t, root["components"], "components")
+	schemas := asMap(t, components["schemas"], "schemas")
+	envelope := asMap(t, schemas[strings.TrimPrefix(expected, "#/components/schemas/")], expected)
+	parts, ok := envelope["allOf"].([]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("%s must combine VdocEnvelope with a typed detail", expected)
+	}
+	base := asMap(t, parts[0], expected+" base")
+	if base["$ref"] != "#/components/schemas/VdocEnvelope" {
+		t.Fatalf("%s does not inherit the Vdoc envelope", expected)
+	}
+	detail := asMap(t, parts[1], expected+" detail object")
+	properties := asMap(t, detail["properties"], expected+" properties")
+	asMap(t, properties["detail"], expected+" detail")
 }
 
 func responseRef(operation map[string]any) string {

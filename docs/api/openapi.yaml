@@ -3125,6 +3125,20 @@ components:
         - update_doc_draft
         - submit_doc_draft
         - get_doc_draft
+        - resolve_ref
+        - list_branches
+        - create_branch
+        - list_commits
+        - get_commit
+        - get_document_at_commit
+        - commit_changes
+        - compare_commits
+        - list_merge_requests
+        - create_merge_request
+        - list_releases
+        - get_release
+        - analyze_changes
+        - list_repository_events
     RepositoryAnalysisRequest:
       type: object
       additionalProperties: false
