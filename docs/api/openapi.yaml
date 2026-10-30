@@ -1323,7 +1323,7 @@ paths:
     post:
       tags: [AI]
       summary: Send a message in a page-scoped AI chat session.
-      description: Send Accept text/event-stream to receive provisional delta events when the effective provider streams. The done event contains the normal success envelope with the committed assistant message; error contains a normal error envelope. EOF without done is failure. Non-streaming providers, JSON-compatible upstreams, preflight errors and clients without this Accept header retain the JSON envelope.
+      description: Send Accept text/event-stream to receive provisional delta and provider-visible reasoning events, plus context events while older history is summarized. The done envelope contains the committed assistant message with optional reasoning and retry_of; error envelopes may include safe detail.ai_error diagnostics. EOF without done is failure. Set retry_of to the latest effective assistant ID with empty content and no attachments to regenerate its original question; success appends a replacement answer without duplicating the user message. Original messages remain stored. Session reads include context_summary_count and optional context_compacted_at. Clients without this Accept header receive JSON envelopes.
       operationId: sendAIChatMessage
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1978,8 +1978,12 @@ components:
         - required: [attachments]
           properties:
             attachments: { minItems: 1 }
+        - required: [retry_of]
+          properties:
+            retry_of: { minLength: 1 }
       properties:
         content: { type: string, maxLength: 4000 }
+        retry_of: { type: string, minLength: 1, description: Latest effective assistant message ID to regenerate. Content must be empty and attachments absent. }
         attachments:
           type: array
           maxItems: 4
