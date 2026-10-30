@@ -39,6 +39,47 @@ func TestInitDefaultStoreReleasesStartupContext(t *testing.T) {
 	}
 }
 
+func TestInitDefaultStoreReplacementStopsPreviousAutomation(t *testing.T) {
+	ResetDefaultStoreForTest()
+	t.Cleanup(ResetDefaultStoreForTest)
+	for range 3 {
+		if err := InitDefaultStore(context.Background(), RuntimeConfig{}); err != nil {
+			t.Fatal(err)
+		}
+		previous := DefaultStore()
+		value, ok := repositoryAutomationRunners.Load(previous.storeState)
+		if !ok {
+			t.Fatal("initialization did not start repository automation")
+		}
+		runner := value.(*repositoryAutomationRunner)
+		if err := InitDefaultStore(context.Background(), RuntimeConfig{DatabaseEnabled: true}); err == nil {
+			t.Fatal("initialization without a database repository succeeded")
+		}
+		if DefaultStore() != previous {
+			t.Fatal("failed initialization replaced the running store")
+		}
+		select {
+		case <-runner.done:
+			t.Fatal("failed initialization stopped the running store's automation")
+		default:
+		}
+		if err := InitDefaultStore(context.Background(), RuntimeConfig{}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-runner.done:
+		default:
+			t.Fatal("replacement returned before previous automation stopped")
+		}
+		if _, ok := repositoryAutomationRunners.Load(previous.storeState); ok {
+			t.Fatal("replacement retained the previous automation runner")
+		}
+		if _, ok := repositoryAutomationRunners.Load(DefaultStore().storeState); !ok {
+			t.Fatal("replacement has no repository automation runner")
+		}
+	}
+}
+
 func TestInitDefaultStorePersistsCiphertextRotationBeforeServing(t *testing.T) {
 	ResetDefaultStoreForTest()
 	t.Cleanup(ResetDefaultStoreForTest)

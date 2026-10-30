@@ -179,6 +179,11 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 		}
 		return fmt.Errorf("initialize repository automation: %w", err)
 	}
+	// 只有初始化成功才替换默认实例；替换时结束旧实例的常驻任务，避免重复轮询。
+	if previous := defaultStore; previous != nil {
+		previous.StopRepositoryAutomation()
+		previous.StopSummaryWorker()
+	}
 	defaultStore = store
 	if _, ok := cfg.DatabaseRepository.(domainvdoc.SummaryJobRepository); ok {
 		store.StartSummaryWorker()
