@@ -56,7 +56,7 @@ func (m *repositoryMemory) RepositoryRecords(_ context.Context, p, k string, aft
 	return out[:min(len(out), limit)], nil
 }
 func (m *repositoryMemory) PutRepositoryRecord(_ context.Context, v repo.Record, expected *int64) error {
-	if expected != nil && (v.Kind == "commit" || v.Kind == "event" || v.Kind == "release" || v.Kind == "legacy_map" || v.Kind == "idempotency") {
+	if expected != nil && (v.Kind == "commit" || v.Kind == "event" || v.Kind == "release" || v.Kind == "imported_release" || v.Kind == "legacy_map" || v.Kind == "idempotency") {
 		return fmt.Errorf("%w: immutable repository record", ErrFailedPrecondition)
 	}
 	if !json.Valid(v.Payload) {
@@ -93,7 +93,13 @@ func (s *Store) repositoryStorageLocked() repo.Storage {
 }
 
 // WithRepositoryWrite 与旧协作权限使用同一事务锁；内容图不进入全局 State。
-func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, fn func(repo.Storage) error) error {
+func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, fn func(repo.Storage) error) (resultErr error) {
+	uploads := []string{}
+	defer func() {
+		if resultErr != nil {
+			resultErr = s.repositoryCleanupUploads(resultErr, uploads)
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -129,13 +135,22 @@ func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, f
 	if err := domain.ValidateMutationContext(guard, s.stateLocked(), time.Now()); err != nil {
 		return err
 	}
+	run := func(storage repo.Storage) error {
+		if documentID := s.repositoryDocumentID(); documentID != "" {
+			if err := s.repositoryPrepareDocument(storage, actorID, projectID, documentID, &uploads); err != nil {
+				return err
+			}
+			return fn(documentRepositoryStorage{Storage: storage, documentID: documentID})
+		}
+		return fn(storage)
+	}
 	if s.persistence == nil {
 		if s.repoMemory == nil {
 			s.repoMemory = newRepositoryMemory()
 		}
 		before := s.repoMemory
 		s.repoMemory = before.clone()
-		if err := fn(s.repoMemory); err != nil {
+		if err := run(s.repoMemory); err != nil {
 			s.repoMemory = before
 			return err
 		}
@@ -156,7 +171,7 @@ func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, f
 		if err := storage.LockRepository(s.requestContext(), projectID); err != nil {
 			return err
 		}
-		return fn(storage)
+		return run(storage)
 	})
 }
 

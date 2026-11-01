@@ -336,7 +336,7 @@ func (s *Store) RepositoryMerge(actor, project, requestID string) (out *repo.Com
 		if m.Status != "approved" || m.ApprovedBy == "" || len(m.Conflicts) > 0 {
 			return fmt.Errorf("%w: current review approval required", ErrFailedPrecondition)
 		}
-		if m.BaseCommitID == target.HeadCommitID {
+		if m.BaseCommitID == target.HeadCommitID && target.DocumentID == "" {
 			out, e = repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", source.HeadCommitID)
 			if e != nil {
 				return e

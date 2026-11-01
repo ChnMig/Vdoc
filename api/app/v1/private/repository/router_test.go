@@ -114,4 +114,36 @@ func TestRepositoryHTTPUsesServerIdentifiersStrictInputsAndSafeDTOs(t *testing.T
 	if code != 200 || release.CommitID != commit.ID || release.VersionName == "" {
 		t.Fatalf("release=%s", body)
 	}
+	// 新入口在一个事务中建立独立文档、分支和版本；两份文档都可以叫 main。
+	var created [2]struct {
+		Document documentDTO `json:"document"`
+		Branch   branchDTO   `json:"branch"`
+		Commit   commitDTO   `json:"commit"`
+	}
+	for index, name := range []string{"A", "B"} {
+		code, detail, body = call("POST", "/documents", map[string]any{"name": name, "relative_path": name + ".txt", "document_type": 3, "content": "first\r\n", "idempotency_key": "http-document-" + name})
+		if code != 200 {
+			t.Fatalf("create document: %s", body)
+		}
+		_ = json.Unmarshal(detail, &created[index])
+		if created[index].Commit.VersionName != "main.1" || created[index].Branch.Name != "main" || bytes.Contains(body, []byte("object_key")) {
+			t.Fatalf("new document DTO: %s", body)
+		}
+	}
+	prefix = "/api/v1/private/projects/" + project.ID + "/documents/" + created[0].Document.ID + "/repository"
+	code, detail, body = call("GET", "/branches", nil)
+	_ = json.Unmarshal(detail, &branches)
+	if code != 200 || len(branches) != 1 || branches[0].ID != created[0].Branch.ID {
+		t.Fatalf("scoped branches: %s", body)
+	}
+	code, _, body = call("GET", "/commits/"+created[1].Commit.ID, nil)
+	if code != 404 {
+		t.Fatalf("cross-document commit: %s", body)
+	}
+	code, detail, body = call("GET", "/commits/"+created[0].Commit.ID+"/documents/"+created[0].Document.ID+"/content", nil)
+	_ = json.Unmarshal(detail, &content)
+	if code != 200 || content.Content != "first\r\n" {
+		t.Fatalf("scoped content: %s", body)
+	}
+
 }

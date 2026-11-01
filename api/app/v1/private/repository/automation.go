@@ -113,7 +113,7 @@ func analyzeCommit(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, err := shared.Store(c).RepositoryAnalyze(a, c.Param("project_id"), repo.AnalysisInput{FromCommitID: input.FromCommitID, ToCommitID: input.ToCommitID, DocumentID: input.DocumentID, Message: input.Message, Language: input.Language})
+	v, err := repositoryStore(c).RepositoryAnalyze(a, c.Param("project_id"), repo.AnalysisInput{FromCommitID: input.FromCommitID, ToCommitID: input.ToCommitID, DocumentID: input.DocumentID, Message: input.Message, Language: input.Language})
 	if err != nil {
 		result(c, nil, err)
 		return
@@ -126,7 +126,7 @@ func analysis(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := shared.Store(c).RepositoryAnalysis(a, c.Param("project_id"), c.Param("analysis_id"))
+	v, err := repositoryStore(c).RepositoryAnalysis(a, c.Param("project_id"), c.Param("analysis_id"))
 	if err != nil {
 		result(c, nil, err)
 		return
@@ -143,7 +143,7 @@ func analyses(c *gin.Context) {
 	if !ok {
 		return
 	}
-	values, err := shared.Store(c).RepositoryAnalyses(a, c.Param("project_id"), after)
+	values, err := repositoryStore(c).RepositoryAnalyses(a, c.Param("project_id"), after)
 	out := make([]analysisDTO, 0, len(values))
 	for i := range values {
 		out = append(out, analysisView(&values[i]))
@@ -167,7 +167,7 @@ func createSubscription(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, err := shared.Store(c).RepositoryCreateSubscription(a, c.Param("project_id"), repo.SubscriptionInput{Name: input.Name, Kind: input.Kind, EventTypes: input.EventTypes, BranchID: input.BranchID, DocumentID: input.DocumentID, URL: input.URL})
+	v, err := repositoryStore(c).RepositoryCreateSubscription(a, c.Param("project_id"), repo.SubscriptionInput{Name: input.Name, Kind: input.Kind, EventTypes: input.EventTypes, BranchID: input.BranchID, DocumentID: input.DocumentID, URL: input.URL})
 	if err != nil {
 		result(c, nil, err)
 		return
@@ -183,7 +183,7 @@ func subscriptions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	values, err := shared.Store(c).RepositorySubscriptions(a, c.Param("project_id"))
+	values, err := repositoryStore(c).RepositorySubscriptions(a, c.Param("project_id"))
 	out := make([]subscriptionDTO, 0, len(values))
 	for _, v := range values {
 		out = append(out, subscriptionView(v))
@@ -198,7 +198,7 @@ func setSubscriptionPaused(c *gin.Context, paused bool) {
 	if !ok {
 		return
 	}
-	v, err := shared.Store(c).RepositoryPauseSubscription(a, c.Param("project_id"), c.Param("subscription_id"), paused)
+	v, err := repositoryStore(c).RepositoryPauseSubscription(a, c.Param("project_id"), c.Param("subscription_id"), paused)
 	if err != nil {
 		result(c, nil, err)
 		return
@@ -215,7 +215,7 @@ func deliveries(c *gin.Context) {
 	if !ok {
 		return
 	}
-	values, err := shared.Store(c).RepositoryDeliveries(a, c.Param("project_id"), after)
+	values, err := repositoryStore(c).RepositoryDeliveries(a, c.Param("project_id"), after)
 	out := make([]deliveryDTO, 0, len(values))
 	for _, v := range values {
 		out = append(out, deliveryView(v))
@@ -228,7 +228,7 @@ func retryDelivery(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := shared.Store(c).RepositoryRetryDelivery(a, c.Param("project_id"), c.Param("delivery_id"))
+	v, err := repositoryStore(c).RepositoryRetryDelivery(a, c.Param("project_id"), c.Param("delivery_id"))
 	if err != nil {
 		result(c, nil, err)
 		return

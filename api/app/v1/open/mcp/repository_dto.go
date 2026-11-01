@@ -17,6 +17,10 @@ type mcpRepositoryFile struct {
 }
 
 type mcpRepositoryCommit struct {
+	DocumentID    string              `json:"document_id,omitempty"`
+	BranchID      string              `json:"branch_id,omitempty"`
+	Revision      int64               `json:"revision,omitempty"`
+	VersionName   string              `json:"version_name,omitempty"`
 	ID            string              `json:"id"`
 	ProjectID     string              `json:"project_id"`
 	ParentIDs     []string            `json:"parent_ids"`
@@ -30,6 +34,8 @@ type mcpRepositoryCommit struct {
 }
 
 type mcpRepositoryBranch struct {
+	DocumentID   string    `json:"document_id,omitempty"`
+	Revision     int64     `json:"revision"`
 	ID           string    `json:"id"`
 	ProjectID    string    `json:"project_id"`
 	Name         string    `json:"name"`
@@ -142,11 +148,11 @@ func repositoryFilesDTO(files []documentrepo.File, scopes []int) []mcpRepository
 
 func repositoryCommitDTO(commit *documentrepo.Commit, scopes []int) mcpRepositoryCommit {
 	files := repositoryFilesDTO(commit.Files, scopes)
-	return mcpRepositoryCommit{ID: commit.ID, ProjectID: commit.ProjectID, ParentIDs: append([]string{}, commit.ParentIDs...), TreeHash: commit.TreeHash, Message: commit.Message, CreatedBy: commit.CreatedBy, CreatedAt: commit.CreatedAt, Provenance: commit.Provenance, Files: files, FilesFiltered: len(files) != len(commit.Files)}
+	return mcpRepositoryCommit{DocumentID: commit.DocumentID, BranchID: commit.BranchID, Revision: commit.Revision, VersionName: commit.VersionName, ID: commit.ID, ProjectID: commit.ProjectID, ParentIDs: append([]string{}, commit.ParentIDs...), TreeHash: commit.TreeHash, Message: commit.Message, CreatedBy: commit.CreatedBy, CreatedAt: commit.CreatedAt, Provenance: commit.Provenance, Files: files, FilesFiltered: len(files) != len(commit.Files)}
 }
 
 func repositoryBranchDTO(branch documentrepo.Branch) mcpRepositoryBranch {
-	return mcpRepositoryBranch{ID: branch.ID, ProjectID: branch.ProjectID, Name: branch.Name, HeadCommitID: branch.HeadCommitID, Generation: branch.Generation, IsProtected: branch.IsProtected, CreatedBy: branch.CreatedBy, CreatedAt: branch.CreatedAt}
+	return mcpRepositoryBranch{DocumentID: branch.DocumentID, Revision: branch.Revision, ID: branch.ID, ProjectID: branch.ProjectID, Name: branch.Name, HeadCommitID: branch.HeadCommitID, Generation: branch.Generation, IsProtected: branch.IsProtected, CreatedBy: branch.CreatedBy, CreatedAt: branch.CreatedAt}
 }
 
 func repositoryReleaseDTO(release documentrepo.Release) mcpRepositoryRelease {
@@ -169,4 +175,20 @@ func repositoryMergeDTO(request documentrepo.MergeRequest, scopes []int) mcpRepo
 		}
 	}
 	return mcpRepositoryMerge{ID: request.ID, ProjectID: request.ProjectID, Title: request.Title, SourceBranchID: request.SourceBranchID, TargetBranchID: request.TargetBranchID, SourceCommitID: request.SourceCommitID, TargetCommitID: request.TargetCommitID, SourceGeneration: request.SourceGeneration, TargetGeneration: request.TargetGeneration, BaseCommitID: request.BaseCommitID, ResultFiles: files, Conflicts: conflicts, Status: request.Status, CreatedBy: request.CreatedBy, CreatedAt: request.CreatedAt, ApprovedBy: request.ApprovedBy, ApprovedAt: request.ApprovedAt, MergedCommitID: request.MergedCommitID, Generation: request.Generation, FilesFiltered: filtered}
+}
+
+type mcpRepositoryDocument struct {
+	ID                string `json:"id"`
+	ProjectID         string `json:"project_id"`
+	Name              string `json:"name"`
+	RelativePath      string `json:"relative_path"`
+	DocumentType      int    `json:"document_type"`
+	Description       string `json:"description,omitempty"`
+	Status            int    `json:"status"`
+	DefaultBranchID   string `json:"default_branch_id"`
+	DefaultBranchName string `json:"default_branch_name"`
+}
+
+func repositoryDocumentDTO(d documentrepo.Document) mcpRepositoryDocument {
+	return mcpRepositoryDocument{d.ID, d.ProjectID, d.Name, d.RelativePath, d.DocumentType, d.Description, d.Status, d.DefaultBranchID, d.DefaultBranchName}
 }

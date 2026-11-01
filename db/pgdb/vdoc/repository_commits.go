@@ -62,8 +62,24 @@ func (r *Repository) RepositoryRecords(ctx context.Context, projectID, kind stri
 	return out, nil
 }
 
+func (r *Repository) RepositoryDocumentRecords(ctx context.Context, projectID, documentID, kind string, after int64, limit int) ([]repo.Record, error) {
+	if limit <= 0 || limit > 500 {
+		return nil, domain.ErrInvalidArgument
+	}
+	var rows []repositoryRecord
+	err := r.database.WithContext(ctx).Where("project_id = ? AND kind = ? AND payload->>'document_id' = ? AND sequence > ?", projectID, kind, documentID, after).Order("sequence ASC").Limit(limit).Find(&rows).Error
+	if err != nil {
+		return nil, mapPostgresError(err)
+	}
+	out := make([]repo.Record, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, repo.Record{ProjectID: row.ProjectID, Kind: row.Kind, ID: row.ID, Generation: row.Generation, Sequence: row.Sequence, Payload: json.RawMessage(row.Payload)})
+	}
+	return out, nil
+}
+
 func (r *Repository) PutRepositoryRecord(ctx context.Context, value repo.Record, expected *int64) error {
-	if expected != nil && (value.Kind == "commit" || value.Kind == "event" || value.Kind == "release" || value.Kind == "legacy_map" || value.Kind == "idempotency") {
+	if expected != nil && (value.Kind == "commit" || value.Kind == "event" || value.Kind == "release" || value.Kind == "imported_release" || value.Kind == "legacy_map" || value.Kind == "idempotency") {
 		return fmt.Errorf("%w: immutable repository record", domain.ErrFailedPrecondition)
 	}
 	if !json.Valid(value.Payload) {

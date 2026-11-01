@@ -64,6 +64,7 @@ type CreatedSubscription struct {
 }
 
 type Delivery struct {
+	DocumentID     string     `json:"document_id,omitempty"`
 	ID             string     `json:"id"`
 	Sequence       int64      `json:"sequence"`
 	SubscriptionID string     `json:"subscription_id"`

@@ -265,6 +265,7 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 		"resolve_ref":              false,
 		"list_branches":            false,
 		"create_branch":            false,
+		"create_document":          false,
 		"list_commits":             false,
 		"get_commit":               false,
 		"get_document_at_commit":   false,

@@ -4024,10 +4024,12 @@ func (s *Store) ensureActiveDraftContextLocked(projectID, serviceID, branchID st
 		s.mutationGuard.LegacyContentWrite = true
 	}
 	if storage := s.repositoryStorageLocked(); storage != nil {
-		if _, err := storage.RepositoryRecord(s.requestContext(), projectID, "metadata", "converted"); err == nil {
-			return fmt.Errorf("%w: repository converted; use commit_changes instead of legacy drafts", ErrFailedPrecondition)
-		} else if !errors.Is(err, ErrNotFound) {
-			return err
+		for _, key := range []string{"converted", "document:" + serviceID + ":converted"} {
+			if _, err := storage.RepositoryRecord(s.requestContext(), projectID, "metadata", key); err == nil {
+				return fmt.Errorf("%w: repository converted; use commit_changes instead of legacy drafts", ErrFailedPrecondition)
+			} else if !errors.Is(err, ErrNotFound) {
+				return err
+			}
 		}
 	}
 	if err := s.ensureActiveDocumentContextLocked(projectID, serviceID); err != nil {

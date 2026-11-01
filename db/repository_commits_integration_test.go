@@ -137,3 +137,80 @@ func TestPostgresRepositoryHistoryIsImmutableAndReferencesUseCAS(t *testing.T) {
 		t.Fatalf("persistent idempotent retry=%+v %v", retry, err)
 	}
 }
+
+func TestPostgresDocumentRepositoriesSurviveRestartAndIsolateNames(t *testing.T) {
+	dsn := os.Getenv("VDOC_TEST_DATABASE_DSN")
+	if dsn == "" {
+		t.Skip("VDOC_TEST_DATABASE_DSN not set")
+	}
+	database := openAIGenerationTestDB(t, dsn)
+	defer closeAIGenerationTestDB(t, database)
+	resetAIGenerationTestSchema(t, database)
+	ctx := context.Background()
+	if err := databasepkg.RunMigrations(ctx, database); err != nil {
+		t.Fatal(err)
+	}
+	cfg := app.RuntimeConfig{DatabaseEnabled: true, DatabaseRepository: pgvdoc.NewRepository(database), ObjectStorage: &optimizationObjects{bodies: map[string][]byte{}}, AllowRegistration: true}
+	if err := app.InitDefaultStore(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer app.CloseDefaultStore()
+	s := app.DefaultStore()
+	u, err := s.Register("document-branches@example.test", "Owner", "Document-branches-test-2026!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := s.CreateTeam(u.ID, "Documents", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.CreateProject(u.ID, team.ID, "Documents", "", u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := func(name string) *repo.CreatedDocument {
+		t.Helper()
+		d, e := s.RepositoryCreateDocument(u.ID, p.ID, repo.DocumentInput{Name: name, RelativePath: name + ".txt", DocumentType: 3, Content: "original\r\n", IdempotencyKey: "new-document-" + name})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return d
+	}
+	a, b := create("A"), create("B")
+	if a.Commit.VersionName != "main.1" || b.Commit.VersionName != "main.1" {
+		t.Fatal("independent initial numbers")
+	}
+	scoped := s.WithRepositoryDocument(a.Document.ID)
+	input := repo.SaveInput{ExpectedHeadCommitID: a.Commit.ID, ExpectedGeneration: 1, IdempotencyKey: "persistent-doc-next", Changes: []repo.Change{{Operation: "upsert", DocumentID: a.Document.ID, Name: "A", RelativePath: "A.txt", DocumentType: 3, Content: "second"}}}
+	saved, err := scoped.RepositorySave(u.ID, p.ID, a.Branch.ID, input)
+	if err != nil || saved.VersionName != "main.2" {
+		t.Fatalf("save=%+v %v", saved, err)
+	}
+	if err = app.CloseDefaultStore(); err != nil {
+		t.Fatal(err)
+	}
+	if err = app.InitDefaultStore(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	s = app.DefaultStore()
+	scoped = s.WithRepositoryDocument(a.Document.ID)
+	history, err := scoped.RepositoryHistory(u.ID, p.ID, a.Branch.ID, "", "")
+	if err != nil || len(history.Commits) != 2 || history.Commits[0].VersionName != "main.2" {
+		t.Fatalf("restart history=%+v %v", history, err)
+	}
+	retry, err := scoped.RepositorySave(u.ID, p.ID, a.Branch.ID, input)
+	if err != nil || retry.ID != saved.ID {
+		t.Fatal("restart retry", err)
+	}
+	branches, err := s.WithRepositoryDocument(b.Document.ID).RepositoryBranches(u.ID, p.ID)
+	if err != nil || len(branches) != 1 || branches[0].Revision != 1 {
+		t.Fatalf("second document=%+v %v", branches, err)
+	}
+	catalog, err := s.RepositoryDocuments(u.ID, p.ID)
+	if err != nil || len(catalog) != 2 {
+		t.Fatalf("restart catalog=%+v %v", catalog, err)
+	}
+	if _, err = scoped.RepositoryContent(u.ID, p.ID, b.Commit.ID, b.Document.ID); !errors.Is(err, app.ErrNotFound) {
+		t.Fatal("cross-document content", err)
+	}
+}

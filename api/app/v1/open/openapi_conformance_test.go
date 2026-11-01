@@ -143,9 +143,32 @@ var repositoryResponseSchemas = map[string]string{
 	"POST /api/v1/private/projects/{project_id}/repository/subscriptions/{subscription_id}/resume":                                 "#/components/schemas/RepositorySubscriptionEnvelope",
 }
 
+// 文档仓库复用既有请求与响应 DTO；分享保留原项目路由以维持历史链接。
+func init() {
+	const base = "/projects/{project_id}/repository/"
+	const scoped = "/projects/{project_id}/documents/{document_id}/repository/"
+	for route, contract := range requestBodyContracts {
+		if strings.Contains(route, base) && !strings.Contains(route, "/shares") {
+			requestBodyContracts[strings.Replace(route, base, scoped, 1)] = contract
+		}
+	}
+	for route, schema := range repositoryResponseSchemas {
+		if strings.Contains(route, base) && !strings.Contains(route, "/shares") {
+			parts := strings.SplitN(route, base, 2)
+			suffix := strings.ReplaceAll(parts[1], "{document_id}", "{file_id}")
+			repositoryResponseSchemas[parts[0]+scoped+suffix] = schema
+		}
+	}
+	const documents = "/api/v1/private/projects/{project_id}/repository/documents"
+	requestBodyContracts["POST "+documents] = requestBodyContract{required: true, schemaRef: "#/components/schemas/RepositoryDocumentInput"}
+	repositoryResponseSchemas["GET "+documents] = "#/components/schemas/RepositoryDocumentListEnvelope"
+	repositoryResponseSchemas["POST "+documents] = "#/components/schemas/RepositoryCreatedDocumentEnvelope"
+}
+
 var requiredMCPTools = []string{
 	"list_projects",
 	"list_documents",
+	"create_document",
 	"list_document_branches",
 	"list_api_endpoints",
 	"list_api_versions",
@@ -354,8 +377,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 48 {
-		t.Fatalf("request body route contract count = %d, want 48", len(requestBodyContracts))
+	if len(requestBodyContracts) != 58 {
+		t.Fatalf("request body route contract count = %d, want 58", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))

@@ -60,14 +60,39 @@ func repositoryFindRelease(store *app.Store, actorID, projectID, releaseID strin
 }
 
 func executeRepositoryTool(store *app.Store, actorID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
-	write := tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request"
+	write := tool == "create_document" || tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request"
 	if write && !hasAnyScope(scopes, app.ScopeAPIDraft, app.ScopeDocDraft) || !write && !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
 		return nil, app.ErrPermissionDenied
 	}
 	if err := validateRepositoryArguments(tool, raw); err != nil {
 		return nil, err
 	}
+	var err error
+	store, raw, err = repositoryBindDocument(store, actorID, scopes, tool, raw)
+	if err != nil {
+		return nil, err
+	}
 	switch tool {
+	case "create_document":
+		var args struct {
+			ProjectID string `json:"project_id"`
+			documentrepo.DocumentInput
+		}
+		if err := decodeArguments(raw, &args); err != nil {
+			return nil, err
+		}
+		if !repositoryWriteScope(scopes, args.DocumentType) {
+			return nil, app.ErrPermissionDenied
+		}
+		created, err := store.RepositoryCreateDocument(actorID, args.ProjectID, args.DocumentInput)
+		if err != nil {
+			return nil, err
+		}
+		return struct {
+			Document mcpRepositoryDocument `json:"document"`
+			Branch   mcpRepositoryBranch   `json:"branch"`
+			Commit   mcpRepositoryCommit   `json:"commit"`
+		}{repositoryDocumentDTO(created.Document), repositoryBranchDTO(created.Branch), repositoryCommitDTO(&created.Commit, scopes)}, nil
 	case "resolve_ref":
 		var args struct {
 			ProjectID string `json:"project_id"`
@@ -217,9 +242,6 @@ func executeRepositoryTool(store *app.Store, actorID string, scopes []int, tool 
 		}
 		if err := decodeArguments(raw, &args); err != nil {
 			return nil, err
-		}
-		if tool == "get_commit" && args.DocumentID != "" {
-			return nil, invalidArgument("get_commit does not accept document_id")
 		}
 		if err := requireNonEmpty(field("project_id", args.ProjectID), field("commit_id", args.CommitID)); err != nil {
 			return nil, err
@@ -519,4 +541,75 @@ func executeRepositoryComparison(store *app.Store, actorID string, scopes []int,
 		result.Files = append(result.Files, mcpRepositoryComparisonFile{DocumentID: file.DocumentID, RelativePath: file.RelativePath, OldRelativePath: file.OldRelativePath, ChangeType: file.ChangeType, OldContent: file.OldContent, NewContent: file.NewContent, DocumentType: file.DocumentType, SemanticStatus: file.SemanticStatus, SemanticDiff: semantic})
 	}
 	return result, nil
+}
+
+func repositoryBindDocument(store *app.Store, actor string, scopes []int, tool string, raw json.RawMessage) (*app.Store, json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, nil, err
+	}
+	var doc, project string
+	_ = json.Unmarshal(fields["document_id"], &doc)
+	_ = json.Unmarshal(fields["project_id"], &project)
+	if doc == "" {
+		return store, raw, nil
+	}
+	// 旧工具的 document_id 曾是项目提交的文件过滤器，仍允许读取这些不可变引用。
+	legacy := false
+	if tool == "list_commits" {
+		var branchID string
+		_ = json.Unmarshal(fields["branch_id"], &branchID)
+		b, err := store.RepositoryBranch(actor, project, branchID)
+		if err != nil {
+			return nil, nil, err
+		}
+		legacy = b.DocumentID == ""
+	} else if tool == "get_document_at_commit" || tool == "compare_commits" || tool == "analyze_changes" {
+		key := "commit_id"
+		if tool != "get_document_at_commit" {
+			key = "to_commit_id"
+		}
+		var commitID string
+		_ = json.Unmarshal(fields[key], &commitID)
+		c, err := store.RepositoryCommit(actor, project, commitID)
+		if err != nil {
+			return nil, nil, err
+		}
+		legacy = c.DocumentID == ""
+	}
+	if !legacy {
+		write := tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request"
+		var documents []documentrepo.Document
+		var err error
+		if write {
+			documents, err = store.RepositoryWriteDocuments(actor, project)
+		} else {
+			documents, err = store.RepositoryDocuments(actor, project)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		found := false
+		for _, document := range documents {
+			if document.ID != doc {
+				continue
+			}
+			found = true
+			if write && !repositoryWriteScope(scopes, document.DocumentType) || !write && !repositoryReadScope(scopes, document.DocumentType) {
+				return nil, nil, app.ErrPermissionDenied
+			}
+			break
+		}
+		if !found {
+			return nil, nil, app.ErrNotFound
+		}
+		store = store.WithRepositoryDocument(doc)
+	}
+	switch tool {
+	case "list_commits", "get_commit", "get_document_at_commit", "compare_commits", "analyze_changes":
+	default:
+		delete(fields, "document_id")
+		raw, _ = json.Marshal(fields)
+	}
+	return store, raw, nil
 }

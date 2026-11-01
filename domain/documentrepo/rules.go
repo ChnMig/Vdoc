@@ -40,6 +40,15 @@ func NewCommit(projectID, author, message string, parents []string, files []File
 	return c
 }
 
+// NumberCommit 在保存事务中编号；编号及文档身份都参与提交哈希。
+func NumberCommit(c *Commit, b *Branch) {
+	c.DocumentID, c.BranchID = b.DocumentID, b.ID
+	c.Revision = b.Revision + 1
+	c.VersionName = fmt.Sprintf("%s.%d", b.Name, c.Revision)
+	identity, _ := json.Marshal([]any{c.ProjectID, c.DocumentID, c.BranchID, c.Revision, c.VersionName, c.ParentIDs, c.TreeHash, c.CreatedBy, c.CreatedAt, c.Message})
+	c.ID = Hash(identity)
+}
+
 func ValidateFiles(files []File) error {
 	if len(files) > 5000 {
 		return fmt.Errorf("%w: repository file limit exceeded", common.ErrInvalidArgument)

@@ -17,8 +17,19 @@ import (
 
 func (s *Store) repositoryEnsure(storage repo.Storage, actor, project string) ([]repo.Branch, error) {
 	branches, err := repositoryList[repo.Branch](s.requestContext(), storage, project, "branch")
-	if err != nil || len(branches) > 0 {
-		return branches, err
+	if err != nil {
+		return nil, err
+	}
+	// 兼容入口只列出旧项目分支；文档分支必须通过对应文档读取。
+	visible := branches[:0]
+	for _, branch := range branches {
+		if branch.DocumentID == s.repositoryDocumentID() {
+			visible = append(visible, branch)
+		}
+	}
+	branches = visible
+	if len(branches) > 0 {
+		return branches, nil
 	}
 	c := repo.NewCommit(project, actor, "Initialize repository", nil, nil, time.Now())
 	if err = repositoryPut(s.requestContext(), storage, project, "commit", c.ID, c, 1, nil); err != nil {
@@ -50,9 +61,18 @@ func (s *Store) RepositoryBranches(actor, project string) (out []repo.Branch, er
 	return
 }
 
+// RepositoryBranch 读取明确引用，不依赖兼容入口的分支列表。
+func (s *Store) RepositoryBranch(actor, project, branchID string) (out *repo.Branch, err error) {
+	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
+		out, err = repositoryLoad[repo.Branch](s.requestContext(), storage, project, "branch", branchID)
+		return err
+	})
+	return
+}
+
 func (s *Store) RepositoryCreateBranch(actor, project string, input repo.BranchInput) (out *repo.Branch, err error) {
 	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" || len(input.Name) > 200 || strings.ContainsAny(input.Name, " \t\n\r~^:?*[\\") || strings.Contains(input.Name, "..") || strings.HasPrefix(input.Name, "/") || strings.HasSuffix(input.Name, "/") {
+	if !validRepositoryBranchName(input.Name) {
 		return nil, fmt.Errorf("%w: invalid branch name", ErrInvalidArgument)
 	}
 	permission := MemberRoleWriter
@@ -75,10 +95,14 @@ func (s *Store) RepositoryCreateBranch(actor, project string, input repo.BranchI
 		if input.FromCommitID == "" {
 			input.FromCommitID = branches[0].HeadCommitID
 		}
-		if _, e = repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.FromCommitID); e != nil {
+		from, e := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.FromCommitID)
+		if e != nil {
 			return e
 		}
-		out = &repo.Branch{ID: id.GenerateID(), ProjectID: project, Name: input.Name, HeadCommitID: input.FromCommitID, Generation: 1, IsProtected: input.IsProtected, CreatedBy: actor, CreatedAt: time.Now().UTC()}
+		if from.DocumentID != s.repositoryDocumentID() {
+			return ErrInvalidArgument
+		}
+		out = &repo.Branch{ID: id.GenerateID(), ProjectID: project, DocumentID: s.repositoryDocumentID(), Name: input.Name, HeadCommitID: input.FromCommitID, Generation: 1, IsProtected: input.IsProtected, CreatedBy: actor, CreatedAt: time.Now().UTC()}
 		if e = repositoryPut(s.requestContext(), storage, project, "branch", out.ID, out, 1, nil); e != nil {
 			return e
 		}
@@ -222,6 +246,7 @@ func (s *Store) repositoryStoreFile(project string, file repo.File, content stri
 func (s *Store) repositoryEvent(storage repo.Storage, actor, project, kind string, branch *repo.Branch, before, resourceID string) error {
 	e := repo.Event{ID: id.GenerateID(), ProjectID: project, EventType: kind, ActorID: actor, CreatedAt: time.Now().UTC(), ResourceID: resourceID}
 	if branch != nil {
+		e.DocumentID = branch.DocumentID
 		e.BranchID = branch.ID
 		e.RefGeneration = branch.Generation
 		e.BeforeCommitID = before
@@ -231,6 +256,13 @@ func (s *Store) repositoryEvent(storage repo.Storage, actor, project, kind strin
 }
 
 func (s *Store) repositoryAdvance(storage repo.Storage, actor, project string, b *repo.Branch, c *repo.Commit) error {
+	if err := s.repositoryCheckLegacyWrite(storage, project, b, c); err != nil {
+		return err
+	}
+	if b.DocumentID != "" {
+		repo.NumberCommit(c, b)
+		b.Revision = c.Revision
+	}
 	if err := repositoryPut(s.requestContext(), storage, project, "commit", c.ID, c, 1, nil); err != nil {
 		return err
 	}
@@ -239,6 +271,9 @@ func (s *Store) repositoryAdvance(storage repo.Storage, actor, project string, b
 	b.HeadCommitID = c.ID
 	b.Generation++
 	if err := repositoryPut(s.requestContext(), storage, project, "branch", b.ID, b, b.Generation, &generation); err != nil {
+		return err
+	}
+	if err := s.repositoryUpdateCatalog(storage, project, b, c); err != nil {
 		return err
 	}
 	return s.repositoryEvent(storage, actor, project, "commit.created", b, before, c.ID)
@@ -259,6 +294,9 @@ func (s *Store) repositoryCleanupUploads(err error, keys []string) error {
 }
 
 func (s *Store) RepositorySave(actor, project, branchID string, input repo.SaveInput) (out *repo.Commit, err error) {
+	if err = s.repositoryDocumentChanges(input.Changes); err != nil {
+		return nil, err
+	}
 	if len(input.Changes) == 0 || len(input.Changes) > 1000 || input.ExpectedHeadCommitID == "" || input.ExpectedGeneration < 1 || len(input.IdempotencyKey) < 8 || len(input.IdempotencyKey) > 200 || len(input.Message) > 4000 {
 		return nil, fmt.Errorf("%w: changes, expected HEAD/generation and idempotency key are required", ErrInvalidArgument)
 	}

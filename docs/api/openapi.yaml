@@ -2249,6 +2249,708 @@ paths:
                 "$ref": "#/components/schemas/RepositoryShareEnvelope"
       description: Human project administrators only. Existing public capability/proofs
         stop working; the release remains immutable.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/ai/analyses:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository Automation
+      summary: List immutable commit analysis history.
+      description: Requires current project read access. Results retain exact input commit IDs when branch HEAD changes.
+      operationId: document_listRepositoryAnalyses
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryAnalysesEnvelope"
+      parameters:
+        - name: after
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Exclusive record sequence cursor. Use the last returned sequence; pages contain at most 100 records.
+    post:
+      tags:
+        - Repository Automation
+      summary: Analyze an exact commit or comparison.
+      description: Synchronous explicit AI request, independent of content saves and publication. Omitted from_commit_id selects the first parent, or the root snapshot for a parentless commit. Evidence is bounded to 128 KiB and 32 changed files; evidence_truncated discloses omissions. The server generates the analysis ID and persists succeeded or failed results. User, token, provider and prompt configuration are rechecked transactionally before success. Interrupted running requests expire after ten minutes. Retry creates a new analysis against the same immutable commit IDs. A message asks a question about these sources; the service does not generate or apply patches.
+      operationId: document_createRepositoryAnalysis
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryAnalysisEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryAnalysisRequest"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/ai/analyses/{analysis_id}:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: analysis_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository Automation
+      summary: Get one saved commit analysis.
+      description: Requires current project read access. Input IDs, source hashes and input_fingerprint identify fixed sources.
+      operationId: document_getRepositoryAnalysis
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryAnalysisEnvelope"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/subscriptions:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository Automation
+      summary: List project event subscriptions.
+      description: Project administrators only. At most 100 subscriptions per project. Signing secret plaintext and ciphertext are never returned by this endpoint.
+      operationId: document_listRepositorySubscriptions
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositorySubscriptionsEnvelope"
+    post:
+      tags:
+        - Repository Automation
+      summary: Create a durable event subscription.
+      description: Project administrators only. Starts after the current event sequence. Empty event_types defaults to release.published; * matches all events. Optional branch_id and document_id narrow delivery. in_app stores an administrative notification ledger entry. webhook requires a public HTTPS URL; its server-generated signing secret is returned only once. Private, loopback and metadata destinations are blocked at configuration and connection time. Redirects are never followed. At-least-once delivery uses X-Vdoc-Event-ID for deduplication. X-Vdoc-Signature is sha256=hex(HMAC-SHA256(secret, X-Vdoc-Timestamp + "." + raw request body)). External delivery never blocks or rolls back content commits.
+      operationId: document_createRepositorySubscription
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCreatedSubscriptionEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositorySubscriptionRequest"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/subscriptions/{subscription_id}/pause:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: subscription_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository Automation
+      summary: Pause an event subscription.
+      description: Project administrators only. Pausing retains the cursor; resuming catches up retained events. Losing creator administration access pauses the subscription and marks its due delivery failed.
+      operationId: document_pauseRepositorySubscription
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositorySubscriptionEnvelope"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/subscriptions/{subscription_id}/resume:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: subscription_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository Automation
+      summary: Resume an event subscription.
+      description: Project administrators only. Pausing retains the cursor; resuming catches up retained events. Losing creator administration access pauses the subscription and marks its due delivery failed.
+      operationId: document_resumeRepositorySubscription
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositorySubscriptionEnvelope"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/event-deliveries:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository Automation
+      summary: List the durable event delivery ledger.
+      description: Project administrators only. event_sequence identifies the source event; sequence is the delivery cursor. A worker runs every three seconds. Transport failures, HTTP 408, 429 and 5xx retry up to eight attempts with exponential backoff. Other failures, including redirects, do not retry automatically. A two-minute processing lease permits interruption recovery.
+      operationId: document_listRepositoryEventDeliveries
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryDeliveriesEnvelope"
+      parameters:
+        - name: after
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Exclusive record sequence cursor. Use the last returned sequence; pages contain at most 100 records.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/event-deliveries/{delivery_id}/retry:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: delivery_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository Automation
+      summary: Retry a failed delivery with its original event ID.
+      description: Project administrators only. Resets a failed delivery to pending and attempt count to zero. Event identity and payload remain fixed. A paused subscription stays paused.
+      operationId: document_retryRepositoryEventDelivery
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; errors use body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryDeliveryEnvelope"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/branches:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: List this document's independent branches.
+      operationId: document_listRepositoryBranches
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryBranchListEnvelope"
+      description: Lazily creates only the protected empty main/genesis for a new repository. import_required=true means legacy drafts or versions exist and an administrator must explicitly bootstrap before repository content writes. Metadata-only old documents do not require import.
+    post:
+      tags:
+        - Repository
+      summary: Create a branch from a fixed commit.
+      operationId: document_createRepositoryBranch
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryBranchEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryBranchInput"
+      description: Writers may create working branches. Creating a protected branch requires project administration. No client commit or version identifier is accepted.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/bootstrap:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Import every provable legacy snapshot without rewriting old data.
+      operationId: document_bootstrapRepository
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryBranchListEnvelope"
+      description: Administrator only, explicit one-time operation. Every available old published version and current unpublished draft receives a protected legacy reference. The initial main tree is explicitly marked synthetic; historical atomic project trees or overwritten draft saves are not invented. Legacy published paths are preserved when recorded. Old tables and public links remain readable. New legacy content writes are refused once conversion commits.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/commits:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: Read bounded first-parent branch or document history.
+      operationId: document_listRepositoryCommits
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryHistoryEnvelope"
+          headers:
+            X-Next-Cursor:
+              schema:
+                type: string
+              description: Next scan node when more history remains.
+      description: Use page=true for {commits,next_cursor}; an empty filtered page may still have next_cursor. At most 50 results or 2000 scanned nodes per page. Feed back the exact server cursor until empty. The default array format remains for compatibility and also exposes X-Next-Cursor. Full file metadata is included; raw bodies use the content endpoint.
+      parameters:
+        - name: branch_id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{32}$"
+        - name: document_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/branches/{branch_id}/commits:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: branch_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Atomically commit changed files with server-generated identity.
+      operationId: document_saveRepositoryCommit
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositorySaveInput"
+      description: All changes form one immutable complete tree. The server generates the SHA-256 commit ID and new document IDs (omit document_id for a new upsert). Original UTF-8 bytes, including CRLF, are retained. Expected HEAD+generation prevent lost updates; stale writes return FAILED_PRECONDITION with REF_CONFLICT. The same idempotency key and identical request return the original commit, including after later saves; changing the request under that key is INVALID_ARGUMENT. Protected branches require a reviewed merge request. LEGACY_IMPORT_REQUIRED prevents bypassing legacy import. No version_name input exists.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/commits/{commit_id}:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: commit_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: Read an immutable complete commit snapshot.
+      operationId: document_getRepositoryCommit
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/commits/{commit_id}/documents/{file_id}/content:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: commit_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: Read exact stored content from a fixed commit.
+      operationId: document_getRepositoryCommitContent
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryContentEnvelope"
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/comparisons:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Compare raw content and OpenAPI semantics between fixed commits.
+      operationId: document_compareRepositoryCommits
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryComparisonEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryCompareInput"
+      description: At most 100 changed files and 8 MiB cumulative old/new source bytes. Larger comparisons return FAILED_PRECONDITION with COMPARISON_LIMIT; select document_id to narrow the comparison. Invalid OpenAPI remains committed and source-comparable with semantic_status=invalid; it cannot be approved/published. Comparison source bytes are not silently truncated.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/merge-requests:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: List pinned merge review rounds.
+      operationId: document_listRepositoryMergeRequests
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestListEnvelope"
+    post:
+      tags:
+        - Repository
+      summary: Create a three-way merge review of fixed branch heads.
+      operationId: document_createRepositoryMergeRequest
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryMergeInput"
+      description: Records source/target IDs, generations, a proven lowest common ancestor and the exact result_files candidate. Supports disjoint line edits within one file and independent metadata changes. Conflicts contain document IDs, plus path-conflict for colliding result paths. Criss-cross histories with multiple lowest common ancestors fail explicitly rather than inventing a base.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/merge-requests/{request_id}/documents/{file_id}/content:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: Read the exact pinned result candidate before review.
+      operationId: document_getRepositoryMergeCandidateContent
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeContentEnvelope"
+      description: Returns content from result_files, which can differ from both input commits after automatic three-way merging. Content never comes from an arbitrary client object key. A stale review round stays readable, but approval and merge fail REVIEW_STALE until a new round is created.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/merge-requests/{request_id}/resolve:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Save a complete conflict resolution as a new commit and review round.
+      operationId: document_resolveRepositoryMergeRequest
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryResolveInput"
+      description: 'Writer only; source branch must be unprotected. All expected review/head/generation values are required. files is the COMPLETE desired tree: every item is an upsert with a document_id; omit a document to delete it, and send [] to remove all files. Produces a two-parent immutable resolution commit on the source branch, marks the old review superseded and returns a NEW review ID. Human administration approval of the new round is still required. Idempotent retries return the same new review.'
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/merge-requests/{request_id}/approve:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Approve exactly the pinned current result candidate.
+      operationId: document_approveRepositoryMergeRequest
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryMergeRequestEnvelope"
+      description: Project administrator review. Conflicts, invalid OpenAPI, closed rounds or moved source/target HEAD/generation are refused. An empty JSON body is accepted. Approval does not publish a release.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/merge-requests/{request_id}/merge:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Merge the currently approved pinned review.
+      operationId: document_mergeRepositoryMergeRequest
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+      description: Project administrator only. Rechecks both HEADs and generations, refusing stale approvals with REVIEW_STALE. Fast-forwards where the target is the base; otherwise creates a server-generated commit with target+source parents. Original snapshots remain immutable.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/branches/{branch_id}/reverts:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - name: branch_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/DocumentID'
+    post:
+      tags:
+        - Repository
+      summary: Revert a commit through a new inverse-change commit.
+      operationId: document_revertRepositoryCommit
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryCommitEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryRevertInput"
+      description: Writer only on unprotected working branches. Parent index selects the mainline parent for a merge commit. Preserves unrelated later edits, refuses overlapping inverse changes with REVERT_CONFLICT and supports idempotent retries. History is never reset or deleted.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/releases:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: List immutable publication references.
+      operationId: document_listRepositoryReleases
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryReleaseListEnvelope"
+    post:
+      tags:
+        - Repository
+      summary: Publish a fixed commit with a server-generated version name.
+      operationId: document_publishRepositoryRelease
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryReleaseEnvelope"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryPublishInput"
+      description: Human project administrator only; MCP cannot publish. commit_id must still equal the supplied branch HEAD and expected_generation must match. The server creates release ID and version_name; client version_name is rejected. Validates all OpenAPI files. Release content remains fixed after the branch moves.
+  /api/v1/private/projects/{project_id}/documents/{document_id}/repository/events:
+    parameters:
+      - "$ref": "#/components/parameters/ProjectID"
+      - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags:
+        - Repository
+      summary: Read the append-only project event ledger.
+      operationId: document_listRepositoryEvents
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: HTTP 200 Vdoc envelope; semantic errors are body.code/status.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RepositoryEventListEnvelope"
+      description: Use exclusive after_sequence and the last returned sequence to continue (at most 100 events per request). Identity is generated by the server. Events include commit.created, branch.created/updated, merge_request.created/approved/resolved/merged and release.published.
+      parameters:
+        - name: after_sequence
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+  /api/v1/private/projects/{project_id}/repository/documents:
+    parameters:
+    - "$ref": "#/components/parameters/ProjectID"
+    get:
+      tags: [Repository]
+      operationId: listRepositoryDocuments
+      summary: List the stable document catalog, independent of branch selection.
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: Vdoc envelope containing document identities and default branches.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryDocumentListEnvelope'
+    post:
+      tags: [Repository]
+      operationId: createRepositoryDocument
+      summary: Create a document, its initial branch, and its first numbered version atomically.
+      security:
+      - JWTAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RepositoryDocumentInput"
+      responses:
+        '200':
+          description: Vdoc envelope containing document, branch and commit DTOs; retry returns the original result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryCreatedDocumentEnvelope'
+
 components:
   securitySchemes:
     JWTAuth:
@@ -2267,6 +2969,12 @@ components:
       name: Authorization
       description: VdocShare scheme carrying the fragment-derived document-share capability. Protected links also require X-Vdoc-Share-Unlock after password exchange.
   parameters:
+    RepositoryFileID:
+      name: file_id
+      in: path
+      required: true
+      schema:
+        type: string
     PageSizeQuery:
       name: page_size
       in: query
@@ -2449,6 +3157,62 @@ components:
         text/plain:
           schema: { type: string, format: binary }
   schemas:
+    RepositoryDocument:
+      type: object
+      required: [id, project_id, name, document_type, relative_path, file_name, description, default_branch_id, default_branch_name, status, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        project_id: {type: string}
+        name: {type: string}
+        document_type: {type: integer, enum: [1, 2, 3]}
+        relative_path: {type: string}
+        file_name: {type: string}
+        description: {type: string}
+        default_branch_id: {type: string}
+        default_branch_name: {type: string}
+        head_version_name: {type: string}
+        latest_version_id: {type: string, description: Original legacy publication ID when available.}
+        latest_draft_id: {type: string, description: Original legacy draft ID when available.}
+        status: {type: integer, enum: [1, 2]}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    RepositoryDocumentListEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/VdocEnvelope'
+      - type: object
+        properties:
+          detail:
+            type: array
+            items:
+              $ref: '#/components/schemas/RepositoryDocument'
+    RepositoryCreatedDocumentEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/VdocEnvelope'
+      - type: object
+        properties:
+          detail:
+            type: object
+            required: [document, branch, commit]
+            properties:
+              document:
+                $ref: '#/components/schemas/RepositoryDocument'
+              branch:
+                $ref: '#/components/schemas/RepositoryBranch'
+              commit:
+                $ref: '#/components/schemas/RepositoryCommit'
+    RepositoryDocumentInput:
+      type: object
+      additionalProperties: false
+      required: [name, relative_path, document_type, content, idempotency_key]
+      properties:
+        name: {type: string}
+        relative_path: {type: string}
+        document_type: {type: integer, enum: [1, 2, 3]}
+        content: {type: string}
+        description: {type: string}
+        initial_branch: {type: string, default: main}
+        idempotency_key: {type: string, minLength: 8, maxLength: 200}
     SystemVersion:
       type: object
       additionalProperties: false
@@ -3105,6 +3869,7 @@ components:
       enum:
         - list_projects
         - list_documents
+        - create_document
         - list_document_branches
         - list_api_endpoints
         - list_api_versions
@@ -3496,6 +4261,10 @@ components:
     RepositoryCommit:
       type: object
       properties:
+        document_id: {type: string}
+        revision: {type: integer, minimum: 0}
+        branch_id: {type: string}
+        version_name: {type: string, example: dev.2}
         id:
           type: string
           pattern: "^[0-9a-f]{64}$"
@@ -3536,6 +4305,8 @@ components:
     RepositoryBranch:
       type: object
       properties:
+        document_id: {type: string}
+        revision: {type: integer, minimum: 0}
         id:
           type: string
           pattern: "^[0-9a-f]{32}$"

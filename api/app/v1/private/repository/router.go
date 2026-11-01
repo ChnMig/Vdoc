@@ -15,18 +15,38 @@ import (
 
 func RegisterRoutes(private *gin.RouterGroup) {
 	group := private.Group("/projects/:project_id/repository")
+	group.GET("/documents", documents)
+	group.POST("/documents", createDocument)
+	registerRepositoryRoutes(group, "document_id")
+	documentGroup := private.Group("/projects/:project_id/documents/:document_id/repository")
+	documentGroup.Use(func(c *gin.Context) { c.Set("repository_document_id", c.Param("document_id")); c.Next() })
+	registerRepositoryRoutes(documentGroup, "file_id")
+}
+
+func repositoryStore(c *gin.Context) *app.Store {
+	return shared.Store(c).WithRepositoryDocument(c.GetString("repository_document_id"))
+}
+
+func contentDocumentID(c *gin.Context) string {
+	if value := c.Param("file_id"); value != "" {
+		return value
+	}
+	return c.Param("document_id")
+}
+
+func registerRepositoryRoutes(group *gin.RouterGroup, fileParameter string) {
 	group.GET("/branches", branches)
 	group.POST("/branches", createBranch)
 	group.POST("/bootstrap", bootstrap)
 	group.GET("/commits", commits)
 	group.POST("/branches/:branch_id/commits", save)
 	group.GET("/commits/:commit_id", commit)
-	group.GET("/commits/:commit_id/documents/:document_id/content", content)
+	group.GET("/commits/:commit_id/documents/:"+fileParameter+"/content", content)
 	group.POST("/comparisons", compare)
 	group.GET("/merge-requests", merges)
 	group.POST("/merge-requests", createMerge)
 	group.POST("/merge-requests/:request_id/resolve", resolveMerge)
-	group.GET("/merge-requests/:request_id/documents/:document_id/content", mergeContent)
+	group.GET("/merge-requests/:request_id/documents/:"+fileParameter+"/content", mergeContent)
 	group.POST("/merge-requests/:request_id/approve", approveMerge)
 	group.POST("/merge-requests/:request_id/merge", merge)
 	group.POST("/branches/:branch_id/reverts", revert)
@@ -51,19 +71,23 @@ func file(v repo.File) fileDTO {
 }
 
 type commitDTO struct {
-	ID         string    `json:"id"`
-	ProjectID  string    `json:"project_id"`
-	ParentIDs  []string  `json:"parent_ids"`
-	TreeHash   string    `json:"tree_hash"`
-	Message    string    `json:"message"`
-	CreatedBy  string    `json:"created_by"`
-	CreatedAt  any       `json:"created_at"`
-	Files      []fileDTO `json:"files"`
-	Provenance string    `json:"provenance,omitempty"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	ParentIDs   []string  `json:"parent_ids"`
+	TreeHash    string    `json:"tree_hash"`
+	Message     string    `json:"message"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   any       `json:"created_at"`
+	Files       []fileDTO `json:"files"`
+	Provenance  string    `json:"provenance,omitempty"`
+	DocumentID  string    `json:"document_id,omitempty"`
+	BranchID    string    `json:"branch_id,omitempty"`
+	Revision    int64     `json:"revision,omitempty"`
+	VersionName string    `json:"version_name,omitempty"`
 }
 
 func commitView(v *repo.Commit) commitDTO {
-	out := commitDTO{v.ID, v.ProjectID, v.ParentIDs, v.TreeHash, v.Message, v.CreatedBy, v.CreatedAt, []fileDTO{}, v.Provenance}
+	out := commitDTO{v.ID, v.ProjectID, v.ParentIDs, v.TreeHash, v.Message, v.CreatedBy, v.CreatedAt, []fileDTO{}, v.Provenance, v.DocumentID, v.BranchID, v.Revision, v.VersionName}
 	for _, f := range v.Files {
 		out.Files = append(out.Files, file(f))
 	}
@@ -80,10 +104,12 @@ type branchDTO struct {
 	CreatedBy      string `json:"created_by"`
 	CreatedAt      any    `json:"created_at"`
 	ImportRequired bool   `json:"import_required"`
+	DocumentID     string `json:"document_id,omitempty"`
+	Revision       int64  `json:"revision"`
 }
 
 func branchView(v repo.Branch) branchDTO {
-	return branchDTO{v.ID, v.ProjectID, v.Name, v.HeadCommitID, v.Generation, v.IsProtected, v.CreatedBy, v.CreatedAt, v.ImportRequired}
+	return branchDTO{v.ID, v.ProjectID, v.Name, v.HeadCommitID, v.Generation, v.IsProtected, v.CreatedBy, v.CreatedAt, v.ImportRequired, v.DocumentID, v.Revision}
 }
 func branchViews(values []repo.Branch) []branchDTO {
 	out := []branchDTO{}
@@ -165,7 +191,7 @@ func branches(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryBranches(a, c.Param("project_id"))
+	v, e := repositoryStore(c).RepositoryBranches(a, c.Param("project_id"))
 	result(c, branchViews(v), e)
 }
 func createBranch(c *gin.Context) {
@@ -177,7 +203,7 @@ func createBranch(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositoryCreateBranch(a, c.Param("project_id"), input)
+	v, e := repositoryStore(c).RepositoryCreateBranch(a, c.Param("project_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -189,7 +215,12 @@ func bootstrap(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryBootstrap(a, c.Param("project_id"))
+	if c.GetString("repository_document_id") != "" {
+		v, e := repositoryStore(c).RepositoryBranches(a, c.Param("project_id"))
+		result(c, branchViews(v), e)
+		return
+	}
+	v, e := repositoryStore(c).RepositoryBootstrap(a, c.Param("project_id"))
 	result(c, branchViews(v), e)
 }
 func commits(c *gin.Context) {
@@ -197,7 +228,7 @@ func commits(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryHistory(a, c.Param("project_id"), c.Query("branch_id"), c.Query("document_id"), c.Query("cursor"))
+	v, e := repositoryStore(c).RepositoryHistory(a, c.Param("project_id"), c.Query("branch_id"), c.Query("document_id"), c.Query("cursor"))
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -223,7 +254,7 @@ func commit(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryCommit(a, c.Param("project_id"), c.Param("commit_id"))
+	v, e := repositoryStore(c).RepositoryCommit(a, c.Param("project_id"), c.Param("commit_id"))
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -235,7 +266,7 @@ func content(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryContent(a, c.Param("project_id"), c.Param("commit_id"), c.Param("document_id"))
+	v, e := repositoryStore(c).RepositoryContent(a, c.Param("project_id"), c.Param("commit_id"), contentDocumentID(c))
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -255,7 +286,7 @@ func save(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositorySave(a, c.Param("project_id"), c.Param("branch_id"), input)
+	v, e := repositoryStore(c).RepositorySave(a, c.Param("project_id"), c.Param("branch_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -271,7 +302,7 @@ func compare(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositoryCompare(a, c.Param("project_id"), input)
+	v, e := repositoryStore(c).RepositoryCompare(a, c.Param("project_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -307,7 +338,7 @@ func merges(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryMergeRequests(a, c.Param("project_id"))
+	v, e := repositoryStore(c).RepositoryMergeRequests(a, c.Param("project_id"))
 	out := []mergeDTO{}
 	for _, m := range v {
 		out = append(out, mergeView(m))
@@ -323,7 +354,7 @@ func createMerge(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositoryCreateMerge(a, c.Param("project_id"), input)
+	v, e := repositoryStore(c).RepositoryCreateMerge(a, c.Param("project_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -339,7 +370,7 @@ func resolveMerge(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositoryResolveMerge(a, c.Param("project_id"), c.Param("request_id"), input)
+	v, e := repositoryStore(c).RepositoryResolveMerge(a, c.Param("project_id"), c.Param("request_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -352,7 +383,7 @@ func mergeContent(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryMergeContent(a, c.Param("project_id"), c.Param("request_id"), c.Param("document_id"))
+	v, e := repositoryStore(c).RepositoryMergeContent(a, c.Param("project_id"), c.Param("request_id"), contentDocumentID(c))
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -369,7 +400,7 @@ func approveMerge(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryApproveMerge(a, c.Param("project_id"), c.Param("request_id"))
+	v, e := repositoryStore(c).RepositoryApproveMerge(a, c.Param("project_id"), c.Param("request_id"))
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -381,7 +412,7 @@ func merge(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryMerge(a, c.Param("project_id"), c.Param("request_id"))
+	v, e := repositoryStore(c).RepositoryMerge(a, c.Param("project_id"), c.Param("request_id"))
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -397,7 +428,7 @@ func revert(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositoryRevert(a, c.Param("project_id"), c.Param("branch_id"), input)
+	v, e := repositoryStore(c).RepositoryRevert(a, c.Param("project_id"), c.Param("branch_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -409,7 +440,7 @@ func releases(c *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := shared.Store(c).RepositoryReleases(a, c.Param("project_id"))
+	v, e := repositoryStore(c).RepositoryReleases(a, c.Param("project_id"))
 	out := []releaseDTO{}
 	for _, r := range v {
 		out = append(out, releaseView(r))
@@ -425,7 +456,7 @@ func publish(c *gin.Context) {
 	if !bind(c, &input) {
 		return
 	}
-	v, e := shared.Store(c).RepositoryPublish(a, c.Param("project_id"), input)
+	v, e := repositoryStore(c).RepositoryPublish(a, c.Param("project_id"), input)
 	if e != nil {
 		result(c, nil, e)
 		return
@@ -446,7 +477,7 @@ func events(c *gin.Context) {
 			return
 		}
 	}
-	v, e := shared.Store(c).RepositoryEvents(a, c.Param("project_id"), after)
+	v, e := repositoryStore(c).RepositoryEvents(a, c.Param("project_id"), after)
 	out := []map[string]any{}
 	for _, event := range v {
 		out = append(out, map[string]any{"id": event.ID, "sequence": event.Sequence, "event_type": event.EventType, "project_id": event.ProjectID, "branch_id": event.BranchID, "before_commit_id": event.BeforeCommitID, "after_commit_id": event.AfterCommitID, "ref_generation": event.RefGeneration, "actor_id": event.ActorID, "created_at": event.CreatedAt, "resource_id": event.ResourceID})

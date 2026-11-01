@@ -13,6 +13,16 @@ import (
 func (s *Store) RepositoryReleases(actor, project string) (out []repo.Release, err error) {
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
 		out, err = repositoryList[repo.Release](s.requestContext(), storage, project, "release")
+		if err != nil {
+			return err
+		}
+		if s.repositoryDocumentID() != "" {
+			imported, e := repositoryList[repo.Release](s.requestContext(), storage, project, "imported_release")
+			if e != nil {
+				return e
+			}
+			out = append(out, imported...)
+		}
 		sort.Slice(out, func(i, j int) bool { return out[i].PublishedAt.After(out[j].PublishedAt) })
 		return err
 	})
@@ -47,6 +57,9 @@ func (s *Store) RepositoryPublish(actor, project string, input repo.PublishInput
 		now := time.Now().UTC()
 		releaseID := id.GenerateID()
 		out = &repo.Release{ID: releaseID, ProjectID: project, BranchID: b.ID, CommitID: commit.ID, VersionName: now.Format("20060102.150405") + "-" + releaseID[:8], Message: input.Message, PublishedBy: actor, PublishedAt: now}
+		if commit.VersionName != "" {
+			out.VersionName = commit.VersionName
+		}
 		if e = repositoryPut(s.requestContext(), storage, project, "release", out.ID, out, 1, nil); e != nil {
 			return e
 		}

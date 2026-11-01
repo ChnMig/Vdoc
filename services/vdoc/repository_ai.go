@@ -19,6 +19,12 @@ import (
 const repositoryAnalysisContextBytes = 128 << 10
 
 func (s *Store) RepositoryAnalyze(actorID, projectID string, input documentrepo.AnalysisInput) (*documentrepo.Analysis, error) {
+	if documentID := s.repositoryDocumentID(); documentID != "" {
+		if input.DocumentID != "" && input.DocumentID != documentID {
+			return nil, ErrInvalidArgument
+		}
+		input.DocumentID = documentID
+	}
 	input.Message, input.Language = strings.TrimSpace(input.Message), strings.TrimSpace(input.Language)
 	if input.ToCommitID == "" || len(input.Message) > 8000 || len(input.Language) > 32 {
 		return nil, ErrInvalidArgument

@@ -79,10 +79,12 @@ func validateRepositoryMutation(ctx context.Context, repository domain.Repositor
 			if err := storage.LockRepository(ctx, guard.ProjectID); err != nil {
 				return err
 			}
-			if _, err := storage.RepositoryRecord(ctx, guard.ProjectID, "metadata", "converted"); err == nil {
-				return fmt.Errorf("%w: repository converted; use commit_changes instead of legacy drafts", domain.ErrFailedPrecondition)
-			} else if !errors.Is(err, domain.ErrNotFound) {
-				return err
+			for _, key := range []string{"converted", "document:" + guard.DocumentID + ":converted"} {
+				if _, err := storage.RepositoryRecord(ctx, guard.ProjectID, "metadata", key); err == nil {
+					return fmt.Errorf("%w: repository converted; use commit_changes instead of legacy drafts", domain.ErrFailedPrecondition)
+				} else if !errors.Is(err, domain.ErrNotFound) {
+					return err
+				}
 			}
 		}
 	}

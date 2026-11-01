@@ -13,6 +13,9 @@ import (
 
 // RepositoryResolveMerge 将人工解决结果保存为源分支的新提交，旧审核轮次保留，必须重新审核新请求。
 func (s *Store) RepositoryResolveMerge(actor, project, requestID string, input repo.ResolveInput) (out *repo.MergeRequest, err error) {
+	if err = s.repositoryDocumentChanges(input.Files); err != nil {
+		return nil, err
+	}
 	if input.ExpectedGeneration < 1 || input.ExpectedSourceCommitID == "" || input.ExpectedTargetCommitID == "" || input.ExpectedSourceGeneration < 1 || input.ExpectedTargetGeneration < 1 || len(input.IdempotencyKey) < 8 || len(input.IdempotencyKey) > 200 || len(input.Files) > 5000 || input.Files == nil || len(input.Message) > 4000 {
 		return nil, ErrInvalidArgument
 	}

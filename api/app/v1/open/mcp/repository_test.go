@@ -272,7 +272,7 @@ func TestMCPRepositoryRejectsClientRevisionAndMalformedArguments(t *testing.T) {
 	if !errors.Is(err, app.ErrInvalidArgument) {
 		t.Fatalf("ambiguous ref accepted: %v", err)
 	}
-	_, err = execute(fixture.writerID, []int{app.ScopeDocRead}, "get_commit", mustJSON(t, gin.H{"project_id": fixture.projectID, "commit_id": branch.HeadCommitID, "document_id": ""}))
+	_, err = execute(fixture.writerID, []int{app.ScopeDocRead}, "get_commit", mustJSON(t, gin.H{"project_id": fixture.projectID, "commit_id": branch.HeadCommitID, "unknown_field": ""}))
 	if !errors.Is(err, app.ErrInvalidArgument) {
 		t.Fatalf("unknown empty argument accepted: %v", err)
 	}
@@ -350,5 +350,63 @@ func TestMCPRepositoryReleaseReviewAndLegacyWriteBoundary(t *testing.T) {
 	}
 	if mcpEvidenceKind("get_commit", "success") == "published_content_read" {
 		t.Fatal("unpublished commit mislabeled as publication evidence")
+	}
+}
+
+func TestMCPDocumentBranchesAreIndependent(t *testing.T) {
+	fixture := newMCPFixture(t)
+	scopes := []int{app.ScopeDocRead, app.ScopeDocDraft}
+	create := func(name string) (string, mcpRepositoryBranch, mcpRepositoryCommit) {
+		t.Helper()
+		result, err := execute(fixture.writerID, scopes, "create_document", mustJSON(t, gin.H{"project_id": fixture.projectID, "name": name, "relative_path": name + ".txt", "document_type": 3, "content": "first\r\n", "idempotency_key": "new-document-" + name}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out struct {
+			Document mcpRepositoryDocument `json:"document"`
+			Branch   mcpRepositoryBranch   `json:"branch"`
+			Commit   mcpRepositoryCommit   `json:"commit"`
+		}
+		raw, _ := json.Marshal(result)
+		_ = json.Unmarshal(raw, &out)
+		if out.Commit.VersionName != "main.1" || out.Branch.DocumentID != out.Document.ID {
+			t.Fatalf("create=%s", raw)
+		}
+		return out.Document.ID, out.Branch, out.Commit
+	}
+	a, branch, first := create("MCP-A")
+	b, _, _ := create("MCP-B")
+	result, err := execute(fixture.writerID, scopes, "list_branches", mustJSON(t, gin.H{"project_id": fixture.projectID, "document_id": a}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	branches := result.([]mcpRepositoryBranch)
+	if len(branches) != 1 || branches[0].ID != branch.ID {
+		t.Fatalf("branches=%+v", branches)
+	}
+	_, err = execute(fixture.writerID, scopes, "get_commit", mustJSON(t, gin.H{"project_id": fixture.projectID, "document_id": b, "commit_id": first.ID}))
+	if !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("cross-doc read=%v", err)
+	}
+	if _, err := execute(fixture.writerID, []int{app.ScopeAPIRead}, "list_branches", mustJSON(t, gin.H{"project_id": fixture.projectID, "document_id": a})); !errors.Is(err, app.ErrPermissionDenied) {
+		t.Fatalf("wrong document type read scope: %v", err)
+	}
+	token, err := app.DefaultStore().CreateMCPToken(fixture.writerID, "write-only-document", []int{app.ScopeDocDraft}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writeBranch mcpRepositoryBranch
+	repositoryMCPCall(t, fixture, token.Token, "create_branch", gin.H{"project_id": fixture.projectID, "document_id": a, "name": "write-only", "from_commit_id": first.ID}, &writeBranch)
+	if writeBranch.DocumentID != a {
+		t.Fatalf("write-only branch=%+v", writeBranch)
+	}
+
+	args := gin.H{"project_id": fixture.projectID, "document_id": a, "branch_id": branch.ID, "expected_head_commit_id": first.ID, "expected_generation": branch.Generation, "idempotency_key": "document-save-2", "changes": []gin.H{{"operation": "upsert", "document_id": a, "name": "MCP-A", "relative_path": "MCP-A.txt", "document_type": 3, "content": "second"}}}
+	result, err = execute(fixture.writerID, scopes, "commit_changes", mustJSON(t, args))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.(mcpRepositoryCommit).VersionName != "main.2" {
+		t.Fatalf("save=%+v", result)
 	}
 }

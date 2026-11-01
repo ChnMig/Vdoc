@@ -94,6 +94,12 @@ func (s *Store) RepositoryCreateSubscription(actorID, projectID string, input do
 	} else if input.URL != "" {
 		return nil, ErrInvalidArgument
 	}
+	if documentID := s.repositoryDocumentID(); documentID != "" {
+		if input.DocumentID != "" && input.DocumentID != documentID {
+			return nil, ErrInvalidArgument
+		}
+		input.DocumentID = documentID
+	}
 	value := repositoryStoredSubscription{Subscription: documentrepo.Subscription{ID: id.GenerateID(), ProjectID: projectID, Name: input.Name, Kind: input.Kind, EventTypes: input.EventTypes, BranchID: input.BranchID, DocumentID: input.DocumentID, URL: input.URL, Generation: 1, CreatedBy: actorID, CreatedAt: time.Now().UTC()}}
 	secret := ""
 	if input.Kind == "webhook" {
@@ -359,7 +365,7 @@ func (s *Store) repositoryEnqueueDeliveries(actorID, projectID string) error {
 						return err
 					}
 					if existing == nil {
-						value := repositoryStoredDelivery{Delivery: documentrepo.Delivery{ID: deliveryID, SubscriptionID: subscription.ID, EventID: event.ID, EventSequence: event.Sequence, EventType: event.EventType, Status: "pending", CreatedAt: time.Now().UTC()}, Event: event}
+						value := repositoryStoredDelivery{Delivery: documentrepo.Delivery{DocumentID: subscription.DocumentID, ID: deliveryID, SubscriptionID: subscription.ID, EventID: event.ID, EventSequence: event.Sequence, EventType: event.EventType, Status: "pending", CreatedAt: time.Now().UTC()}, Event: event}
 						if err := putRepositoryAutomation(s.requestContext(), storage, projectID, "delivery", deliveryID, value, 1, nil); err != nil {
 							return err
 						}

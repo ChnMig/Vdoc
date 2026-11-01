@@ -34,15 +34,19 @@ type File struct {
 }
 
 type Commit struct {
-	ID         string    `json:"id"`
-	ProjectID  string    `json:"project_id"`
-	ParentIDs  []string  `json:"parent_ids"`
-	TreeHash   string    `json:"tree_hash"`
-	Message    string    `json:"message"`
-	CreatedBy  string    `json:"created_by"`
-	CreatedAt  time.Time `json:"created_at"`
-	Files      []File    `json:"files"`
-	Provenance string    `json:"provenance,omitempty"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	DocumentID  string    `json:"document_id,omitempty"`
+	BranchID    string    `json:"branch_id,omitempty"`
+	Revision    int64     `json:"revision,omitempty"`
+	VersionName string    `json:"version_name,omitempty"`
+	ParentIDs   []string  `json:"parent_ids"`
+	TreeHash    string    `json:"tree_hash"`
+	Message     string    `json:"message"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	Files       []File    `json:"files"`
+	Provenance  string    `json:"provenance,omitempty"`
 }
 
 type HistoryPage struct {
@@ -53,6 +57,8 @@ type HistoryPage struct {
 type Branch struct {
 	ID             string    `json:"id"`
 	ProjectID      string    `json:"project_id"`
+	DocumentID     string    `json:"document_id,omitempty"`
+	Revision       int64     `json:"revision"`
 	Name           string    `json:"name"`
 	HeadCommitID   string    `json:"head_commit_id"`
 	Generation     int64     `json:"generation"`
@@ -198,6 +204,7 @@ type Event struct {
 	Sequence       int64     `json:"sequence"`
 	EventType      string    `json:"event_type"`
 	ProjectID      string    `json:"project_id"`
+	DocumentID     string    `json:"document_id,omitempty"`
 	BranchID       string    `json:"branch_id,omitempty"`
 	BeforeCommitID string    `json:"before_commit_id,omitempty"`
 	AfterCommitID  string    `json:"after_commit_id,omitempty"`
@@ -205,4 +212,36 @@ type Event struct {
 	ActorID        string    `json:"actor_id"`
 	CreatedAt      time.Time `json:"created_at"`
 	ResourceID     string    `json:"resource_id,omitempty"`
+}
+
+// Document 是项目目录中的稳定身份，目录不随所选文档分支变化。
+type Document struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	File
+	DefaultBranchID   string    `json:"default_branch_id"`
+	DefaultBranchName string    `json:"default_branch_name"`
+	HeadVersionName   string    `json:"head_version_name,omitempty"`
+	LatestVersionID   string    `json:"latest_version_id,omitempty"`
+	LatestDraftID     string    `json:"latest_draft_id,omitempty"`
+	Status            int       `json:"status"`
+	CreatedBy         string    `json:"created_by"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type DocumentInput struct {
+	Name           string `json:"name"`
+	RelativePath   string `json:"relative_path"`
+	DocumentType   int    `json:"document_type"`
+	Description    string `json:"description,omitempty"`
+	Content        string `json:"content"`
+	InitialBranch  string `json:"initial_branch,omitempty"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type CreatedDocument struct {
+	Document Document `json:"document"`
+	Branch   Branch   `json:"branch"`
+	Commit   Commit   `json:"commit"`
 }
