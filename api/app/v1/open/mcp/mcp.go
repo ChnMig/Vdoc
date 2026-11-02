@@ -15,6 +15,7 @@ import (
 	"vdoc/api/middleware"
 	"vdoc/api/response"
 	app "vdoc/appstore"
+	"vdoc/services/system"
 	"vdoc/utils/contextkey"
 
 	"github.com/gin-gonic/gin"
@@ -319,6 +320,7 @@ func callJSONRPC(c *gin.Context, body []byte) {
 		returnRPCAppError(c, id, err)
 		return
 	}
+	c.Header("X-Vdoc-Server-Version", system.CurrentVersion().Version)
 
 	switch method {
 	case "tools/list":
@@ -361,6 +363,7 @@ func callLegacyBridge(c *gin.Context, body []byte) {
 		returnAppError(c, err)
 		return
 	}
+	c.Header("X-Vdoc-Server-Version", system.CurrentVersion().Version)
 	var req request
 	if err := json.Unmarshal(body, &req); err != nil {
 		response.ReturnError(c, response.INVALID_ARGUMENT, err.Error())
