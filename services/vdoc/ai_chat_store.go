@@ -424,7 +424,7 @@ func (s *Store) validateAIChatCompletionLocked(actorID, projectID, sessionID str
 	if err := s.ensureActiveAIChatTargetLocked(target); err != nil {
 		return staleAIChatRequestError()
 	}
-	if target.OwnerType == domainai.ChatContextDocument && (request.Guard == nil || request.Guard.Mutation.ExpectedAIContextRevision != domain.AIDocumentRevision(s.stateLocked(), target.ProjectID, target.DocumentID)) {
+	if target.OwnerType == domainai.ChatContextDocument && (request.Guard == nil || (request.Guard.Mutation.DocumentID != "" && request.Guard.Mutation.ExpectedAIContextRevision != domain.AIDocumentRevision(s.stateLocked(), target.ProjectID, target.DocumentID))) {
 		return staleAIChatRequestError()
 	}
 	contextText, _, err := s.aiChatTargetContextLocked(target, request.UserMessage.Content)

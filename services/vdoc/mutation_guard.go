@@ -57,7 +57,10 @@ func (s *Store) validateMutationGuardLocked() error {
 		}
 		s.mutationGuard.TokenScope = scope
 	}
-	return domain.ValidateMutationContext(*s.mutationGuard, s.stateLocked(), time.Now())
+	if err := domain.ValidateMutationContext(*s.mutationGuard, s.stateLocked(), time.Now()); err != nil {
+		return err
+	}
+	return validateAIRepositoryMutation(s.requestContext(), s.repositoryStorageLocked(), s.mutationGuard)
 }
 
 func validateRepositoryMutation(ctx context.Context, repository domain.Repository, guard *domain.MutationGuard) error {
@@ -73,6 +76,19 @@ func validateRepositoryMutation(ctx context.Context, repository domain.Repositor
 			return err
 		}
 	}
+	if guard.RepositoryDocumentID != "" {
+		storage, ok := repository.(documentrepo.Storage)
+		if !ok {
+			return ErrFailedPrecondition
+		}
+		if err := storage.LockRepository(ctx, guard.ProjectID); err != nil {
+			return err
+		}
+		if err := validateAIRepositoryMutation(ctx, storage, guard); err != nil {
+			return err
+		}
+	}
+
 	// 与新提交保持用户/项目/令牌 → 文档仓库的锁顺序，防止旧写入与转换同时发生时互相等待。
 	if guard.LegacyContentWrite {
 		if storage, ok := repository.(documentrepo.Storage); ok {

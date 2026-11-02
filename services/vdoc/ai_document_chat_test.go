@@ -149,3 +149,56 @@ func TestDocumentChatFindsNamedOldSourcesBeyondTheBodyBudget(t *testing.T) {
 		t.Fatal("explicit historical source was not retrieved with the body limit disclosed")
 	}
 }
+
+func TestRepositoryDocumentChatIncludesNumberedCommitsAndKeepsConversations(t *testing.T) {
+	s := newTask5Store()
+	upsertAuditProvider(t, s, domainai.ProviderModeChatCompletions, "repository-chat-test-key")
+	d := createScopedDocument(t, s, "chat-guide", "main")
+	other := createScopedDocument(t, s, "PRIVATE_OTHER_DOCUMENT_SENTINEL", "dev")
+	scoped := s.WithRepositoryDocument(d.Document.ID)
+	dev := gitBranch(t, scoped, "dev", d.Commit.ID)
+	first := gitSave(t, scoped, &dev, "chat-first-save", gitChange(d.Document.ID, "chat-guide.md", "First dev policy"))
+	second := gitSave(t, scoped, &dev, "chat-second-save", gitChange(d.Document.ID, "chat-guide.md", "Second dev policy"))
+	target := AISummaryTarget{ProjectID: "project-a", DocumentID: d.Document.ID, OwnerType: domainai.ChatContextDocument, OwnerID: d.Document.ID}
+	session, err := s.CreateAIChatSession("reader", AIChatSessionInput{ProjectID: target.ProjectID, DocumentID: target.DocumentID, ContextType: target.OwnerType, ContextID: target.OwnerID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.prepareAIChatRequest("reader", "project-a", session.ID, "Compare main.1, dev.1 and dev.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{d.Commit.ID, first.ID, second.ID, "main.1", "dev.1", "dev.2", "First dev policy", "Second dev policy", `"kind":"commit"`, "not published releases"} {
+		if !strings.Contains(request.ContextText, want) {
+			t.Errorf("missing context %q", want)
+		}
+	}
+	if strings.Contains(request.ContextText, other.Document.ID) || strings.Contains(request.ContextText, "PRIVATE_OTHER_DOCUMENT_SENTINEL") {
+		t.Fatal("cross-document context")
+	}
+	if _, err = s.finishAIChatMessage("reader", "project-a", session.ID, request, aiCompletionResult{Content: "Compared saved versions"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := s.ListAIChatSessions("reader", target)
+	if err != nil || len(sessions) != 1 || sessions[0].ID != session.ID {
+		t.Fatalf("history lost: %+v %v", sessions, err)
+	}
+	_, messages, err := s.AIChatSession("reader", "project-a", session.ID)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("messages=%d err=%v", len(messages), err)
+	}
+	if _, err = s.CreateAIChatSession("unknown", AIChatSessionInput{ProjectID: target.ProjectID, DocumentID: target.DocumentID, ContextType: target.OwnerType, ContextID: target.OwnerID}); !Is(err, ErrPermissionDenied) {
+		t.Fatalf("permission: %v", err)
+	}
+	request, err = s.prepareAIChatRequest("reader", "project-a", session.ID, "Latest dev version?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSave(t, scoped, &dev, "chat-third-save", gitChange(d.Document.ID, "chat-guide.md", "New policy"))
+	if err = validateAIRepositoryMutation(s.requestContext(), s.repositoryStorageLocked(), &request.Guard.Mutation); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("source guard failed: %v", err)
+	}
+	if _, err = s.finishAIChatMessage("reader", "project-a", session.ID, request, aiCompletionResult{Content: "Stale answer"}, nil); !Is(err, ErrFailedPrecondition) {
+		t.Fatalf("stale completion: %v", err)
+	}
+}

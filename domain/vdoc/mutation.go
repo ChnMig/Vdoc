@@ -12,27 +12,29 @@ import (
 
 // MutationGuard 描述已通过服务层检查的写入，在提交事务中再次检查同一权限和资源范围。
 type MutationGuard struct {
-	ActorID                   string
-	ActiveUserIDs             []string
-	TeamID                    string
-	TeamWrite                 bool
-	ProjectID                 string
-	DocumentID                string
-	BranchIDs                 []string
-	Permission                int
-	ProjectWrite              bool
-	AllowArchived             bool
-	LegacyContentWrite        bool
-	ExpectedPasswordHash      string
-	TokenID                   string
-	TokenScope                int
-	TokenScopes               []int
-	RevealTokenID             string
-	RevealShareID             string
-	DraftID                   string
-	ExpectedDraftRevision     string
-	ExpectedDocumentUpdatedAt time.Time
-	ExpectedAIContextRevision string
+	ActorID                      string
+	ActiveUserIDs                []string
+	TeamID                       string
+	TeamWrite                    bool
+	ProjectID                    string
+	DocumentID                   string
+	BranchIDs                    []string
+	Permission                   int
+	ProjectWrite                 bool
+	AllowArchived                bool
+	LegacyContentWrite           bool
+	ExpectedPasswordHash         string
+	TokenID                      string
+	TokenScope                   int
+	TokenScopes                  []int
+	RevealTokenID                string
+	RevealShareID                string
+	DraftID                      string
+	ExpectedDraftRevision        string
+	ExpectedDocumentUpdatedAt    time.Time
+	ExpectedAIContextRevision    string
+	RepositoryDocumentID         string
+	ExpectedAIRepositoryRevision string
 }
 
 const (

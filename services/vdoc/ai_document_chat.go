@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	domainai "vdoc/domain/ai"
+	repo "vdoc/domain/documentrepo"
 )
 
 func (s *Store) ensureReadableAIChatTargetLocked(actorID string, target AISummaryTarget) error {
@@ -22,7 +23,8 @@ func (s *Store) ensureReadableAIChatTargetLocked(actorID string, target AISummar
 		return ErrInvalidArgument
 	}
 	if !s.serviceInProjectLocked(target.DocumentID, target.ProjectID) {
-		return ErrNotFound
+		_, err := s.aiRepositoryDocumentLocked(target)
+		return err
 	}
 	return nil
 }
@@ -32,7 +34,25 @@ func (s *Store) ensureActiveAIChatTargetLocked(target AISummaryTarget) error {
 		if target.DocumentID == "" || target.OwnerID != target.DocumentID {
 			return ErrInvalidArgument
 		}
-		return s.ensureActiveDocumentContextLocked(target.ProjectID, target.DocumentID)
+		if err := s.ensureActiveProjectLocked(target.ProjectID); err != nil {
+			return err
+		}
+		if s.apiServices[target.DocumentID] != nil {
+			if err := s.ensureActiveDocumentContextLocked(target.ProjectID, target.DocumentID); err != nil {
+				return err
+			}
+		}
+		document, err := s.aiRepositoryDocumentLocked(target)
+		if Is(err, ErrNotFound) && s.serviceInProjectLocked(target.DocumentID, target.ProjectID) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if document.Status != DocumentStatusActive {
+			return ErrFailedPrecondition
+		}
+		return nil
 	}
 	return s.ensureActiveAITargetLocked(target)
 }
@@ -55,6 +75,7 @@ type aiDocumentSource struct {
 	BranchStatus int       `json:"branch_status"`
 	Changelog    string    `json:"changelog,omitempty"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	file         *repo.File
 	score        int
 }
 
@@ -63,11 +84,21 @@ func (s *Store) documentAIChatContextLocked(target AISummaryTarget, question str
 	const maxSources = 16
 	const catalogBudget = 12_000
 	const contentBudget = 48_000
-	document := s.apiServices[target.DocumentID]
-	if document == nil || document.ProjectID != target.ProjectID {
+	documentName := ""
+	if document := s.apiServices[target.DocumentID]; document != nil && document.ProjectID == target.ProjectID {
+		documentName = document.Name
+	}
+	repositorySources, repositoryName, err := s.aiRepositorySourcesLocked(target)
+	if err != nil {
+		return "", err
+	}
+	if repositoryName != "" {
+		documentName = repositoryName
+	}
+	if documentName == "" {
 		return "", ErrNotFound
 	}
-	sources := make([]aiDocumentSource, 0)
+	sources := repositorySources
 	appendSource := func(kind, sourceID, branchID, name, changelog string, status int, updated time.Time) {
 		branch := s.branches[branchID]
 		if branch == nil || branch.ServiceID != target.DocumentID {
@@ -118,7 +149,7 @@ func (s *Store) documentAIChatContextLocked(target AISummaryTarget, question str
 		}
 	}
 	sort.SliceStable(sources, func(i, j int) bool { return sources[i].score > sources[j].score })
-	parts := []string{fmt.Sprintf("Document-wide Q&A. Document %q id=%s project=%s. All %d published revisions and drafts are eligible across this document's branches (including archived branch history). Bodies are retrieved by branch/revision metadata relevance and recency; the catalog alone is not body evidence. Ask for a specific revision if needed. Draft status: 1=editing, 2=submitted, 3=changes_requested, 4=rejected, 5=published.\nSOURCE CATALOG:", aiBoundText(document.Name, 200), target.DocumentID, target.ProjectID, len(sources))}
+	parts := []string{fmt.Sprintf("Document-wide Q&A. Document %q id=%s project=%s. All %d saved commits, published revisions and drafts are eligible across this document's branches (including archived branch history). Bodies are retrieved by branch/revision metadata relevance and recency; the catalog alone is not body evidence. Ask for a specific revision if needed. Saved commits are not published releases; do not describe them as reviewed or published. Draft status: 1=editing, 2=submitted, 3=changes_requested, 4=rejected, 5=published.\nSOURCE CATALOG:", aiBoundText(documentName, 200), target.DocumentID, target.ProjectID, len(sources))}
 	catalogRunes, catalogCount := 0, 0
 	for _, source := range sources {
 		encoded, _ := json.Marshal(source)
@@ -136,7 +167,13 @@ func (s *Store) documentAIChatContextLocked(target AISummaryTarget, question str
 	parts = append(parts, fmt.Sprintf("\nRETRIEVED BODIES: %d of %d sources. Each excerpt is bounded; omitted content is unavailable to this answer.", count, len(sources)))
 	for _, source := range sources[:count] {
 		var content string
-		if source.Kind == "draft" {
+		if source.file != nil {
+			body, err := s.repositoryFileContent(*source.file)
+			if err != nil {
+				return "", err
+			}
+			content = body
+		} else if source.Kind == "draft" {
 			draft := cloneDraft(s.drafts[source.ID])
 			if err := s.hydrateDraftContentLocked(s.requestContext(), draft, "normalized"); err != nil {
 				return "", err

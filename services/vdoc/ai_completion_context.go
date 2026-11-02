@@ -79,8 +79,22 @@ func (s *Store) withAITargetMutationGuardLocked(actorID string, target AISummary
 		if err := s.ensureReadableAIChatTargetLocked(actorID, target); err != nil {
 			return nil, err
 		}
-		guarded := s.withMutationGuard(actorID, target.ProjectID, target.DocumentID, permission)
-		guarded.mutationGuard.ExpectedAIContextRevision = domain.AIDocumentRevision(s.stateLocked(), target.ProjectID, target.DocumentID)
+		legacyID := ""
+		if s.serviceInProjectLocked(target.DocumentID, target.ProjectID) {
+			legacyID = target.DocumentID
+		}
+		guarded := s.withMutationGuard(actorID, target.ProjectID, legacyID, permission)
+		if legacyID != "" {
+			guarded.mutationGuard.ExpectedAIContextRevision = domain.AIDocumentRevision(s.stateLocked(), target.ProjectID, target.DocumentID)
+		}
+		revision, err := aiRepositoryRevision(s.requestContext(), s.repositoryStorageLocked(), target.ProjectID, target.DocumentID)
+		if err != nil {
+			return nil, err
+		}
+		if revision != "" {
+			guarded.mutationGuard.RepositoryDocumentID = target.DocumentID
+			guarded.mutationGuard.ExpectedAIRepositoryRevision = revision
+		}
 		return guarded, nil
 	}
 	branchID, err := s.aiTargetBranchLocked(target)
