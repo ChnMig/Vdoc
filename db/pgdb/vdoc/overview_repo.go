@@ -72,6 +72,7 @@ func (r *Repository) ReadLatestMCPRead(ctx context.Context, projectID, documentI
 	}
 	var rows []struct{ CreatedAt time.Time }
 	err := r.database.WithContext(ctx).Table("audit_logs").Select("created_at").
+		Where(retainedAuditPredicate).
 		Where("project_id = ? AND document_id = ? AND actor_token_id IN ?", projectID, documentID, tokens).
 		Where("action = 'mcp.tool_call' AND metadata->>'evidence_kind' = 'published_content_read' AND metadata->>'result' = 'success'").
 		Order("created_at DESC").Limit(1).Find(&rows).Error

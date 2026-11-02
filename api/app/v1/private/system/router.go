@@ -44,6 +44,7 @@ func registerRoutes(private *gin.RouterGroup, version func() systemsvc.VersionIn
 	if private == nil {
 		return
 	}
+	registerAuditRetentionRoutes(private)
 	private.GET("/system/version", func(c *gin.Context) {
 		if _, ok := shared.CurrentUserID(c); !ok {
 			return

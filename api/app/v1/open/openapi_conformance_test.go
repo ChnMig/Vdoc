@@ -59,6 +59,7 @@ type requestBodyContract struct {
 }
 
 var requestBodyContracts = map[string]requestBodyContract{
+	"PUT /api/v1/private/system/audit-retention":                                                                 {required: true, schemaRef: "#/components/schemas/AuditRetentionSettings"},
 	"POST /api/v1/open/auth/register":                                                                            {required: true, schemaRef: "#/components/schemas/AuthRequest"},
 	"POST /api/v1/open/auth/login":                                                                               {required: true, schemaRef: "#/components/schemas/AuthRequest"},
 	"POST /api/v1/open/mcp":                                                                                      {required: true, schemaRef: "#/components/schemas/MCPCallRequest"},
@@ -377,8 +378,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 58 {
-		t.Fatalf("request body route contract count = %d, want 58", len(requestBodyContracts))
+	if len(requestBodyContracts) != 59 {
+		t.Fatalf("request body route contract count = %d, want 59", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))

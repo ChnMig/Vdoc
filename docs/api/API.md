@@ -283,11 +283,13 @@ Calling Compare requires an active Project and Document, and `from_version_id` m
 
 ### 4. MCP Tokens And Tools
 
+The workbench offers two permissions for all document formats: **Read documents** maps to scopes `[1,3]`, and **Create and update drafts** maps to `[2,4]`. Read is selected by default; selecting both sends `[1,2,3,4]`. The numeric API scope contract remains compatible with existing tokens and adapters, and project roles still limit access.
+
 ```sh
 MCP_TOKEN_RESPONSE=$(curl -sS "$API_BASE/api/v1/private/mcp-tokens" \
   -H 'Content-Type: application/json' \
   -H "Authorization: $JWT" \
-  -d '{"name":"docs-agent","scopes":[1,2]}')
+  -d '{"name":"docs-agent","scopes":[1,2,3,4]}')
 MCP_TOKEN=$(printf '%s' "$MCP_TOKEN_RESPONSE" | jq -r '.detail.token')
 MCP_TOKEN_ID=$(printf '%s' "$MCP_TOKEN_RESPONSE" | jq -r '.detail.id')
 
@@ -442,6 +444,14 @@ GET  /api/v1/open/document-shares/{share_id}/versions/{version_id}/download
 ```
 
 Send the proof as `X-Vdoc-Share-Unlock`. Invalid capabilities, passwords, proofs, revoked/expired links, and inactive parent resources all return the same public unavailable response. Downloads always pass through Vdoc authorization; object storage remains private. Markdown viewers must disable raw HTML, remote images, and unsafe links, while OpenAPI content is rendered only as escaped read-only text.
+
+## Global Audit Log Retention
+
+System super administrators can read `GET /api/v1/private/system/audit-retention` and update `PUT /api/v1/private/system/audit-retention` with `{"audit_retention_days":30}`. Both return the setting in `detail.audit_retention_days`. The setting is global, persisted in PostgreSQL, shared across instances and available in Settings → Global. Project administrators cannot change it.
+
+The default is **30 days**. Values must be integers from 0 to 36500; days are calendar dates in Beijing time (`Asia/Shanghai`), independent of server timezone. With 1 day, a run on November 3 at 01:00 deletes logs older than November 2 at 00:00. **0 stops retaining new audit logs and permanently discards existing audit history.** The new policy applies immediately to all audit reads and writes, including MCP, document activity and background operations. Expired rows are physically deleted in transactions of at most 1,000 rows, daily at 01:00 Beijing time, with catch-up at startup and immediate cleanup after a configuration change. Each batch has a 30-second database timeout; a sweep continues until the eligible backlog is drained, and failures retry at the next cleanup. Increasing retention does not restore expired history. Documents, chats, versions, shares, tokens and runtime diagnostic logs are not deleted by this setting.
+
+Cleanup executes SQL `DELETE` against `audit_logs`, not a soft-delete flag. PostgreSQL autovacuum reclaims dead tuples for reuse; the database file size does not necessarily shrink immediately after deletion. The worker does not run blocking `VACUUM FULL` operations.
 
 ## Deployment Version and Manual Update Checks
 

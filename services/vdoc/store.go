@@ -85,6 +85,11 @@ type storeState struct {
 	aiMessages          map[string]*AIChatMessage
 	aiHTTP              *http.Client
 	audits              map[string]*AuditLog
+	auditRetentionDays  int
+	auditWorkerMu       sync.Mutex
+	auditWorkerCancel   context.CancelFunc
+	auditWorkerDone     chan struct{}
+	auditWorkerWake     chan struct{}
 	summaryJobs         map[string]*domainvdoc.AISummaryJob
 	backgroundMu        sync.Mutex
 	backgroundRunning   bool
@@ -115,8 +120,9 @@ func NewStore() *Store {
 		versions: map[string]*ContractVersion{}, endpoints: map[string]*Endpoint{}, diffs: map[string]*Diff{}, tokens: map[string]*MCPToken{}, shares: map[string]*DocumentShare{},
 		aiProviders: map[string]*AIProviderConfig{}, aiPrompts: map[string]*AIPromptOverride{}, aiSummaries: map[string]*AISummary{},
 		aiChats: map[string]*AIChatSession{}, aiMessages: map[string]*AIChatMessage{}, aiHTTP: newAIHTTPClient(), audits: map[string]*AuditLog{},
-		cipherKeyring: defaultKeyring,
-		summaryJobs:   map[string]*domainvdoc.AISummaryJob{},
+		cipherKeyring:      defaultKeyring,
+		auditRetentionDays: domainvdoc.DefaultAuditRetentionDays,
+		summaryJobs:        map[string]*domainvdoc.AISummaryJob{},
 	}}
 }
 
@@ -134,6 +140,7 @@ func (s *Store) requestContext() context.Context {
 func ResetDefaultStoreForTest() {
 	defaultStore.StopRepositoryAutomation()
 	defaultStore.StopSummaryWorker()
+	defaultStore.StopAuditRetentionWorker()
 	defaultStore = NewStore()
 }
 
@@ -142,6 +149,7 @@ func (s *Store) refreshLocked() error {
 		return err
 	}
 	if s.persistence == nil {
+		s.pruneMemoryAuditsLocked()
 		return s.validateMutationGuardLocked()
 	}
 	loaded, err := s.persistence.load(s.requestContext(), s)
@@ -160,6 +168,7 @@ func (s *Store) persistLocked() error {
 
 func (s *Store) persistWithObjectRefsLocked(refs ...domainvdoc.ObjectRef) error {
 	if s.persistence == nil {
+		s.pruneMemoryAuditsLocked()
 		return nil
 	}
 	if err := s.persistence.saveLockedWithObjectRefs(s.requestContext(), s, refs); err != nil {

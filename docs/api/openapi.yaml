@@ -201,6 +201,32 @@ paths:
             schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+  /api/v1/private/system/audit-retention:
+    get:
+      tags: [System]
+      summary: Read global audit log retention (system super admin only).
+      description: Returns detail.audit_retention_days. Default 30, 0 disables retention, days use Beijing calendar dates. Stored in the database and shared across instances.
+      operationId: getAuditRetention
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+    put:
+      tags: [System]
+      summary: Update global audit log retention (system super admin only).
+      description: >-
+        The policy takes effect immediately for reads and writes. Expired logs are permanently deleted in batches
+        daily at 01:00 Beijing time, also at startup and after changes. One day keeps logs from yesterday at midnight onwards. Zero stops new audit retention and clears all existing audit logs.
+        Increasing retention never restores discarded history. Documents, chats and versions are unaffected.
+        Returns detail.audit_retention_days; invalid values return INVALID_ARGUMENT and non-admins PERMISSION_DENIED.
+      operationId: updateAuditRetention
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuditRetentionSettings" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/system/version:
     get:
       tags: [System]
@@ -3213,6 +3239,11 @@ components:
         description: {type: string}
         initial_branch: {type: string, default: main}
         idempotency_key: {type: string, minLength: 8, maxLength: 200}
+    AuditRetentionSettings:
+      type: object
+      required: [audit_retention_days]
+      properties:
+        audit_retention_days: { type: integer, minimum: 0, maximum: 36500, default: 30 }
     SystemVersion:
       type: object
       additionalProperties: false

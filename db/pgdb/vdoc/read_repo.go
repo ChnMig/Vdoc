@@ -160,7 +160,7 @@ func searchPattern(value string) string {
 }
 
 func (r *Repository) ReadAudits(ctx context.Context, input domain.AuditQuery) (*domain.AuditPage, error) {
-	query := r.database.WithContext(ctx).Model(&AuditLog{})
+	query := r.database.WithContext(ctx).Model(&AuditLog{}).Where(retainedAuditPredicate)
 	if input.Actor != "" {
 		users := r.database.WithContext(ctx).Model(&User{}).Select("id").Where("email ILIKE ?", searchPattern(input.Actor))
 		if actorID, err := uuid.Parse(input.Actor); err == nil {

@@ -183,8 +183,10 @@ func InitDefaultStore(ctx context.Context, cfg RuntimeConfig) error {
 	if previous := defaultStore; previous != nil {
 		previous.StopRepositoryAutomation()
 		previous.StopSummaryWorker()
+		previous.StopAuditRetentionWorker()
 	}
 	defaultStore = store
+	store.StartAuditRetentionWorker()
 	if _, ok := cfg.DatabaseRepository.(domainvdoc.SummaryJobRepository); ok {
 		store.StartSummaryWorker()
 	}
@@ -211,6 +213,7 @@ func CloseDefaultStore() error {
 	if defaultStore != nil {
 		defaultStore.StopRepositoryAutomation()
 		defaultStore.StopSummaryWorker()
+		defaultStore.StopAuditRetentionWorker()
 	}
 	if defaultStore == nil || defaultStore.persistence == nil {
 		return nil

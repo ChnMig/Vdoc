@@ -1426,7 +1426,7 @@ func (r *Repository) loadDiffs(ctx context.Context, loaded *domainvdoc.State) er
 
 func (r *Repository) loadAudits(ctx context.Context, loaded *domainvdoc.State) error {
 	var models []AuditLog
-	if err := r.database.WithContext(ctx).Order("created_at,id").Find(&models).Error; err != nil {
+	if err := r.database.WithContext(ctx).Where(retainedAuditPredicate).Order("created_at,id").Find(&models).Error; err != nil {
 		return err
 	}
 	for _, model := range models {

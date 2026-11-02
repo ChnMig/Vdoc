@@ -187,7 +187,7 @@ get_doc_draft
 
 Direct publish tools are not available in v0.1. Human Admin or SuperAdmin review publishes versions.
 
-Installable agent-facing assets are kept outside this backend repository: the MCP stdio adapter lives in [Vdoc-mcp](https://github.com/ChnMig/Vdoc-mcp), and the workflow skill lives in [Vdoc-mcp/skills/vdoc](https://github.com/ChnMig/Vdoc-mcp/tree/main/skills/vdoc).
+Installable agent-facing assets are kept outside this backend repository: the document-management MCP stdio adapter lives in [Vdoc-mcp](https://github.com/ChnMig/Vdoc-mcp). Consuming applications and agents define how to use the documents in their business.
 
 ## Backend Architecture
 
