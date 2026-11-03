@@ -19,7 +19,13 @@ func TestAuditRetentionUpgradeFrom022(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runMigrations(ctx, database, migrations[:len(migrations)-1]); err != nil {
+	previous := []Migration{}
+	for _, migration := range migrations {
+		if migration.Version < "023" {
+			previous = append(previous, migration)
+		}
+	}
+	if err := runMigrations(ctx, database, previous); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Exec(`INSERT INTO audit_logs(actor_type,action,resource_type,created_at)

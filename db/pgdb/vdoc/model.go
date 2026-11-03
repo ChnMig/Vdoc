@@ -290,7 +290,7 @@ type AuditLog struct {
 	ActorTokenID *string    `gorm:"column:actor_token_id;type:uuid"`
 	Action       string     `gorm:"column:action;type:text;not null"`
 	ResourceType string     `gorm:"column:resource_type;type:text;not null"`
-	ResourceID   *string    `gorm:"column:resource_id;type:uuid"`
+	ResourceID   *string    `gorm:"column:resource_id;type:text"`
 	ProjectID    *string    `gorm:"column:project_id;type:uuid"`
 	DocumentID   *string    `gorm:"column:document_id;type:uuid"`
 	Metadata     pgdb.JSONB `gorm:"column:metadata;type:jsonb;not null;default:'{}'"`

@@ -111,7 +111,7 @@ func TestAuditLogModelDeclaresSchemaColumns(t *testing.T) {
 		"ActorTokenID": {"column:actor_token_id", "type:uuid"},
 		"Action":       {"column:action", "type:text", "not null"},
 		"ResourceType": {"column:resource_type", "type:text", "not null"},
-		"ResourceID":   {"column:resource_id", "type:uuid"},
+		"ResourceID":   {"column:resource_id", "type:text"},
 		"ProjectID":    {"column:project_id", "type:uuid"},
 		"DocumentID":   {"column:document_id", "type:uuid"},
 		"Metadata":     {"column:metadata", "type:jsonb", "not null"},

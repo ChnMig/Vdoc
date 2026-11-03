@@ -169,7 +169,7 @@ func (r *Repository) ReadAudits(ctx context.Context, input domain.AuditQuery) (*
 			query = query.Where("actor_user_id IN (?)", users)
 		}
 	}
-	for _, filter := range []struct{ column, value string }{{"project_id", input.ProjectID}, {"document_id", input.DocumentID}, {"action", input.Action}, {"resource_type", input.ResourceType}, {"resource_id", input.ResourceID}} {
+	for _, filter := range []struct{ column, value string }{{"project_id", input.ProjectID}, {"document_id", input.DocumentID}, {"action", input.Action}, {"resource_type", input.ResourceType}, {"resource_id", domainID(input.ResourceID)}} {
 		if filter.value != "" {
 			query = query.Where(filter.column+" = ?", filter.value)
 		}

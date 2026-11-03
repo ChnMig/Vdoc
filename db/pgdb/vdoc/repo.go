@@ -1440,7 +1440,7 @@ func auditLogModelFromDomain(audit *domainvdoc.AuditLog) *AuditLog {
 	if audit == nil {
 		return nil
 	}
-	return &AuditLog{Base: pgdb.Base{ID: audit.ID, CreatedAt: nonZeroTime(audit.CreatedAt), UpdatedAt: nonZeroTime(audit.UpdatedAt)}, ActorType: audit.ActorType, ActorUserID: stringPtr(audit.ActorUserID), ActorTokenID: stringPtr(audit.ActorTokenID), Action: audit.Action, ResourceType: audit.ResourceType, ResourceID: stringPtr(audit.ResourceID), ProjectID: stringPtr(audit.ProjectID), DocumentID: stringPtr(audit.ServiceID), Metadata: pgdb.NewJSONB(audit.Metadata, "{}"), IPAddress: stringPtr(audit.IPAddress), UserAgent: stringPtr(audit.UserAgent), RequestID: stringPtr(audit.RequestID)}
+	return &AuditLog{Base: pgdb.Base{ID: audit.ID, CreatedAt: nonZeroTime(audit.CreatedAt), UpdatedAt: nonZeroTime(audit.UpdatedAt)}, ActorType: audit.ActorType, ActorUserID: stringPtr(audit.ActorUserID), ActorTokenID: stringPtr(audit.ActorTokenID), Action: audit.Action, ResourceType: audit.ResourceType, ResourceID: stringPtr(domainID(audit.ResourceID)), ProjectID: stringPtr(audit.ProjectID), DocumentID: stringPtr(audit.ServiceID), Metadata: pgdb.NewJSONB(audit.Metadata, "{}"), IPAddress: stringPtr(audit.IPAddress), UserAgent: stringPtr(audit.UserAgent), RequestID: stringPtr(audit.RequestID)}
 }
 
 func domainAuditLogFromModel(model AuditLog) *domainvdoc.AuditLog {
