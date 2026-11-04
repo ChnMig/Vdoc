@@ -83,6 +83,9 @@ func TestPidFileLifecycle(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	// PID 写入先于依赖初始化；等到监听后再验证正常关闭，避免把启动取消当成退出失败。
+	waitForServerPort(t, port, waitCh, &out)
+
 	secondPort := reserveLocalPort(t)
 	secondCtx, cancelSecond := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelSecond()
