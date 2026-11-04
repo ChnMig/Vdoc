@@ -24,7 +24,7 @@ type AIProvider struct {
 	TimeoutMS              int     `gorm:"column:timeout_ms;type:integer;not null"`
 	FirstResponseTimeoutMS int     `gorm:"column:first_response_timeout_ms;type:integer;not null"`
 	IdleTimeoutMS          int     `gorm:"column:idle_timeout_ms;type:integer;not null"`
-	MaxOutputTokens        int     `gorm:"column:max_output_tokens;type:integer;not null;default:1000"`
+	MaxOutputTokens        int     `gorm:"column:max_output_tokens;type:integer;not null"`
 	CreatedBy              string  `gorm:"column:created_by;type:uuid;not null"`
 	UpdatedBy              string  `gorm:"column:updated_by;type:uuid;not null"`
 }

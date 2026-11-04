@@ -13,10 +13,26 @@ type documentFolderMutationRepository interface {
 	UpsertDocumentFolder(context.Context, *domainvdoc.DocumentFolder) error
 }
 
+type documentFolderDeletionRepository interface {
+	DeleteDocumentFolder(context.Context, string, string) error
+}
+
 func (p *postgresPersistence) saveDocumentFoldersLocked(ctx context.Context, store *Store, repository domainvdoc.Repository) error {
 	var previous map[string]*DocumentFolder
 	if store.persisted != nil {
 		previous = store.persisted.DocumentFolders
+	}
+	for id, folder := range previous {
+		if store.documentFolders[id] != nil {
+			continue
+		}
+		repo, ok := repository.(documentFolderDeletionRepository)
+		if !ok {
+			return fmt.Errorf("repository does not support deleting document folders")
+		}
+		if err := repo.DeleteDocumentFolder(ctx, folder.ProjectID, id); err != nil {
+			return err
+		}
 	}
 	folders := changedStoreValues(store.documentFolders, previous, func(folder *DocumentFolder) string { return folder.ID })
 	if len(folders) == 0 {

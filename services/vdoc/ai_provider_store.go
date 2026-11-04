@@ -184,6 +184,7 @@ type aiProviderTuning struct {
 func providerTuning(input AIProviderInput, existing *AIProviderConfig) (aiProviderTuning, error) {
 	tuning := aiProviderTuning{temperature: domainai.ProviderDefaultTemperature, timeoutMS: domainai.ProviderDefaultTimeoutMS, firstResponseTimeoutMS: domainai.ProviderDefaultFirstResponseTimeoutMS, idleTimeoutMS: domainai.ProviderDefaultIdleTimeoutMS, maxOutputTokens: domainai.ProviderDefaultMaxTokens}
 	if existing != nil {
+		tuning.maxOutputTokens = existing.MaxOutputTokens
 		tuning.timeoutMS = existing.TimeoutMS
 		tuning.firstResponseTimeoutMS = existing.FirstResponseTimeout()
 		tuning.idleTimeoutMS = existing.IdleTimeout()
@@ -209,7 +210,7 @@ func providerTuning(input AIProviderInput, existing *AIProviderConfig) (aiProvid
 	if !domainai.ValidProviderTimeoutMS(tuning.timeoutMS) || !domainai.ValidProviderTimeoutMS(tuning.firstResponseTimeoutMS) || !domainai.ValidProviderTimeoutMS(tuning.idleTimeoutMS) {
 		return aiProviderTuning{}, ErrInvalidArgument
 	}
-	if tuning.maxOutputTokens < domainai.ProviderMinMaxTokens || tuning.maxOutputTokens > domainai.ProviderMaxMaxTokens {
+	if tuning.maxOutputTokens != 0 && (tuning.maxOutputTokens < domainai.ProviderMinMaxTokens || tuning.maxOutputTokens > domainai.ProviderMaxMaxTokens) {
 		return aiProviderTuning{}, ErrInvalidArgument
 	}
 	return tuning, nil

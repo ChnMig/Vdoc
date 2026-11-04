@@ -654,7 +654,7 @@ func appendAuditToState(audits map[string]*AuditLog, ctx AuditContext, actorType
 	}
 	audit := domainaudit.Build(domainaudit.BuildParams{
 		ID:  id.GenerateID(),
-		Now: time.Now(),
+		Now: time.Now().Round(0),
 		Context: domainaudit.Context{
 			ActorType:    ctx.ActorType,
 			ActorTokenID: ctx.ActorTokenID,
@@ -4321,6 +4321,10 @@ func cloneAuditLog(v *AuditLog) *AuditLog {
 		return nil
 	}
 	c := *v
+	// Audit cursors serialize wall time; discard process-local monotonic time
+	// so sorting and the next-page boundary use the same ordering.
+	c.CreatedAt = c.CreatedAt.Round(0)
+	c.UpdatedAt = c.UpdatedAt.Round(0)
 	c.Metadata = copyStringMap(v.Metadata)
 	return &c
 }

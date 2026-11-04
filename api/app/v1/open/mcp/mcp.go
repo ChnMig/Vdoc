@@ -76,6 +76,7 @@ type namedField struct {
 type mcpProjectDTO struct {
 	ID          string    `json:"id"`
 	TeamID      string    `json:"team_id"`
+	TeamName    string    `json:"team_name"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Status      int       `json:"status"`
@@ -251,11 +252,12 @@ var toolDefinitions = []toolDefinition{
 	{Name: "get_release", Description: "Read one exact human-published release by its server-generated ID.", InputSchema: repositoryScopedSchema(inputSchema([]string{"project_id", "release_id"}, gin.H{"project_id": stringProperty("Project ID."), "release_id": stringProperty("Exact release ID returned by list_releases.")}))},
 	{Name: "analyze_changes", Description: "Run AI analysis against exact immutable commit IDs. Returns a separate analysis result and status; never rewrites or publishes a commit.", InputSchema: repositoryCompareSchema(true)},
 	{Name: "list_repository_events", Description: "Read ordered repository events after an optional sequence for commit, branch and release automation. Events identify exact before/after commits.", InputSchema: repositoryEventsSchema()},
-	{Name: "list_projects", Description: "List projects visible to the authenticated MCP token user.", InputSchema: inputSchema(nil, nil)},
+	{Name: "list_teams", Description: "List teams containing projects visible to the authenticated user. Optionally filter by team name; returns IDs, names and accessible project counts.", InputSchema: inputSchema(nil, gin.H{"query": stringProperty("Optional case-insensitive substring of the team name.")})},
+	{Name: "list_projects", Description: "Find projects visible to the authenticated user by project name and optional team ID or exact team name. Returns project IDs and team names; duplicate names remain separate candidates. Omit filters to list all accessible projects.", InputSchema: inputSchema(nil, gin.H{"query": stringProperty("Optional case-insensitive substring of the project name."), "team_id": stringProperty("Optional team ID returned by list_teams."), "team_name": stringProperty("Optional exact team name, matched case-insensitively. Duplicate team names return all accessible matches.")})},
 	{Name: "list_documents", Description: "List documents in a project.", InputSchema: inputSchema([]string{"project_id"}, gin.H{"project_id": stringProperty("Project ID.")})},
 	{Name: "search_documents", Description: "Search names, paths and raw document content on default branches or an explicit document ref. Results pin exact commits and contain bounded snippets. Continue next_cursor even through empty pages; type scopes filter results.", InputSchema: repositorySearchSchema()},
 	{Name: "get_document_section", Description: "Read bounded exact source lines, a unique Markdown ATX heading, an OpenAPI operation or an outline at an exact commit. Structured output is optional and labeled; get_document_at_commit always retains full raw source access.", InputSchema: repositorySectionSchema()},
-	{Name: "apply_document_patch", Description: "Apply 1 to 100 unique, non-overlapping exact text replacements against an observed document branch head and append an immutable numbered commit. Requires both read and draft scopes. Preserves all other source bytes and metadata; never publishes. Retry identical arguments and key after an unknown outcome.", InputSchema: repositoryPatchSchema()},
+	{Name: "apply_document_patch", Description: "Apply 1 to 100 unique, non-overlapping exact text replacements against an observed document branch head and append an immutable numbered commit. Requires both read and write scopes. Preserves all other source bytes and metadata; never publishes. Retry identical arguments and key after an unknown outcome.", InputSchema: repositoryPatchSchema()},
 }
 
 // 旧协议处理保留在服务端内部；不再向新版 Agent 发现清单暴露。
@@ -412,11 +414,13 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 	switch tool {
 	case "create_document", "resolve_ref", "list_branches", "create_branch", "list_commits", "get_commit", "get_document_at_commit", "commit_changes", "compare_commits", "list_merge_requests", "create_merge_request", "list_releases", "get_release", "analyze_changes", "list_repository_events", "search_documents", "get_document_section", "apply_document_patch":
 		return executeRepositoryTool(store, userID, scopes, tool, raw)
-	case "list_projects":
+	case "list_teams":
 		if !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
 			return nil, app.ErrPermissionDenied
 		}
-		var a struct{}
+		var a struct {
+			Query string `json:"query"`
+		}
 		if err := decodeArguments(raw, &a); err != nil {
 			return nil, err
 		}
@@ -424,7 +428,33 @@ func executeContext(ctx context.Context, userID string, scopes []int, tool strin
 		if err != nil {
 			return nil, err
 		}
-		return mcpProjects(projects), nil
+		return mcpTeams(projects, a.Query), nil
+	case "list_projects":
+		if !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
+			return nil, app.ErrPermissionDenied
+		}
+		var a struct {
+			Query    string `json:"query"`
+			TeamID   string `json:"team_id"`
+			TeamName string `json:"team_name"`
+		}
+		if err := decodeArguments(raw, &a); err != nil {
+			return nil, err
+		}
+		projects, err := store.ListProjects(userID)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]*app.Project, 0, len(projects))
+		for _, project := range projects {
+			if !matchesDiscoveryName(project.Name, a.Query) ||
+				(strings.TrimSpace(a.TeamID) != "" && project.TeamID != strings.TrimSpace(a.TeamID)) ||
+				(strings.TrimSpace(a.TeamName) != "" && !strings.EqualFold(project.TeamName, strings.TrimSpace(a.TeamName))) {
+				continue
+			}
+			result = append(result, project)
+		}
+		return mcpProjects(result), nil
 	case "list_documents":
 		if !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
 			return nil, app.ErrPermissionDenied
@@ -1420,7 +1450,41 @@ func mcpProject(value *app.Project) mcpProjectDTO {
 	if value == nil {
 		return mcpProjectDTO{}
 	}
-	return mcpProjectDTO{ID: value.ID, TeamID: value.TeamID, Name: value.Name, Description: value.Description, Status: value.Status, CreatedBy: value.CreatedBy, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	return mcpProjectDTO{ID: value.ID, TeamID: value.TeamID, TeamName: value.TeamName, Name: value.Name, Description: value.Description, Status: value.Status, CreatedBy: value.CreatedBy, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+}
+
+type mcpTeamDTO struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ProjectCount int    `json:"project_count"`
+}
+
+func matchesDiscoveryName(name, query string) bool {
+	return strings.Contains(strings.ToLower(name), strings.ToLower(strings.TrimSpace(query)))
+}
+
+func mcpTeams(projects []*app.Project, query string) []mcpTeamDTO {
+	byID := map[string]mcpTeamDTO{}
+	for _, project := range projects {
+		if !matchesDiscoveryName(project.TeamName, query) {
+			continue
+		}
+		team := byID[project.TeamID]
+		team.ID, team.Name = project.TeamID, project.TeamName
+		team.ProjectCount++
+		byID[team.ID] = team
+	}
+	out := make([]mcpTeamDTO, 0, len(byID))
+	for _, team := range byID {
+		out = append(out, team)
+	}
+	slices.SortFunc(out, func(a, b mcpTeamDTO) int {
+		if result := strings.Compare(a.Name, b.Name); result != 0 {
+			return result
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
 }
 
 func mcpProjects(values []*app.Project) []mcpProjectDTO {

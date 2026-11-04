@@ -533,6 +533,32 @@ paths:
             schema: { $ref: "#/components/schemas/CreateFolderRequest" }
       responses:
         "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+    patch:
+      tags: [Document Folders]
+      summary: Rename or move a project folder.
+      description: Requires Project Admin or SuperAdmin on an active project. Selects the source by path, including directories inferred from repository document paths. Provide name or parent_path, or both. Empty parent_path moves to the project root. Rejects missing destinations, self or descendant moves and occupied destinations. Retains folder IDs and atomically updates descendant folder and current document paths with audit records. Immutable commits and releases retain their original paths.
+      operationId: updateProjectFolderLocation
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateFolderLocationRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
+    delete:
+      tags: [Document Folders]
+      summary: Delete an empty project folder.
+      description: Requires Project Admin or SuperAdmin on an active project. Only folders without child folders or current documents may be deleted. Nonempty folders return FAILED_PRECONDITION. Returns detail containing deleted=true.
+      operationId: deleteProjectFolder
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteFolderRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/VdocEnvelopeResponse" }
   /api/v1/private/projects/{project_id}/documents/{document_id}:
     parameters:
       - { $ref: "#/components/parameters/ProjectID" }
@@ -3437,6 +3463,7 @@ components:
       type: object
       additionalProperties: false
       required: [name]
+      not: { required: [parent_id, parent_path] }
       properties:
         name:
           type: string
@@ -3445,6 +3472,26 @@ components:
         parent_id:
           type: [string, "null"]
           description: Parent folder in this project; omitted, null, or empty selects the virtual project root.
+        parent_path:
+          type: string
+          description: Existing project-local parent directory, including inferred directories. Empty selects project root. Cannot be combined with parent_id.
+    UpdateFolderLocationRequest:
+      type: object
+      additionalProperties: false
+      required: [path]
+      anyOf:
+        - required: [name]
+        - required: [parent_path]
+      properties:
+        path: { type: string, minLength: 1, description: Current project-local folder path. }
+        name: { type: string, minLength: 1, description: Safe single folder-name segment. Omit to retain the name. }
+        parent_path: { type: string, description: Existing destination directory in this project. Empty selects root. Omit to retain the parent. }
+    DeleteFolderRequest:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: { type: string, minLength: 1 }
     FolderDTO:
       type: object
       additionalProperties: false
@@ -3720,9 +3767,9 @@ components:
         max_output_tokens:
           type: integer
           default: 1000
-          minimum: 1
+          minimum: 0
           maximum: 32000
-          description: Maximum generated output tokens. Omit to use 1000. Values from 1 through 32000 are accepted.
+          description: Maximum generated output tokens. Zero omits the output cap in upstream Responses, Chat Completions and reasoning requests; provider and model limits still apply. Custom values are 1 through 32000. Omitted updates preserve the saved value; new providers default to 1000.
     AIProviderModelsRequest:
       type: object
       additionalProperties: false
@@ -3827,9 +3874,9 @@ components:
         max_output_tokens:
           type: integer
           default: 1000
-          minimum: 1
+          minimum: 0
           maximum: 32000
-          description: Effective output token cap.
+          description: Effective output token cap. Zero means no application output cap; provider and model limits still apply.
     AIPromptRequest:
       type: object
       additionalProperties: false
@@ -3913,6 +3960,7 @@ components:
         - get_release
         - analyze_changes
         - list_repository_events
+        - list_teams
         - list_projects
         - list_documents
         - search_documents

@@ -85,7 +85,7 @@ func TestAIProviderStore_UpsertSystemProviderRejectsTuningOutOfBounds(t *testing
 		{name: "temperature above maximum", adjust: func(input *AIProviderInput) { input.Temperature = float64Ptr(2.01) }},
 		{name: "timeout below minimum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(999) }},
 		{name: "timeout above maximum", adjust: func(input *AIProviderInput) { input.TimeoutMS = intPtr(2147483648) }},
-		{name: "max output below minimum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(0) }},
+		{name: "max output below minimum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(-1) }},
 		{name: "max output above maximum", adjust: func(input *AIProviderInput) { input.MaxOutputTokens = intPtr(32001) }},
 	}
 

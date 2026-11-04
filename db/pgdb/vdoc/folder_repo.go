@@ -8,7 +8,7 @@ import (
 	domainvdoc "vdoc/domain/vdoc"
 )
 
-// DocumentFolder 的父节点在同一项目中，目录路径创建后不可变。
+// DocumentFolder 的父节点在同一项目中；改名时同一事务同步更新子目录路径。
 type DocumentFolder struct {
 	pgdb.Base
 	ProjectID string  `gorm:"column:project_id;type:uuid;not null"`
@@ -41,4 +41,15 @@ func (r *Repository) UpsertDocumentFolder(ctx context.Context, folder *domainvdo
 	}
 	model := &DocumentFolder{Base: pgdb.Base{ID: folder.ID, CreatedAt: nonZeroTime(folder.CreatedAt), UpdatedAt: nonZeroTime(folder.UpdatedAt)}, ProjectID: folder.ProjectID, ParentID: stringPtr(folder.ParentID), Name: folder.Name, Path: folder.Path, CreatedBy: folder.CreatedBy}
 	return r.upsertByID(ctx, model)
+}
+
+func (r *Repository) DeleteDocumentFolder(ctx context.Context, projectID, folderID string) error {
+	result := r.database.WithContext(ctx).Where("project_id = ? AND id = ?", projectID, folderID).Delete(&DocumentFolder{})
+	if result.Error != nil {
+		return mapPostgresError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return domainvdoc.ErrNotFound
+	}
+	return nil
 }

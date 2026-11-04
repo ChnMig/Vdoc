@@ -185,6 +185,16 @@ func (s *Store) repositoryUpdateCatalog(storage repo.Storage, project string, b 
 	if !exists {
 		return nil
 	}
+	if len(c.ParentIDs) > 0 {
+		parent, err := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", c.ParentIDs[0])
+		if err != nil {
+			return err
+		}
+		if previous, exists := fileByID(parent.Files, d.ID); exists && previous.RelativePath == file.RelativePath {
+			// 仅正文变化的合并不能把独立改名后的目录恢复成历史路径。
+			file.RelativePath = d.RelativePath
+		}
+	}
 	all := storage
 	if scoped, ok := storage.(documentRepositoryStorage); ok {
 		all = scoped.Storage

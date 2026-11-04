@@ -15,6 +15,49 @@ import (
 func RegisterRoutes(private *gin.RouterGroup) {
 	private.GET("/projects/:project_id/folders", listFolders)
 	private.POST("/projects/:project_id/folders", createFolder)
+	private.PATCH("/projects/:project_id/folders", renameFolder)
+	private.DELETE("/projects/:project_id/folders", deleteFolder)
+}
+
+func renameFolder(c *gin.Context) {
+	userID, ok := shared.CurrentUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Path       string  `json:"path" binding:"required"`
+		Name       *string `json:"name"`
+		ParentPath *string `json:"parent_path"`
+	}
+	if err := middleware.BindJSONParam(&req, c); err != nil {
+		shared.ReturnBindError(c, err)
+		return
+	}
+	folder, err := shared.Store(c).UpdateDocumentFolderLocation(userID, c.Param("project_id"), req.Path, req.Name, req.ParentPath, shared.AuditContextFromGin(c))
+	if err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	response.ReturnOk(c, folderDTO(folder))
+}
+
+func deleteFolder(c *gin.Context) {
+	userID, ok := shared.CurrentUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Path string `json:"path" binding:"required"`
+	}
+	if err := middleware.BindJSONParam(&req, c); err != nil {
+		shared.ReturnBindError(c, err)
+		return
+	}
+	if err := shared.Store(c).DeleteDocumentFolder(userID, c.Param("project_id"), req.Path, shared.AuditContextFromGin(c)); err != nil {
+		shared.ReturnAppError(c, err)
+		return
+	}
+	response.ReturnOk(c, gin.H{"deleted": true})
 }
 
 type FolderDTO struct {
@@ -60,11 +103,25 @@ func createFolder(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name     string          `json:"name"`
-		ParentID json.RawMessage `json:"parent_id"`
+		Name       string          `json:"name"`
+		ParentID   json.RawMessage `json:"parent_id"`
+		ParentPath *string         `json:"parent_path"`
 	}
 	if err := middleware.BindJSONParam(&req, c); err != nil {
 		shared.ReturnBindError(c, err)
+		return
+	}
+	if req.ParentPath != nil {
+		if len(req.ParentID) > 0 {
+			response.ReturnError(c, response.INVALID_ARGUMENT, "parent_id and parent_path cannot be combined")
+			return
+		}
+		folder, err := shared.Store(c).CreateDocumentFolderAtPath(userID, c.Param("project_id"), *req.ParentPath, req.Name, shared.AuditContextFromGin(c))
+		if err != nil {
+			shared.ReturnAppError(c, err)
+			return
+		}
+		response.ReturnOk(c, folderDTO(folder))
 		return
 	}
 	var parentID *string

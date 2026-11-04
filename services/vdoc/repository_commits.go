@@ -369,6 +369,16 @@ func (s *Store) repositorySave(actor, project, branchID string, input repo.SaveI
 				return ErrInvalidArgument
 			}
 			f := repo.File{DocumentID: change.DocumentID, RelativePath: change.RelativePath, Name: change.Name, DocumentType: change.DocumentType, Description: change.Description, ContentHash: repo.Hash([]byte(change.Content))}
+			if old, exists := files[change.DocumentID]; exists && b.DocumentID != "" && f.RelativePath == old.RelativePath {
+				catalog, e := repositoryLoad[repo.Document](s.requestContext(), storage, project, "document", b.DocumentID)
+				if e != nil {
+					return e
+				}
+				// 文件夹改名不重写旧提交；默认分支继续保存时沿用当前目录路径。
+				if catalog.DefaultBranchID == b.ID {
+					f.RelativePath = catalog.RelativePath
+				}
+			}
 			if old, ok := files[change.DocumentID]; ok && old.ContentHash == f.ContentHash {
 				f.ObjectKey = old.ObjectKey
 			} else {

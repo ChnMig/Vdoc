@@ -67,6 +67,25 @@ func TestDocumentActivityReadersSeeOnlyOrderedDocumentWorkflow(t *testing.T) {
 	}
 }
 
+func TestMemoryAuditTimestampsMatchSerializedCursorClock(t *testing.T) {
+	store, _, project, document, branch := newContractPipelineStore(t)
+	publishContractDraft(t, store, "admin", project, document, branch, "1.0", testOpenAPI("cursor-clock"))
+	at := time.Now()
+	if err := store.RecordAudit(AuditLog{ID: "recorded", ProjectID: project, ServiceID: document, Action: "document.update", CreatedAt: at, UpdatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	for _, log := range store.audits {
+		// JSON cursors retain wall time only. In-memory ordering must use that
+		// same clock even when consecutive time.Now calls share a wall time.
+		if log.CreatedAt != log.CreatedAt.Round(0) || log.UpdatedAt != log.UpdatedAt.Round(0) {
+			t.Fatalf("audit %s retains a monotonic clock absent from its cursor", log.ID)
+		}
+	}
+	if !store.audits["recorded"].CreatedAt.Equal(at) {
+		t.Fatal("recording an audit changed its wall time")
+	}
+}
+
 func TestDraftHistoryUsesRealPublicationTimeAndValidatedSourceVersion(t *testing.T) {
 	store, branches, project, document, branch := newContractPipelineStore(t)
 	version := publishContractDraft(t, store, "admin", project, document, branch, "1.0", testOpenAPI("source"))

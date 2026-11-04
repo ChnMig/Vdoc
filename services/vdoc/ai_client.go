@@ -297,7 +297,7 @@ type responsesPayload struct {
 	Instructions    string                    `json:"instructions"`
 	Input           string                    `json:"input"`
 	Temperature     float64                   `json:"temperature"`
-	MaxOutputTokens int                       `json:"max_output_tokens"`
+	MaxOutputTokens int                       `json:"max_output_tokens,omitempty"`
 	Store           bool                      `json:"store"`
 	Stream          bool                      `json:"stream"`
 	Reasoning       *reasoningPayload         `json:"reasoning,omitempty"`

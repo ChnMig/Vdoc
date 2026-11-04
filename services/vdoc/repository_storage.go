@@ -94,6 +94,15 @@ func (s *Store) repositoryStorageLocked() repo.Storage {
 
 // WithRepositoryWrite 与旧协作权限使用同一事务锁；内容图不进入全局 State。
 func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, fn func(repo.Storage) error) (resultErr error) {
+	return s.withRepositoryWrite(actorID, projectID, permission, false, fn)
+}
+
+// 目录等可变元数据与文档仓库记录需要在同一事务中保存。
+func (s *Store) withRepositoryStateWrite(actorID, projectID string, permission int, fn func(repo.Storage) error) error {
+	return s.WithRepositoryDocument("").withRepositoryWrite(actorID, projectID, permission, true, fn)
+}
+
+func (s *Store) withRepositoryWrite(actorID, projectID string, permission int, persistState bool, fn func(repo.Storage) error) (resultErr error) {
 	uploads := []string{}
 	defer func() {
 		if resultErr != nil {
@@ -104,6 +113,16 @@ func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, f
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
 		return err
+	}
+	var before, previousPersisted *domain.State
+	if persistState {
+		before, previousPersisted = s.cloneStateLocked(), s.persisted
+		defer func() {
+			if resultErr != nil {
+				s.applyStateLocked(before)
+				s.persisted = previousPersisted
+			}
+		}()
 	}
 	guard := domain.MutationGuard{ActorID: actorID, ProjectID: projectID, Permission: permission}
 	if permission == MemberRoleReader {
@@ -160,7 +179,7 @@ func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, f
 	if !ok {
 		return fmt.Errorf("%w: repository transaction support is required", ErrFailedPrecondition)
 	}
-	return tx.WithinTransaction(s.requestContext(), func(database domain.Repository) error {
+	resultErr = tx.WithinTransaction(s.requestContext(), func(database domain.Repository) error {
 		if err := validateRepositoryMutation(s.requestContext(), database, &guard); err != nil {
 			return err
 		}
@@ -171,8 +190,28 @@ func (s *Store) WithRepositoryWrite(actorID, projectID string, permission int, f
 		if err := storage.LockRepository(s.requestContext(), projectID); err != nil {
 			return err
 		}
-		return run(storage)
+		if persistState {
+			// 取得项目/仓库锁之后再读目录，避免另一实例的创建或改名被旧快照覆盖。
+			latest, err := database.LoadState(s.requestContext())
+			if err != nil {
+				return err
+			}
+			s.applyStateLocked(latest)
+			s.persisted = s.cloneStateLocked()
+			before, previousPersisted = s.cloneStateLocked(), s.persisted
+		}
+		if err := run(storage); err != nil {
+			return err
+		}
+		if persistState {
+			return s.persistence.saveLockedWithRepository(s.requestContext(), s, database)
+		}
+		return nil
 	})
+	if resultErr == nil && persistState {
+		s.persisted = s.cloneStateLocked()
+	}
+	return resultErr
 }
 
 func (s *Store) WithRepositoryRead(actorID, projectID string, fn func(repo.Storage) error) error {

@@ -108,7 +108,7 @@ func (s *Store) compactAIChatContext(actorID, projectID, sessionID string, reque
 			provider := cloneAIProvider(request.Provider)
 			stream := false
 			provider.Stream = &stream
-			if provider.MaxOutputTokens > 2000 {
+			if provider.MaxOutputTokens == 0 || provider.MaxOutputTokens > 2000 {
 				provider.MaxOutputTokens = 2000
 			}
 			ctx, cancel := context.WithTimeout(s.requestContext(), 60*time.Second)

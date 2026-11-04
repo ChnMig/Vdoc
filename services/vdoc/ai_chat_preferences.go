@@ -96,7 +96,7 @@ func (s *Store) GenerateAIChatTitle(actorID, projectID, sessionID string, auditC
 		config := cloneAIProvider(provider)
 		stream := false
 		config.Stream = &stream
-		if config.MaxOutputTokens > 1000 {
+		if config.MaxOutputTokens == 0 || config.MaxOutputTokens > 1000 {
 			config.MaxOutputTokens = 1000
 		}
 		completion = aiCompletionRequest{Provider: config, APIKey: apiKey, UseReasoningParameters: session.ReasoningEffort != "",
