@@ -51,6 +51,14 @@ func (s *Store) RepositoryPublish(actor, project string, input repo.PublishInput
 		if e != nil {
 			return e
 		}
+		if b.DocumentID != "" {
+			if e = s.repositoryRequireActiveDocument(storage, project, b.DocumentID); e != nil {
+				return e
+			}
+		}
+		if e = s.repositoryRequireActiveFiles(storage, project, commit.Files, ""); e != nil {
+			return e
+		}
 		if e = s.repositoryValidatePublished(commit); e != nil {
 			return e
 		}
