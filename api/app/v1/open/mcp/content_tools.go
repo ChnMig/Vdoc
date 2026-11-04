@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	"github.com/gin-gonic/gin"
-	"vdoc/domain/documentrepo"
 	app "vdoc/services/vdoc"
 )
 
@@ -43,16 +42,30 @@ func repositoryPatchSchema() gin.H {
 }
 
 type mcpDocumentSection struct {
-	CommitID    string                         `json:"commit_id"`
-	Document    mcpRepositoryFile              `json:"document"`
-	ContentKind string                         `json:"content_kind"`
-	Content     string                         `json:"content"`
-	StartLine   int                            `json:"start_line,omitempty"`
-	EndLine     int                            `json:"end_line,omitempty"`
-	TotalLines  int                            `json:"total_lines"`
-	NextLine    int                            `json:"next_line,omitempty"`
-	Headings    []documentrepo.MarkdownHeading `json:"headings,omitempty"`
-	Operations  []app.RepositoryOperation      `json:"operations,omitempty"`
+	CommitID    string                 `json:"commit_id"`
+	Document    mcpRepositoryFile      `json:"document"`
+	ContentKind string                 `json:"content_kind"`
+	Content     string                 `json:"content"`
+	StartLine   int                    `json:"start_line,omitempty"`
+	EndLine     int                    `json:"end_line,omitempty"`
+	TotalLines  int                    `json:"total_lines"`
+	NextLine    int                    `json:"next_line,omitempty"`
+	Headings    []mcpDocumentHeading   `json:"headings,omitempty"`
+	Operations  []mcpDocumentOperation `json:"operations,omitempty"`
+}
+
+type mcpDocumentHeading struct {
+	Heading   string `json:"heading"`
+	Level     int    `json:"level"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+}
+
+type mcpDocumentOperation struct {
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	OperationID string `json:"operation_id,omitempty"`
+	Summary     string `json:"summary,omitempty"`
 }
 
 type mcpDocumentSearchMatch struct {
@@ -141,5 +154,12 @@ func executeRepositoryContentTool(store *app.Store, actor string, scopes []int, 
 	if err != nil {
 		return nil, err
 	}
-	return mcpDocumentSection{CommitID: section.Source.CommitID, Document: repositoryFileDTO(section.Source.Document), ContentKind: section.ContentKind, Content: section.Content, StartLine: section.Lines.StartLine, EndLine: section.Lines.EndLine, TotalLines: section.Lines.TotalLines, NextLine: section.Lines.NextLine, Headings: section.Headings, Operations: section.Operations}, nil
+	result := mcpDocumentSection{CommitID: section.Source.CommitID, Document: repositoryFileDTO(section.Source.Document), ContentKind: section.ContentKind, Content: section.Content, StartLine: section.Lines.StartLine, EndLine: section.Lines.EndLine, TotalLines: section.Lines.TotalLines, NextLine: section.Lines.NextLine}
+	for _, heading := range section.Headings {
+		result.Headings = append(result.Headings, mcpDocumentHeading{Heading: heading.Heading, Level: heading.Level, StartLine: heading.StartLine, EndLine: heading.EndLine})
+	}
+	for _, operation := range section.Operations {
+		result.Operations = append(result.Operations, mcpDocumentOperation{Method: operation.Method, Path: operation.Path, OperationID: operation.OperationID, Summary: operation.Summary})
+	}
+	return result, nil
 }
