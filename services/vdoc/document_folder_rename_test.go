@@ -159,32 +159,64 @@ func (r *folderRenameRepository) RecordAudit(_ context.Context, log *AuditLog) e
 }
 
 func TestRenameDocumentFolderRollsBackStateAndCatalogTogether(t *testing.T) {
-	for _, commitFailure := range []bool{false, true} {
-		s := newTask5Store()
-		created, err := s.RepositoryCreateDocument("writer", "project-a", repo.DocumentInput{Name: "Guide", RelativePath: "Docs/guide.md", DocumentType: DocumentTypeMarkdown, Content: "source", IdempotencyKey: "rollback-folder-create"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := &folderRenameRepository{state: s.cloneStateLocked(), repositoryMemory: s.repoMemory.clone(), failAudit: !commitFailure, failCommit: commitFailure}
-		s.persistence = &postgresPersistence{repo: p}
-		if _, err = s.RenameDocumentFolder("admin", "project-a", "Docs", "Manual"); !errors.Is(err, errInjectedAuditFailure) {
-			t.Fatalf("failure=%v: %v", commitFailure, err)
-		}
-		if len(s.documentFolders) != 0 || len(p.state.DocumentFolders) != 0 {
-			t.Fatal("failed transaction retained new folders")
-		}
-		d, err := repositoryLoad[repo.Document](context.Background(), p, "project-a", "document", created.Document.ID)
-		if err != nil || d.RelativePath != "Docs/guide.md" {
-			t.Fatalf("failed transaction changed catalog: %+v %v", d, err)
-		}
-		p.failAudit, p.failCommit = false, false
-		if _, err = s.RenameDocumentFolder("admin", "project-a", "Docs", "Manual"); err != nil {
-			t.Fatal(err)
-		}
-		d, err = repositoryLoad[repo.Document](context.Background(), p, "project-a", "document", created.Document.ID)
-		if err != nil || d.RelativePath != "Manual/guide.md" || len(p.state.DocumentFolders) != 1 {
-			t.Fatalf("retry failed: %+v %v", d, err)
-		}
+	for _, tc := range []struct {
+		name                    string
+		inferred, commitFailure bool
+	}{
+		{"inferred/audit_failure", true, false},
+		{"inferred/commit_failure", true, true},
+		{"persisted/audit_failure", false, false},
+		{"persisted/commit_failure", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTask5Store()
+			created, err := s.RepositoryCreateDocument("writer", "project-a", repo.DocumentInput{Name: "Guide", RelativePath: "Docs/guide.md", DocumentType: DocumentTypeMarkdown, Content: "source", IdempotencyKey: "rollback-folder-create"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			folder := s.folderByPathLocked("project-a", "Docs")
+			if folder == nil || len(s.documentFolders) != 1 {
+				t.Fatal("document creation did not persist its parent folder")
+			}
+			folderID := folder.ID
+			if tc.inferred {
+				// 保留旧库仅由 relative_path 推导目录、回滚后仍无目录行的原始覆盖。
+				s.documentFolders = map[string]*DocumentFolder{}
+			}
+			beforeMemory, beforePersisted := s.cloneStateLocked(), s.cloneStateLocked()
+			beforeMemoryGraph, beforePersistedGraph := s.repoMemory.clone(), s.repoMemory.clone()
+			p := &folderRenameRepository{state: s.cloneStateLocked(), repositoryMemory: s.repoMemory.clone(), failAudit: !tc.commitFailure, failCommit: tc.commitFailure}
+			s.persistence = &postgresPersistence{repo: p}
+			if renamed, err := s.RenameDocumentFolder("admin", "project-a", "Docs", "Manual"); renamed != nil || !errors.Is(err, errInjectedAuditFailure) {
+				t.Fatalf("failed transaction result=%+v err=%v", renamed, err)
+			}
+			if tc.inferred && (len(s.documentFolders) != 0 || len(p.state.DocumentFolders) != 0) {
+				t.Fatal("failed transaction retained newly materialized folders")
+			}
+			if !reflect.DeepEqual(beforeMemory, s.cloneStateLocked()) || !reflect.DeepEqual(beforePersisted, p.state) || !reflect.DeepEqual(beforePersisted, s.persisted) {
+				t.Fatal("failed transaction changed in-memory or persisted state")
+			}
+			if !reflect.DeepEqual(beforeMemoryGraph, s.repoMemory) || !reflect.DeepEqual(beforePersistedGraph, p.repositoryMemory) {
+				t.Fatal("failed transaction changed the repository graph or content")
+			}
+			d, err := repositoryLoad[repo.Document](context.Background(), p, "project-a", "document", created.Document.ID)
+			if err != nil || d.RelativePath != "Docs/guide.md" {
+				t.Fatalf("failed transaction changed catalog: %+v %v", d, err)
+			}
+			p.failAudit, p.failCommit = false, false
+			renamed, err := s.RenameDocumentFolder("admin", "project-a", "Docs", "Manual")
+			if err != nil || renamed == nil || renamed.Path != "Manual" || (!tc.inferred && renamed.ID != folderID) {
+				t.Fatalf("retry changed folder identity or failed: %+v %v", renamed, err)
+			}
+			d, err = repositoryLoad[repo.Document](context.Background(), p, "project-a", "document", created.Document.ID)
+			if err != nil || d.RelativePath != "Manual/guide.md" || len(p.state.DocumentFolders) != 1 || !reflect.DeepEqual(s.documentFolders, p.state.DocumentFolders) {
+				t.Fatalf("retry did not synchronize state and catalog: %+v %v", d, err)
+			}
+			historical, err := s.WithRepositoryDocument(created.Document.ID).RepositoryContent("reader", "project-a", created.Commit.ID, created.Document.ID)
+			if err != nil || historical.Document.RelativePath != "Docs/guide.md" || historical.Content != "source" {
+				t.Fatalf("rollback/retry changed immutable history: %+v %v", historical, err)
+			}
+		})
 	}
 }
 
