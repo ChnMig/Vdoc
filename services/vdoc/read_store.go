@@ -22,6 +22,9 @@ func (s *Store) readScope(scope domain.ReadScope) (*Store, domain.ReadRepository
 	if err != nil {
 		return nil, nil, err
 	}
+	if scope.DocumentID != "" && !s.repositoryCatalogDocumentVisibleLocked(scope.ProjectID, scope.DocumentID) {
+		return nil, nil, ErrNotFound
+	}
 	local := &Store{storeState: &storeState{}, ctx: s.requestContext()}
 	local.applyStateLocked(state)
 	local.objects = s.objects

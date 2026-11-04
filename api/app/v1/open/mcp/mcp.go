@@ -258,6 +258,12 @@ var toolDefinitions = []toolDefinition{
 	{Name: "search_documents", Description: "Search names, paths and raw document content on default branches or an explicit document ref. Results pin exact commits and contain bounded snippets. Continue next_cursor even through empty pages; type scopes filter results.", InputSchema: repositorySearchSchema()},
 	{Name: "get_document_section", Description: "Read bounded exact source lines, a unique Markdown ATX heading, an OpenAPI operation or an outline at an exact commit. Structured output is optional and labeled; get_document_at_commit always retains full raw source access.", InputSchema: repositorySectionSchema()},
 	{Name: "apply_document_patch", Description: "Apply 1 to 100 unique, non-overlapping exact text replacements against an observed document branch head and append an immutable numbered commit. Requires both read and write scopes. Preserves all other source bytes and metadata; never publishes. Retry identical arguments and key after an unknown outcome.", InputSchema: repositoryPatchSchema()},
+	{Name: "list_folders", Description: "List explicit empty folders and folders inferred from readable documents in one authorized project. Paths identify folders; an empty parent_path means the project root.", InputSchema: catalogFolderSchema("list")},
+	{Name: "create_folder", Description: "Create a folder under an existing parent_path, or the project root when omitted. Requires a document write scope and project administrator permission.", InputSchema: catalogFolderSchema("create")},
+	{Name: "update_folder", Description: "Rename a folder with name, move it with parent_path, or do both. Moves stay within the project; an empty parent_path selects the root. Updates descendant document paths while preserving immutable history. Requires project administrator permission and write scopes for all affected document types.", InputSchema: catalogFolderSchema("update")},
+	{Name: "delete_folder", Description: "Delete an empty folder. Non-empty folders cannot be deleted; move or delete their contents first. Requires a document write scope and project administrator permission.", InputSchema: catalogFolderSchema("delete")},
+	{Name: "update_document", Description: "Update the current document name or description, or rename/move its file using relative_path. Keeps its identity, branches and immutable history. Requires the document type's write scope and project administrator permission.", InputSchema: catalogDocumentSchema(false)},
+	{Name: "delete_document", Description: "Delete a document from the active project catalog and disable existing shares and direct access. Retains immutable history for audit. Requires the document type's write scope and project administrator permission; repeating the deletion is safe.", InputSchema: catalogDocumentSchema(true)},
 }
 
 // 旧协议处理保留在服务端内部；不再向新版 Agent 发现清单暴露。
@@ -412,6 +418,8 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 func executeContext(ctx context.Context, userID string, scopes []int, tool string, raw json.RawMessage, auditCtx ...app.AuditContext) (any, error) {
 	store := app.DefaultStore().WithContext(ctx)
 	switch tool {
+	case "list_folders", "create_folder", "update_folder", "delete_folder", "update_document", "delete_document":
+		return executeCatalogTool(store, userID, scopes, tool, raw, auditCtx...)
 	case "create_document", "resolve_ref", "list_branches", "create_branch", "list_commits", "get_commit", "get_document_at_commit", "commit_changes", "compare_commits", "list_merge_requests", "create_merge_request", "list_releases", "get_release", "analyze_changes", "list_repository_events", "search_documents", "get_document_section", "apply_document_patch":
 		return executeRepositoryTool(store, userID, scopes, tool, raw)
 	case "list_teams":

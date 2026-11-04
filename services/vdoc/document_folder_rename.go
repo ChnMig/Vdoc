@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ func (s *Store) CreateDocumentFolderAtPath(actorID, projectID, parentPath, name 
 		if e != nil {
 			return e
 		}
+		catalog = activeRepositoryDocuments(catalog)
 		if parentPath != "" {
 			if parent := s.folderByPathLocked(projectID, parentPath); parent != nil {
 				parentPath = parent.Path
@@ -85,6 +87,10 @@ func (s *Store) RenameDocumentFolder(actorID, projectID, folderPath, name string
 }
 
 func (s *Store) UpdateDocumentFolderLocation(actorID, projectID, folderPath string, requestedName, parentPath *string, auditCtx ...AuditContext) (out *DocumentFolder, err error) {
+	return s.UpdateDocumentFolderLocationWithTypes(actorID, projectID, folderPath, requestedName, parentPath, nil, auditCtx...)
+}
+
+func (s *Store) UpdateDocumentFolderLocationWithTypes(actorID, projectID, folderPath string, requestedName, parentPath *string, allowedTypes []int, auditCtx ...AuditContext) (out *DocumentFolder, err error) {
 	if requestedName == nil && parentPath == nil {
 		return nil, ErrInvalidArgument
 	}
@@ -114,6 +120,12 @@ func (s *Store) UpdateDocumentFolderLocation(actorID, projectID, folderPath stri
 		catalog, e := s.repositoryDocumentsLocked(storage, projectID)
 		if e != nil {
 			return e
+		}
+		catalog = activeRepositoryDocuments(catalog)
+		for _, document := range catalog {
+			if allowedTypes != nil && folderPathContains(document.RelativePath, folderPath) && !slices.Contains(allowedTypes, document.DocumentType) {
+				return ErrPermissionDenied
+			}
 		}
 		folder := s.folderByPathLocked(projectID, folderPath)
 		if folder != nil {
@@ -204,7 +216,7 @@ func (s *Store) UpdateDocumentFolderLocation(actorID, projectID, folderPath stri
 			}
 		}
 		for _, document := range s.apiServices {
-			if document.ProjectID == projectID {
+			if document.ProjectID == projectID && document.Status == DocumentStatusActive {
 				if renamed, matches := replaceFolderPrefix(document.RelativePath, folderPath, newPath); matches {
 					document.RelativePath, document.UpdatedAt = renamed, now
 				}
@@ -263,7 +275,7 @@ func (s *Store) DeleteDocumentFolder(actorID, projectID, folderPath string, audi
 			return err
 		}
 		for _, document := range catalog {
-			if _, contained := replaceFolderPrefix(document.RelativePath, folder.Path, folder.Path); contained {
+			if _, contained := replaceFolderPrefix(document.RelativePath, folder.Path, folder.Path); document.Status == DocumentStatusActive && contained {
 				return ErrFailedPrecondition
 			}
 		}

@@ -1971,7 +1971,7 @@ func (s *Store) MarkdownVersionContent(actorID, projectID, documentID, versionID
 		return nil, err
 	}
 	v, ok := s.versions[versionID]
-	if !ok || v.ProjectID != projectID || v.ServiceID != documentID || v.SchemaFormat != textDocumentFormat(s.apiServices[documentID]) {
+	if !ok || v.ProjectID != projectID || v.ServiceID != documentID || v.SchemaFormat != textDocumentFormat(s.apiServices[documentID]) || !s.repositoryCatalogDocumentVisibleLocked(projectID, documentID) {
 		return nil, ErrNotFound
 	}
 	if err := s.hydrateVersionContentLocked(s.requestContext(), v, kind); err != nil {
@@ -2078,7 +2078,7 @@ func (s *Store) ListServices(actorID, projectID string, documentType ...int) ([]
 		wantedType = documentType[0]
 	}
 	for _, svc := range s.apiServices {
-		if svc.ProjectID == projectID && (wantedType == 0 || svc.DocumentType == wantedType) {
+		if svc.ProjectID == projectID && (wantedType == 0 || svc.DocumentType == wantedType) && s.repositoryCatalogDocumentVisibleLocked(projectID, svc.ID) {
 			out = append(out, cloneService(svc))
 		}
 	}
@@ -2096,7 +2096,7 @@ func (s *Store) Service(actorID, projectID, serviceID string) (*APIService, erro
 		return nil, ErrPermissionDenied
 	}
 	svc, ok := s.apiServices[serviceID]
-	if !ok || svc.ProjectID != projectID {
+	if !ok || svc.ProjectID != projectID || !s.repositoryCatalogDocumentVisibleLocked(projectID, serviceID) {
 		return nil, ErrNotFound
 	}
 	return s.documentWithWorkflowLocked(actorID, svc), nil
@@ -2706,7 +2706,7 @@ func (s *Store) Version(actorID, projectID, serviceID, versionID string) (*Contr
 		return nil, ErrPermissionDenied
 	}
 	v, ok := s.versions[versionID]
-	if !ok || v.ProjectID != projectID || v.ServiceID != serviceID {
+	if !ok || v.ProjectID != projectID || v.ServiceID != serviceID || !s.repositoryCatalogDocumentVisibleLocked(projectID, serviceID) {
 		return nil, ErrNotFound
 	}
 	return cloneVersion(v), nil
@@ -2730,7 +2730,7 @@ func (s *Store) VersionSchema(actorID, projectID, serviceID, versionID, kind str
 		return nil, ErrPermissionDenied
 	}
 	v, ok := s.versions[versionID]
-	if !ok || v.ProjectID != projectID || v.ServiceID != serviceID {
+	if !ok || v.ProjectID != projectID || v.ServiceID != serviceID || !s.repositoryCatalogDocumentVisibleLocked(projectID, serviceID) {
 		return nil, ErrNotFound
 	}
 	if err := s.hydrateVersionContentLocked(s.requestContext(), v, kind); err != nil {
@@ -3947,7 +3947,7 @@ func (s *Store) versionIdentitiesLocked(serviceID string) []domainversion.Versio
 
 func (s *Store) serviceInProjectLocked(serviceID, projectID string) bool {
 	svc := s.apiServices[serviceID]
-	return svc != nil && svc.ProjectID == projectID
+	return svc != nil && svc.ProjectID == projectID && s.repositoryCatalogDocumentVisibleLocked(projectID, serviceID)
 }
 
 func (s *Store) serviceActiveInProjectLocked(serviceID, projectID string) bool {
@@ -4071,7 +4071,7 @@ func (s *Store) draftInProjectServiceLocked(projectID, serviceID, draftID string
 
 func (s *Store) versionInProjectLocked(projectID, serviceID, versionID string) bool {
 	version := s.versions[versionID]
-	return version != nil && version.ProjectID == projectID && (version.ServiceID == serviceID || version.DocumentID == serviceID)
+	return version != nil && version.ProjectID == projectID && (version.ServiceID == serviceID || version.DocumentID == serviceID) && s.repositoryCatalogDocumentVisibleLocked(projectID, serviceID)
 }
 
 func memberKey(projectID, userID string) string { return domainproject.MemberKey(projectID, userID) }

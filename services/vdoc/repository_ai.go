@@ -118,6 +118,9 @@ func (s *Store) repositoryFinishAnalysis(analysis *documentrepo.Analysis, guard 
 		if current.Status != "running" || current.InputFingerprint != analysis.InputFingerprint || current.CreatedBy != analysis.CreatedBy {
 			return ErrFailedPrecondition
 		}
+		if callErr == nil {
+			callErr = s.repositoryAnalysisAvailable(storage, analysis.ProjectID, current)
+		}
 		now := time.Now().UTC()
 		current.CompletedAt = &now
 		if callErr != nil {
@@ -369,6 +372,9 @@ func (s *Store) RepositoryAnalysis(actorID, projectID, analysisID string) (*docu
 	err := s.WithRepositoryRead(actorID, projectID, func(storage documentrepo.Storage) error {
 		record, err := getRepositoryAutomation(s.requestContext(), storage, projectID, "analysis", analysisID, &value)
 		if err == nil {
+			if err = s.repositoryAnalysisAvailable(storage, projectID, value); err != nil {
+				return err
+			}
 			value.Sequence = record.Sequence
 		}
 		return err
@@ -391,12 +397,38 @@ func (s *Store) RepositoryAnalyses(actorID, projectID string, after int64) ([]do
 			if err := json.Unmarshal(record.Payload, &value); err != nil {
 				return err
 			}
+			if err := s.repositoryAnalysisAvailable(storage, projectID, value); errors.Is(err, ErrNotFound) {
+				continue
+			} else if err != nil {
+				return err
+			}
 			value.Sequence = record.Sequence
 			values = append(values, value)
 		}
 		return nil
 	})
 	return values, err
+}
+
+func (s *Store) repositoryAnalysisAvailable(storage documentrepo.Storage, project string, value documentrepo.Analysis) error {
+	if value.DocumentID != "" {
+		if err := s.repositoryRequireActiveDocument(storage, project, value.DocumentID); err != nil {
+			return err
+		}
+	}
+	for _, commitID := range []string{value.FromCommitID, value.ToCommitID} {
+		if commitID == "" {
+			continue
+		}
+		commit, err := repositoryLoad[documentrepo.Commit](s.requestContext(), storage, project, "commit", commitID)
+		if err != nil {
+			return err
+		}
+		if err = s.repositoryRequireActiveFiles(storage, project, commit.Files, value.DocumentID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func getRepositoryAutomation(ctx context.Context, storage documentrepo.Storage, projectID, kind, recordID string, out any) (*documentrepo.Record, error) {

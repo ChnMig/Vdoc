@@ -515,6 +515,9 @@ func (s *Store) ensureReadableAITargetLocked(actorID string, target AISummaryTar
 	if !s.canReadLocked(actorID, target.ProjectID) {
 		return ErrPermissionDenied
 	}
+	if !s.repositoryCatalogDocumentVisibleLocked(target.ProjectID, target.DocumentID) {
+		return ErrNotFound
+	}
 	_, err := s.aiTargetBranchLocked(target)
 	return err
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"vdoc/api/app/v1/private/shared"
+	app "vdoc/appstore"
 	repo "vdoc/domain/documentrepo"
 )
 
@@ -63,4 +64,45 @@ func createDocument(c *gin.Context) {
 		Branch   branchDTO   `json:"branch"`
 		Commit   commitDTO   `json:"commit"`
 	}{documentView(value.Document), branchView(value.Branch), commitView(&value.Commit)}, nil)
+}
+
+func document(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	value, err := shared.Store(c).RepositoryDocument(a, c.Param("project_id"), c.Param("document_id"))
+	if err != nil {
+		result(c, nil, err)
+		return
+	}
+	result(c, documentView(*value), nil)
+}
+
+func updateDocument(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	var input app.RepositoryDocumentPatchInput
+	if !bind(c, &input) {
+		return
+	}
+	value, err := shared.Store(c).RepositoryUpdateDocument(a, c.Param("project_id"), c.Param("document_id"), input, shared.AuditContextFromGin(c))
+	if err != nil {
+		result(c, nil, err)
+		return
+	}
+	result(c, documentView(*value), nil)
+}
+
+func deleteDocument(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	err := shared.Store(c).RepositoryDeleteDocument(a, c.Param("project_id"), c.Param("document_id"), shared.AuditContextFromGin(c))
+	result(c, struct {
+		Deleted bool `json:"deleted"`
+	}{err == nil}, err)
 }

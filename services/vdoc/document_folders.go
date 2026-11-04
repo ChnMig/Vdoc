@@ -173,7 +173,7 @@ func (s *Store) ensureDocumentPathAvailableLocked(projectID, documentID, relativ
 		return nil
 	}
 	for _, existing := range s.apiServices {
-		if existing.ID != documentID && existing.ProjectID == projectID && strings.EqualFold(existing.RelativePath, relativePath) {
+		if existing.ID != documentID && existing.ProjectID == projectID && existing.Status == DocumentStatusActive && strings.EqualFold(existing.RelativePath, relativePath) {
 			return ErrAlreadyExists
 		}
 	}

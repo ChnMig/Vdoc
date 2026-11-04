@@ -134,6 +134,7 @@ type AIChatContextState = app.AIChatContextState
 type AuditContext = app.AuditContext
 type NameDescriptionPatch = app.NameDescriptionPatch
 type DocumentPatchInput = app.DocumentPatchInput
+type RepositoryDocumentPatchInput = app.RepositoryDocumentPatchInput
 type DocumentFolder = app.DocumentFolder
 type DocumentLocation = app.DocumentLocation
 type InitialDocumentContent = app.InitialDocumentContent

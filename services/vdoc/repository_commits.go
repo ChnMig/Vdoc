@@ -65,6 +65,9 @@ func (s *Store) RepositoryBranches(actor, project string) (out []repo.Branch, er
 func (s *Store) RepositoryBranch(actor, project, branchID string) (out *repo.Branch, err error) {
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
 		out, err = repositoryLoad[repo.Branch](s.requestContext(), storage, project, "branch", branchID)
+		if err == nil && out.DocumentID != "" {
+			return s.repositoryRequireActiveDocument(storage, project, out.DocumentID)
+		}
 		return err
 	})
 	return
@@ -102,6 +105,9 @@ func (s *Store) RepositoryCreateBranch(actor, project string, input repo.BranchI
 		if from.DocumentID != s.repositoryDocumentID() {
 			return ErrInvalidArgument
 		}
+		if e = s.repositoryRequireActiveFiles(storage, project, from.Files, ""); e != nil {
+			return e
+		}
 		out = &repo.Branch{ID: id.GenerateID(), ProjectID: project, DocumentID: s.repositoryDocumentID(), Name: input.Name, HeadCommitID: input.FromCommitID, Generation: 1, IsProtected: input.IsProtected, CreatedBy: actor, CreatedAt: time.Now().UTC()}
 		if e = repositoryPut(s.requestContext(), storage, project, "branch", out.ID, out, 1, nil); e != nil {
 			return e
@@ -114,6 +120,14 @@ func (s *Store) RepositoryCreateBranch(actor, project string, input repo.BranchI
 func (s *Store) RepositoryCommit(actor, project, commitID string) (out *repo.Commit, err error) {
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
 		out, err = repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", commitID)
+		if err == nil {
+			if out.DocumentID != "" {
+				if err = s.repositoryRequireActiveDocument(storage, project, out.DocumentID); err != nil {
+					return err
+				}
+			}
+			return s.repositoryRequireActiveFiles(storage, project, out.Files, "")
+		}
 		return err
 	})
 	return
@@ -144,6 +158,16 @@ func (s *Store) RepositoryHistory(actor, project, branchID, documentID, cursor s
 		if e != nil {
 			return e
 		}
+		if b.DocumentID != "" {
+			if e = s.repositoryRequireActiveDocument(storage, project, b.DocumentID); e != nil {
+				return e
+			}
+		}
+		if documentID != "" {
+			if e = s.repositoryRequireActiveDocument(storage, project, documentID); e != nil {
+				return e
+			}
+		}
 		tip := b.HeadCommitID
 		if cursor != "" {
 			tip = cursor
@@ -151,6 +175,9 @@ func (s *Store) RepositoryHistory(actor, project, branchID, documentID, cursor s
 		for scanned := 0; tip != "" && len(out.Commits) < 50 && scanned < 2000; scanned++ {
 			c, e := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", tip)
 			if e != nil {
+				return e
+			}
+			if e = s.repositoryRequireActiveFiles(storage, project, c.Files, documentID); e != nil {
 				return e
 			}
 			include := documentID == ""
@@ -201,6 +228,9 @@ func (s *Store) repositoryFileContent(file repo.File) (string, error) {
 
 func (s *Store) RepositoryContent(actor, project, commitID, documentID string) (out *repo.Content, err error) {
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
+		if e := s.repositoryRequireActiveDocument(storage, project, documentID); e != nil {
+			return e
+		}
 		c, e := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", commitID)
 		if e != nil {
 			return e
@@ -369,14 +399,22 @@ func (s *Store) repositorySave(actor, project, branchID string, input repo.SaveI
 				return ErrInvalidArgument
 			}
 			f := repo.File{DocumentID: change.DocumentID, RelativePath: change.RelativePath, Name: change.Name, DocumentType: change.DocumentType, Description: change.Description, ContentHash: repo.Hash([]byte(change.Content))}
-			if old, exists := files[change.DocumentID]; exists && b.DocumentID != "" && f.RelativePath == old.RelativePath {
+			if old, exists := files[change.DocumentID]; exists && b.DocumentID != "" {
 				catalog, e := repositoryLoad[repo.Document](s.requestContext(), storage, project, "document", b.DocumentID)
 				if e != nil {
 					return e
 				}
 				// 文件夹改名不重写旧提交；默认分支继续保存时沿用当前目录路径。
 				if catalog.DefaultBranchID == b.ID {
-					f.RelativePath = catalog.RelativePath
+					if f.RelativePath == old.RelativePath {
+						f.RelativePath = catalog.RelativePath
+					}
+					if f.Name == old.Name {
+						f.Name = catalog.Name
+					}
+					if f.Description == old.Description {
+						f.Description = catalog.Description
+					}
 				}
 			}
 			if old, ok := files[change.DocumentID]; ok && old.ContentHash == f.ContentHash {

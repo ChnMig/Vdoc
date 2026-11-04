@@ -3003,6 +3003,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/RepositoryCreatedDocumentEnvelope'
 
+  /api/v1/private/projects/{project_id}/repository/documents/{document_id}:
+    parameters:
+    - $ref: '#/components/parameters/ProjectID'
+    - $ref: '#/components/parameters/DocumentID'
+    get:
+      tags: [Repository]
+      operationId: getRepositoryDocument
+      summary: Read the active document identity and current catalog metadata.
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: Vdoc envelope containing the document DTO; deleted documents are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryDocumentEnvelope'
+    patch:
+      tags: [Repository]
+      operationId: updateRepositoryDocument
+      summary: Rename a document, edit its description, or move it within the project. Requires project admin.
+      description: relative_path is the full target file path. Its parent must exist, or be the project root. The document ID, branches, commits, releases and original content remain unchanged.
+      security:
+      - JWTAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepositoryDocumentPatchInput'
+      responses:
+        '200':
+          description: Vdoc envelope containing the updated document DTO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryDocumentEnvelope'
+    delete:
+      tags: [Repository]
+      operationId: deleteRepositoryDocument
+      summary: Delete a document from the active catalog. Requires project admin.
+      description: Deletion is idempotent, disables existing public shares and document access, and retains history, stored content and audit records.
+      security:
+      - JWTAuth: []
+      responses:
+        '200':
+          description: Vdoc envelope with detail.deleted set to true on success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryDeletedDocumentEnvelope'
+
 components:
   securitySchemes:
     JWTAuth:
@@ -3238,6 +3290,31 @@ components:
             type: array
             items:
               $ref: '#/components/schemas/RepositoryDocument'
+    RepositoryDocumentEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/VdocEnvelope'
+      - type: object
+        properties:
+          detail:
+            $ref: '#/components/schemas/RepositoryDocument'
+    RepositoryDocumentPatchInput:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        relative_path: {type: string, minLength: 1, maxLength: 4096}
+        description: {type: string, maxLength: 4000}
+    RepositoryDeletedDocumentEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/VdocEnvelope'
+      - type: object
+        properties:
+          detail:
+            type: object
+            required: [deleted]
+            properties:
+              deleted: {type: boolean, const: true}
     RepositoryCreatedDocumentEnvelope:
       allOf:
       - $ref: '#/components/schemas/VdocEnvelope'
@@ -3966,6 +4043,12 @@ components:
         - search_documents
         - get_document_section
         - apply_document_patch
+        - list_folders
+        - create_folder
+        - update_folder
+        - delete_folder
+        - update_document
+        - delete_document
     RepositoryAnalysisRequest:
       type: object
       additionalProperties: false

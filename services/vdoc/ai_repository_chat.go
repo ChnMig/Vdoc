@@ -19,7 +19,7 @@ func (s *Store) aiRepositoryDocumentLocked(target AISummaryTarget) (*repo.Docume
 	if err != nil {
 		return nil, err
 	}
-	if document.ID != target.DocumentID || document.ProjectID != target.ProjectID {
+	if document.ID != target.DocumentID || document.ProjectID != target.ProjectID || document.Status != DocumentStatusActive {
 		return nil, ErrNotFound
 	}
 	return document, nil
@@ -70,7 +70,7 @@ func aiRepositoryRevision(ctx context.Context, storage repo.Storage, project, do
 	if err != nil {
 		return "", err
 	}
-	if d.ID != document || d.ProjectID != project {
+	if d.ID != document || d.ProjectID != project || d.Status != DocumentStatusActive {
 		return "", ErrNotFound
 	}
 	scoped := documentRepositoryStorage{Storage: storage, documentID: document}

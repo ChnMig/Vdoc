@@ -197,6 +197,19 @@ func (s *Store) repositoryMergeFiles(project string, base, left, right []repo.Fi
 func (s *Store) RepositoryMergeRequests(actor, project string) (out []repo.MergeRequest, err error) {
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
 		out, err = repositoryList[repo.MergeRequest](s.requestContext(), storage, project, "merge_request")
+		if err != nil {
+			return err
+		}
+		visible := out[:0]
+		for _, value := range out {
+			if e := s.repositoryRequireActiveFiles(storage, project, value.ResultFiles, ""); errors.Is(e, ErrNotFound) {
+				continue
+			} else if e != nil {
+				return e
+			}
+			visible = append(visible, value)
+		}
+		out = visible
 		return err
 	})
 	return
@@ -204,6 +217,9 @@ func (s *Store) RepositoryMergeRequests(actor, project string) (out []repo.Merge
 
 func (s *Store) RepositoryMergeContent(actor, project, requestID, documentID string) (out *repo.MergeContent, err error) {
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
+		if e := s.repositoryRequireActiveDocument(storage, project, documentID); e != nil {
+			return e
+		}
 		m, e := repositoryLoad[repo.MergeRequest](s.requestContext(), storage, project, "merge_request", requestID)
 		if e != nil {
 			return e
@@ -250,6 +266,9 @@ func (s *Store) RepositoryCreateMerge(actor, project string, input repo.MergeInp
 		if e != nil {
 			return e
 		}
+		if e = s.repositoryRequireActiveFiles(storage, project, append(append([]repo.File{}, left.Files...), right.Files...), ""); e != nil {
+			return e
+		}
 		base, e := s.repositoryMergeBase(storage, project, left.ID, right.ID)
 		if e != nil {
 			return e
@@ -286,6 +305,20 @@ func (s *Store) repositoryCurrentMerge(storage repo.Storage, project, requestID 
 	target, e := repositoryLoad[repo.Branch](s.requestContext(), storage, project, "branch", m.TargetBranchID)
 	if e != nil {
 		return nil, nil, nil, e
+	}
+	for _, branch := range []*repo.Branch{source, target} {
+		if branch.DocumentID != "" {
+			if e = s.repositoryRequireActiveDocument(storage, project, branch.DocumentID); e != nil {
+				return nil, nil, nil, e
+			}
+		}
+		commit, err := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", branch.HeadCommitID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if err = s.repositoryRequireActiveFiles(storage, project, commit.Files, ""); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	if source.HeadCommitID != m.SourceCommitID || target.HeadCommitID != m.TargetCommitID || source.Generation != m.SourceGeneration || target.Generation != m.TargetGeneration {
 		return nil, nil, nil, fmt.Errorf("%w: REVIEW_STALE: create a new review round for the latest branch heads", ErrFailedPrecondition)

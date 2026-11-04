@@ -25,9 +25,20 @@ func (s *Store) RepositoryWriteDocuments(actor, project string) ([]repo.Document
 func (s *Store) repositoryDocuments(actor, project string, permission int) (out []repo.Document, err error) {
 	err = s.WithRepositoryDocument("").WithRepositoryWrite(actor, project, permission, func(storage repo.Storage) error {
 		out, err = s.repositoryDocumentsLocked(storage, project)
+		out = activeRepositoryDocuments(out)
 		return err
 	})
 	return
+}
+
+func activeRepositoryDocuments(documents []repo.Document) []repo.Document {
+	out := make([]repo.Document, 0, len(documents))
+	for _, document := range documents {
+		if document.Status == DocumentStatusActive {
+			out = append(out, document)
+		}
+	}
+	return out
 }
 
 func (s *Store) repositoryDocumentsLocked(storage repo.Storage, project string) ([]repo.Document, error) {
@@ -132,12 +143,15 @@ func (s *Store) RepositoryCreateDocument(actor, project string, input repo.Docum
 	encoded, _ := json.Marshal([]any{actor, input})
 	fingerprint, key := repo.Hash(encoded), repo.Hash([]byte("create_document:"+actor+":"+input.IdempotencyKey))
 	keys := []string{}
-	err = s.WithRepositoryWrite(actor, project, MemberRoleWriter, func(storage repo.Storage) error {
+	err = s.withRepositoryStateWrite(actor, project, MemberRoleWriter, func(storage repo.Storage) error {
 		ctx := s.requestContext()
 		previous, e := repositoryLoad[repositoryCreatedDocumentRecord](ctx, storage, project, "idempotency", key)
 		if e == nil {
 			if previous.Fingerprint != fingerprint {
 				return fmt.Errorf("%w: idempotency key reused for another document", ErrInvalidArgument)
+			}
+			if e = s.repositoryRequireActiveDocument(storage, project, previous.DocumentID); e != nil {
+				return e
 			}
 			out = &previous.Result
 			return nil
@@ -154,16 +168,21 @@ func (s *Store) RepositoryCreateDocument(actor, project string, input repo.Docum
 			return e
 		}
 		for _, d := range catalog {
-			if d.Status == 1 && d.RelativePath == f.RelativePath {
+			if d.Status == 1 && (folderPathContains(d.RelativePath, f.RelativePath) || folderPathContains(f.RelativePath, d.RelativePath)) {
 				return fmt.Errorf("%w: document path already exists", ErrAlreadyExists)
 			}
 		}
+		for _, folder := range s.documentFolders {
+			if folder.ProjectID == project && folderPathContains(folder.Path, f.RelativePath) {
+				return ErrAlreadyExists
+			}
+		}
+		now := time.Now().UTC()
 		f, e = s.repositoryStoreFile(project, f, input.Content)
 		keys = append(keys, f.ObjectKey)
 		if e != nil {
 			return e
 		}
-		now := time.Now().UTC()
 		b := repo.Branch{ID: id.GenerateID(), ProjectID: project, DocumentID: f.DocumentID, Name: input.InitialBranch, Generation: 1, CreatedBy: actor, CreatedAt: now}
 		c := repo.NewCommit(project, actor, "Create "+f.Name, nil, []repo.File{f}, now)
 		repo.NumberCommit(c, &b)
@@ -201,6 +220,9 @@ func (s *Store) RepositoryCreateDocument(actor, project string, input repo.Docum
 // repositoryPrepareDocument 为旧项目创建文档级投影。旧提交、旧分享及原始内容始终保留。
 func (s *Store) repositoryPrepareDocument(storage repo.Storage, actor, project, documentID string, uploads *[]string) error {
 	ctx := s.requestContext()
+	if err := s.repositoryRequireActiveDocument(storage, project, documentID); err != nil {
+		return err
+	}
 	scoped := documentRepositoryStorage{Storage: storage, documentID: documentID}
 	if _, err := scoped.RepositoryRecord(ctx, project, "metadata", "converted"); err == nil {
 		if d := s.apiServices[documentID]; d != nil && d.Status != 1 {
@@ -377,7 +399,7 @@ func (s *Store) repositoryPrepareDocument(storage repo.Storage, actor, project, 
 	}
 
 	document.DocumentID = documentID
-	if err = repositoryPut(ctx, scoped, project, "document", documentID, document, 1, nil); err != nil {
+	if err = s.repositoryPutDocument(scoped, project, document); err != nil {
 		return err
 	}
 	return repositoryPut(ctx, scoped, project, "metadata", "converted", map[string]any{"converted_at": time.Now().UTC(), "source": "document_projection"}, 1, nil)

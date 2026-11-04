@@ -22,6 +22,9 @@ func (s *Store) ensureReadableAIChatTargetLocked(actorID string, target AISummar
 	if target.DocumentID == "" || target.OwnerID != target.DocumentID {
 		return ErrInvalidArgument
 	}
+	if !s.repositoryCatalogDocumentVisibleLocked(target.ProjectID, target.DocumentID) {
+		return ErrNotFound
+	}
 	if !s.serviceInProjectLocked(target.DocumentID, target.ProjectID) {
 		_, err := s.aiRepositoryDocumentLocked(target)
 		return err

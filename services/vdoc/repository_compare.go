@@ -19,8 +19,14 @@ func (s *Store) RepositoryCompare(actor, project string, input repo.CompareInput
 		if e != nil {
 			return e
 		}
+		if e = s.repositoryRequireActiveFiles(storage, project, from.Files, input.DocumentID); e != nil {
+			return e
+		}
 		to, e := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.ToCommitID)
 		if e != nil {
+			return e
+		}
+		if e = s.repositoryRequireActiveFiles(storage, project, to.Files, input.DocumentID); e != nil {
 			return e
 		}
 		out, e = s.repositoryCompare(from, to, input.DocumentID)

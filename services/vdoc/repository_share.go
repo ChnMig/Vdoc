@@ -44,6 +44,9 @@ func (m *repositoryMemory) RepositoryShareProject(_ context.Context, id string) 
 }
 
 func (s *Store) repositoryShareRelease(storage repo.Storage, project, releaseID, documentID string) (*repo.Release, repo.File, error) {
+	if err := s.repositoryRequireActiveDocument(storage, project, documentID); err != nil {
+		return nil, repo.File{}, err
+	}
 	release, err := repositoryLoad[repo.Release](s.requestContext(), storage, project, "release", releaseID)
 	if err != nil {
 		return nil, repo.File{}, err

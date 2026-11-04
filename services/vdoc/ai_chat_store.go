@@ -71,6 +71,9 @@ func (s *Store) AIChatSession(actorID, projectID, sessionID string) (*AIChatSess
 	if !s.canReadLocked(actorID, projectID) {
 		return nil, nil, ErrPermissionDenied
 	}
+	if !s.repositoryCatalogDocumentVisibleLocked(projectID, session.DocumentID) {
+		return nil, nil, ErrNotFound
+	}
 	return cloneAIChatSession(session), s.chatMessagesLocked(sessionID), nil
 }
 

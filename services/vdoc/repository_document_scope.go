@@ -154,6 +154,9 @@ func (s *Store) repositoryCheckLegacyWrite(storage repo.Storage, project string,
 		return err
 	}
 	for _, file := range append(append([]repo.File{}, parent.Files...), c.Files...) {
+		if err := s.repositoryRequireActiveDocument(storage, project, file.DocumentID); err != nil {
+			return err
+		}
 		_, err := storage.RepositoryRecord(s.requestContext(), project, "metadata", "document:"+file.DocumentID+":converted")
 		if err == nil {
 			return fmt.Errorf("%w: DOCUMENT_REPOSITORY_REQUIRED: use this document's branch", ErrFailedPrecondition)
@@ -190,9 +193,17 @@ func (s *Store) repositoryUpdateCatalog(storage repo.Storage, project string, b 
 		if err != nil {
 			return err
 		}
-		if previous, exists := fileByID(parent.Files, d.ID); exists && previous.RelativePath == file.RelativePath {
-			// 仅正文变化的合并不能把独立改名后的目录恢复成历史路径。
-			file.RelativePath = d.RelativePath
+		if previous, exists := fileByID(parent.Files, d.ID); exists {
+			// 正文变化不能覆盖独立管理的当前目录元数据。
+			if previous.RelativePath == file.RelativePath {
+				file.RelativePath = d.RelativePath
+			}
+			if previous.Name == file.Name {
+				file.Name = d.Name
+			}
+			if previous.Description == file.Description {
+				file.Description = d.Description
+			}
 		}
 	}
 	all := storage
@@ -204,7 +215,7 @@ func (s *Store) repositoryUpdateCatalog(storage repo.Storage, project string, b 
 		return err
 	}
 	for _, other := range catalog {
-		if other.ID != d.ID && other.Status == 1 && other.RelativePath == file.RelativePath {
+		if other.ID != d.ID && other.Status == 1 && (folderPathContains(other.RelativePath, file.RelativePath) || folderPathContains(file.RelativePath, other.RelativePath)) {
 			return ErrAlreadyExists
 		}
 	}

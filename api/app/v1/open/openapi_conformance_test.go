@@ -166,6 +166,10 @@ func init() {
 	requestBodyContracts["POST "+documents] = requestBodyContract{required: true, schemaRef: "#/components/schemas/RepositoryDocumentInput"}
 	repositoryResponseSchemas["GET "+documents] = "#/components/schemas/RepositoryDocumentListEnvelope"
 	repositoryResponseSchemas["POST "+documents] = "#/components/schemas/RepositoryCreatedDocumentEnvelope"
+	requestBodyContracts["PATCH "+documents+"/{document_id}"] = requestBodyContract{required: true, schemaRef: "#/components/schemas/RepositoryDocumentPatchInput"}
+	repositoryResponseSchemas["GET "+documents+"/{document_id}"] = "#/components/schemas/RepositoryDocumentEnvelope"
+	repositoryResponseSchemas["PATCH "+documents+"/{document_id}"] = "#/components/schemas/RepositoryDocumentEnvelope"
+	repositoryResponseSchemas["DELETE "+documents+"/{document_id}"] = "#/components/schemas/RepositoryDeletedDocumentEnvelope"
 }
 
 var requiredMCPTools = []string{
@@ -190,6 +194,12 @@ var requiredMCPTools = []string{
 	"search_documents",
 	"get_document_section",
 	"apply_document_patch",
+	"list_folders",
+	"create_folder",
+	"update_folder",
+	"delete_folder",
+	"update_document",
+	"delete_document",
 }
 
 func TestOpenAPISpecRouteServesCheckedInSpec(t *testing.T) {
@@ -364,8 +374,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 61 {
-		t.Fatalf("request body route contract count = %d, want 61", len(requestBodyContracts))
+	if len(requestBodyContracts) != 62 {
+		t.Fatalf("request body route contract count = %d, want 62", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))
