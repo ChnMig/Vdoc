@@ -75,6 +75,8 @@ var requestBodyContracts = map[string]requestBodyContract{
 	"PATCH /api/v1/private/projects/{project_id}/members/{user_id}/role":                                         {required: true, schemaRef: "#/components/schemas/PatchProjectMemberRoleRequest"},
 	"POST /api/v1/private/projects/{project_id}/documents":                                                       {required: true, schemaRef: "#/components/schemas/DocumentRequest"},
 	"POST /api/v1/private/projects/{project_id}/folders":                                                         {required: true, schemaRef: "#/components/schemas/CreateFolderRequest"},
+	"PATCH /api/v1/private/projects/{project_id}/folders":                                                        {required: true, schemaRef: "#/components/schemas/UpdateFolderLocationRequest"},
+	"DELETE /api/v1/private/projects/{project_id}/folders":                                                       {required: true, schemaRef: "#/components/schemas/DeleteFolderRequest"},
 	"PATCH /api/v1/private/projects/{project_id}/documents/{document_id}":                                        {required: true, schemaRef: "#/components/schemas/PatchDocumentRequest"},
 	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/shares":                                  {required: true, schemaRef: "#/components/schemas/CreateDocumentShareRequest"},
 	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/branches":                                {required: true, schemaRef: "#/components/schemas/CreateBranchRequest"},
@@ -182,6 +184,7 @@ var requiredMCPTools = []string{
 	"get_release",
 	"analyze_changes",
 	"list_repository_events",
+	"list_teams",
 	"list_projects",
 	"list_documents",
 	"search_documents",
@@ -361,8 +364,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 59 {
-		t.Fatalf("request body route contract count = %d, want 59", len(requestBodyContracts))
+	if len(requestBodyContracts) != 61 {
+		t.Fatalf("request body route contract count = %d, want 61", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))
@@ -432,12 +435,14 @@ func TestOpenAPIDocumentLocationSchemas(t *testing.T) {
 	components := asMap(t, root["components"], "components")
 	schemas := asMap(t, components["schemas"], "components.schemas")
 	for schemaName, fields := range map[string][]string{
-		"CreateFolderRequest":  {"name", "parent_id"},
-		"FolderDTO":            {"id", "project_id", "parent_id", "name", "path", "created_by", "created_at", "updated_at"},
-		"DocumentRequest":      {"name", "document_type", "relative_path", "file_name", "folder_id", "initial_content"},
-		"PatchDocumentRequest": {"name", "relative_path", "file_name", "folder_id"},
-		"DocumentDTO":          {"folder_id", "file_name", "workflow_state", "has_draft", "latest_version_id", "latest_draft_id"},
-		"ProjectDTO":           {"team_name"},
+		"CreateFolderRequest":         {"name", "parent_id", "parent_path"},
+		"UpdateFolderLocationRequest": {"path", "name", "parent_path"},
+		"DeleteFolderRequest":         {"path"},
+		"FolderDTO":                   {"id", "project_id", "parent_id", "name", "path", "created_by", "created_at", "updated_at"},
+		"DocumentRequest":             {"name", "document_type", "relative_path", "file_name", "folder_id", "initial_content"},
+		"PatchDocumentRequest":        {"name", "relative_path", "file_name", "folder_id"},
+		"DocumentDTO":                 {"folder_id", "file_name", "workflow_state", "has_draft", "latest_version_id", "latest_draft_id"},
+		"ProjectDTO":                  {"team_name"},
 	} {
 		schema := asMap(t, schemas[schemaName], schemaName)
 		properties := asMap(t, schema["properties"], schemaName+".properties")
