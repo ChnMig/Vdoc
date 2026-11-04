@@ -248,9 +248,12 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 
 	toolsList := requireRPCResult[e2eToolList](t, fixture.callRPC(t, mcpToken.Token, map[string]any{"jsonrpc": "2.0", "id": "tools-list", "method": "tools/list"}), "tools/list")
 	names := toolNames(toolsList)
-	for _, required := range []string{"list_projects", "get_latest_schema", "get_endpoint_detail", "compare_api_versions", "get_change_summary", "create_api_version_draft", "submit_api_version_draft"} {
+	for _, required := range []string{"list_projects", "list_documents", "get_document_at_commit", "compare_commits", "commit_changes", "search_documents", "get_document_section", "apply_document_patch"} {
 		requireContains(t, names, required)
 	}
+	// 旧入口保留兼容回归，但不再出现在默认发现清单中。
+	requireNotContains(t, names, "get_latest_schema")
+	requireNotContains(t, names, "get_endpoint_detail")
 	requireNotContains(t, names, "publish_api_schema")
 	requireNotContains(t, names, "publish_api_version")
 
@@ -386,7 +389,7 @@ func runVdocV01HappyPath(t *testing.T, fixture *e2eFixture) happyPathEvidence {
 	evidence.REST.DiffSummary = diff.Summary
 	evidence.MCP.TokenID = mcpToken.ID
 	evidence.MCP.ToolCount = len(names)
-	evidence.MCP.RequiredToolsObserved = []string{"list_projects", "get_latest_schema", "get_endpoint_detail", "compare_api_versions", "get_change_summary", "create_api_version_draft", "submit_api_version_draft"}
+	evidence.MCP.RequiredToolsObserved = []string{"list_projects", "list_documents", "get_document_at_commit", "compare_commits", "commit_changes", "search_documents", "get_document_section", "apply_document_patch"}
 	evidence.MCP.EndpointDetailID = mcpEndpoint.ID
 	evidence.MCP.CompareDiffID = mcpDiff.ID
 	evidence.MCP.CompareSummary = mcpDiff.Summary

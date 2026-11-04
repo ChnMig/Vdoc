@@ -139,6 +139,12 @@ func validateRepositoryValue(raw json.RawMessage, schema gin.H, path string) err
 		if err := json.Unmarshal(raw, &items); err != nil {
 			return invalidArgument(path + " must be an array")
 		}
+		if minimum, ok := schema["minItems"].(int); ok && len(items) < minimum {
+			return invalidArgument(path + " has too few items")
+		}
+		if maximum, ok := schema["maxItems"].(int); ok && len(items) > maximum {
+			return invalidArgument(path + " has too many items")
+		}
 		for _, value := range items {
 			if err := validateRepositoryValue(value, schema["items"].(gin.H), path+"[]"); err != nil {
 				return err
@@ -151,6 +157,9 @@ func validateRepositoryValue(raw json.RawMessage, schema gin.H, path string) err
 		}
 		if minimum, ok := schema["minimum"].(int); ok && value < int64(minimum) {
 			return invalidArgument(path + " is below its minimum")
+		}
+		if maximum, ok := schema["maximum"].(int); ok && value > int64(maximum) {
+			return invalidArgument(path + " exceeds its maximum")
 		}
 	case "string":
 		var value string

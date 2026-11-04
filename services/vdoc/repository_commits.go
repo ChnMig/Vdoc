@@ -294,6 +294,10 @@ func (s *Store) repositoryCleanupUploads(err error, keys []string) error {
 }
 
 func (s *Store) RepositorySave(actor, project, branchID string, input repo.SaveInput) (out *repo.Commit, err error) {
+	return s.repositorySave(actor, project, branchID, input, "")
+}
+
+func (s *Store) repositorySave(actor, project, branchID string, input repo.SaveInput, requestFingerprint string) (out *repo.Commit, err error) {
 	if err = s.repositoryDocumentChanges(input.Changes); err != nil {
 		return nil, err
 	}
@@ -301,6 +305,9 @@ func (s *Store) RepositorySave(actor, project, branchID string, input repo.SaveI
 		return nil, fmt.Errorf("%w: changes, expected HEAD/generation and idempotency key are required", ErrInvalidArgument)
 	}
 	encoded, _ := json.Marshal([]any{actor, branchID, input})
+	if requestFingerprint != "" {
+		encoded, _ = json.Marshal([]any{actor, branchID, input, requestFingerprint})
+	}
 	fingerprint := repo.Hash(encoded)
 	key := repo.Hash([]byte(actor + ":" + input.IdempotencyKey))
 	newKeys := []string{}

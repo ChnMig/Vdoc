@@ -60,12 +60,15 @@ func repositoryFindRelease(store *app.Store, actorID, projectID, releaseID strin
 }
 
 func executeRepositoryTool(store *app.Store, actorID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
-	write := tool == "create_document" || tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request"
+	write := tool == "create_document" || tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request" || tool == "apply_document_patch"
 	if write && !hasAnyScope(scopes, app.ScopeAPIDraft, app.ScopeDocDraft) || !write && !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
 		return nil, app.ErrPermissionDenied
 	}
 	if err := validateRepositoryArguments(tool, raw); err != nil {
 		return nil, err
+	}
+	if tool == "search_documents" {
+		return executeRepositoryContentTool(store, actorID, scopes, tool, raw)
 	}
 	var err error
 	store, raw, err = repositoryBindDocument(store, actorID, scopes, tool, raw)
@@ -73,6 +76,8 @@ func executeRepositoryTool(store *app.Store, actorID string, scopes []int, tool 
 		return nil, err
 	}
 	switch tool {
+	case "get_document_section", "apply_document_patch":
+		return executeRepositoryContentTool(store, actorID, scopes, tool, raw)
 	case "create_document":
 		var args struct {
 			ProjectID string `json:"project_id"`
@@ -578,7 +583,7 @@ func repositoryBindDocument(store *app.Store, actor string, scopes []int, tool s
 		legacy = c.DocumentID == ""
 	}
 	if !legacy {
-		write := tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request"
+		write := tool == "create_branch" || tool == "commit_changes" || tool == "create_merge_request" || tool == "apply_document_patch"
 		var documents []documentrepo.Document
 		var err error
 		if write {
@@ -606,7 +611,7 @@ func repositoryBindDocument(store *app.Store, actor string, scopes []int, tool s
 		store = store.WithRepositoryDocument(doc)
 	}
 	switch tool {
-	case "list_commits", "get_commit", "get_document_at_commit", "compare_commits", "analyze_changes":
+	case "list_commits", "get_commit", "get_document_at_commit", "get_document_section", "apply_document_patch", "compare_commits", "analyze_changes":
 	default:
 		delete(fields, "document_id")
 		raw, _ = json.Marshal(fields)

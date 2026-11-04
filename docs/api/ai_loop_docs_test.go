@@ -29,7 +29,7 @@ func TestAPIDocsDescribeAILoopContract(t *testing.T) {
 		"Skipped and failed automatic summaries are saved as non-blocking `skipped` or `failed` records",
 		"AI audit metadata includes token usage fields when the provider returns them",
 		"API keys, JWTs, MCP tokens, and Authorization headers are not stored in AI audit metadata",
-		"Direct publish tools are intentionally not exposed in v0.1",
+		"MCP cannot approve, merge, or publish",
 	}
 
 	missing := make([]string, 0)

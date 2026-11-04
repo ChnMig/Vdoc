@@ -223,7 +223,7 @@ func TestMCPRevokedTokensAreRejectedAndPastExpiryCannotBeCreated(t *testing.T) {
 	}
 }
 
-func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
+func TestMCPJSONRPCToolsListUsesDocumentRepositoryTools(t *testing.T) {
 	fixture := newMCPFixture(t)
 	token, err := app.DefaultStore().CreateMCPToken(fixture.readerID, "read", []int{app.ScopeAPIRead}, nil)
 	if err != nil {
@@ -240,43 +240,26 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 	}
 
 	required := map[string]bool{
-		"get_schema_version":       false,
-		"get_doc_version":          false,
-		"list_projects":            false,
-		"list_documents":           false,
-		"list_document_branches":   false,
-		"list_api_endpoints":       false,
-		"list_api_versions":        false,
-		"list_doc_versions":        false,
-		"get_latest_schema":        false,
-		"get_endpoint_detail":      false,
-		"compare_api_versions":     false,
-		"get_change_summary":       false,
-		"create_api_version_draft": false,
-		"update_api_version_draft": false,
-		"submit_api_version_draft": false,
-		"get_api_version_draft":    false,
-		"get_latest_doc":           false,
-		"compare_doc_versions":     false,
-		"create_doc_draft":         false,
-		"update_doc_draft":         false,
-		"submit_doc_draft":         false,
-		"get_doc_draft":            false,
-		"resolve_ref":              false,
-		"list_branches":            false,
-		"create_branch":            false,
-		"create_document":          false,
-		"list_commits":             false,
-		"get_commit":               false,
-		"get_document_at_commit":   false,
-		"commit_changes":           false,
-		"compare_commits":          false,
-		"list_merge_requests":      false,
-		"create_merge_request":     false,
-		"list_releases":            false,
-		"get_release":              false,
-		"analyze_changes":          false,
-		"list_repository_events":   false,
+		"list_projects":          false,
+		"list_documents":         false,
+		"create_document":        false,
+		"resolve_ref":            false,
+		"list_branches":          false,
+		"create_branch":          false,
+		"list_commits":           false,
+		"get_commit":             false,
+		"get_document_at_commit": false,
+		"commit_changes":         false,
+		"compare_commits":        false,
+		"list_merge_requests":    false,
+		"create_merge_request":   false,
+		"list_releases":          false,
+		"get_release":            false,
+		"analyze_changes":        false,
+		"list_repository_events": false,
+		"search_documents":       false,
+		"get_document_section":   false,
+		"apply_document_patch":   false,
 	}
 	for _, tool := range result.Tools {
 		if tool.Name == "list_"+"services" {
@@ -302,7 +285,7 @@ func TestMCPJSONRPCToolsListIncludesV01Tools(t *testing.T) {
 	}
 	for name, seen := range required {
 		if !seen {
-			t.Fatalf("tools/list missing required v0.1 tool %q", name)
+			t.Fatalf("tools/list missing document repository tool %q", name)
 		}
 	}
 }

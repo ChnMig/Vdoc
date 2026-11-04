@@ -253,6 +253,13 @@ var toolDefinitions = []toolDefinition{
 	{Name: "list_repository_events", Description: "Read ordered repository events after an optional sequence for commit, branch and release automation. Events identify exact before/after commits.", InputSchema: repositoryEventsSchema()},
 	{Name: "list_projects", Description: "List projects visible to the authenticated MCP token user.", InputSchema: inputSchema(nil, nil)},
 	{Name: "list_documents", Description: "List documents in a project.", InputSchema: inputSchema([]string{"project_id"}, gin.H{"project_id": stringProperty("Project ID.")})},
+	{Name: "search_documents", Description: "Search names, paths and raw document content on default branches or an explicit document ref. Results pin exact commits and contain bounded snippets. Continue next_cursor even through empty pages; type scopes filter results.", InputSchema: repositorySearchSchema()},
+	{Name: "get_document_section", Description: "Read bounded exact source lines, a unique Markdown ATX heading, an OpenAPI operation or an outline at an exact commit. Structured output is optional and labeled; get_document_at_commit always retains full raw source access.", InputSchema: repositorySectionSchema()},
+	{Name: "apply_document_patch", Description: "Apply 1 to 100 unique, non-overlapping exact text replacements against an observed document branch head and append an immutable numbered commit. Requires both read and draft scopes. Preserves all other source bytes and metadata; never publishes. Retry identical arguments and key after an unknown outcome.", InputSchema: repositoryPatchSchema()},
+}
+
+// 旧协议处理保留在服务端内部；不再向新版 Agent 发现清单暴露。
+var legacyToolDefinitions = []toolDefinition{
 	{Name: "list_document_branches", Description: "Read legacy document branches for legacy version tools. Use list_branches with document_id for numbered repository versions. Requires the document type's read scope.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
 	{Name: "list_api_endpoints", Description: "Find endpoint IDs in a published API version before calling get_endpoint_detail. Optional method and path filters match exactly.", InputSchema: inputSchema([]string{"project_id", "document_id", "version_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID."), "version_id": stringProperty("Published version ID."), "method": stringProperty("Optional HTTP method, case-insensitive."), "path": stringProperty("Optional exact OpenAPI path, including parameter placeholders.")})},
 	{Name: "list_api_versions", Description: "List published API document versions.", InputSchema: inputSchema([]string{"project_id", "document_id"}, gin.H{"project_id": stringProperty("Project ID."), "document_id": stringProperty("Document ID.")})},
@@ -403,7 +410,7 @@ func execute(userID string, scopes []int, tool string, raw json.RawMessage) (any
 func executeContext(ctx context.Context, userID string, scopes []int, tool string, raw json.RawMessage, auditCtx ...app.AuditContext) (any, error) {
 	store := app.DefaultStore().WithContext(ctx)
 	switch tool {
-	case "create_document", "resolve_ref", "list_branches", "create_branch", "list_commits", "get_commit", "get_document_at_commit", "commit_changes", "compare_commits", "list_merge_requests", "create_merge_request", "list_releases", "get_release", "analyze_changes", "list_repository_events":
+	case "create_document", "resolve_ref", "list_branches", "create_branch", "list_commits", "get_commit", "get_document_at_commit", "commit_changes", "compare_commits", "list_merge_requests", "create_merge_request", "list_releases", "get_release", "analyze_changes", "list_repository_events", "search_documents", "get_document_section", "apply_document_patch":
 		return executeRepositoryTool(store, userID, scopes, tool, raw)
 	case "list_projects":
 		if !hasAnyScope(scopes, app.ScopeAPIRead, app.ScopeDocRead) {
@@ -1117,6 +1124,9 @@ func mergeMCPAuditOutputIDs(ids map[string]string, output any) {
 		setMCPAuditID(ids, "project_id", value.ProjectID)
 		setMCPAuditID(ids, "branch_id", value.ID)
 		setMCPAuditID(ids, "commit_id", value.HeadCommitID)
+	case mcpDocumentSection:
+		setMCPAuditID(ids, "commit_id", value.CommitID)
+		setMCPAuditID(ids, "document_id", value.Document.DocumentID)
 	case mcpRepositoryContent:
 		setMCPAuditID(ids, "commit_id", value.CommitID)
 		setMCPAuditID(ids, "document_id", value.Document.DocumentID)
@@ -1196,7 +1206,7 @@ func mcpEvidenceKind(tool, outcome string) string {
 	switch tool {
 	case "get_latest_schema", "get_latest_doc", "get_schema_version", "get_doc_version", "get_endpoint_detail", "compare_api_versions", "compare_doc_versions", "get_change_summary":
 		return "published_content_read"
-	case "resolve_ref", "get_commit", "get_document_at_commit", "compare_commits", "list_commits":
+	case "resolve_ref", "get_commit", "get_document_at_commit", "get_document_section", "search_documents", "compare_commits", "list_commits":
 		return "repository_content_read"
 	case "get_release", "list_releases":
 		return "release_reference_read"
@@ -1306,9 +1316,11 @@ func invalidArgument(message string) error {
 }
 
 func knownTool(name string) bool {
-	for _, tool := range toolDefinitions {
-		if tool.Name == name {
-			return true
+	for _, definitions := range [][]toolDefinition{toolDefinitions, legacyToolDefinitions} {
+		for _, tool := range definitions {
+			if tool.Name == name {
+				return true
+			}
 		}
 	}
 	return false

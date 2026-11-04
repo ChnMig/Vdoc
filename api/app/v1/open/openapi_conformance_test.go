@@ -167,29 +167,7 @@ func init() {
 }
 
 var requiredMCPTools = []string{
-	"list_projects",
-	"list_documents",
 	"create_document",
-	"list_document_branches",
-	"list_api_endpoints",
-	"list_api_versions",
-	"list_doc_versions",
-	"get_latest_schema",
-	"get_schema_version",
-	"get_endpoint_detail",
-	"compare_api_versions",
-	"get_change_summary",
-	"create_api_version_draft",
-	"update_api_version_draft",
-	"submit_api_version_draft",
-	"get_api_version_draft",
-	"get_latest_doc",
-	"get_doc_version",
-	"compare_doc_versions",
-	"create_doc_draft",
-	"update_doc_draft",
-	"submit_doc_draft",
-	"get_doc_draft",
 	"resolve_ref",
 	"list_branches",
 	"create_branch",
@@ -204,6 +182,11 @@ var requiredMCPTools = []string{
 	"get_release",
 	"analyze_changes",
 	"list_repository_events",
+	"list_projects",
+	"list_documents",
+	"search_documents",
+	"get_document_section",
+	"apply_document_patch",
 }
 
 func TestOpenAPISpecRouteServesCheckedInSpec(t *testing.T) {

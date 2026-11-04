@@ -153,13 +153,16 @@ func TestAPIDocsRequiredPhrases(t *testing.T) {
 		"MCP tools/list",
 		"MCP tools/call",
 		"list_documents",
-		"get_latest_doc",
-		"compare_doc_versions",
-		"create_doc_draft",
+		"get_document_at_commit",
+		"compare_commits",
+		"commit_changes",
+		"search_documents",
+		"get_document_section",
+		"apply_document_patch",
 		"markdown_content",
 		"may be revealed again by the token owner",
 		"Public Document Shares",
-		"Direct publish tools are intentionally not exposed in v0.1",
+		"MCP cannot approve, merge, or publish",
 	}
 	missing := make([]string, 0)
 	for _, phrase := range requiredPhrases {
@@ -333,26 +336,22 @@ func TestAPIDocsExampleSmoke(t *testing.T) {
 		t.Fatal("create MCP token returned empty token")
 	}
 	toolsList := performDocsRPC(t, router, mcpToken.Token, map[string]any{"jsonrpc": "2.0", "id": "tools-list", "method": "tools/list"})
-	if !bytes.Contains(toDocsJSON(t, toolsList.Result), []byte("get_endpoint_detail")) {
-		t.Fatalf("tools/list result = %s, want get_endpoint_detail", string(toDocsJSON(t, toolsList.Result)))
+	if !bytes.Contains(toDocsJSON(t, toolsList.Result), []byte("get_document_section")) {
+		t.Fatalf("tools/list result = %s, want get_document_section", string(toDocsJSON(t, toolsList.Result)))
 	}
 	toolCall := performDocsRPC(t, router, mcpToken.Token, map[string]any{
 		"jsonrpc": "2.0",
-		"id":      "endpoint-detail",
+		"id":      "list-documents",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name": "get_endpoint_detail",
-			"arguments": map[string]any{
-				"project_id":  project.ID,
-				"document_id": document.ID,
-				"version_id":  versionOne.ID,
-				"endpoint_id": endpoint.ID,
-			},
+			"name":      "list_documents",
+			"arguments": map[string]any{"project_id": project.ID},
 		},
 	})
-	if !bytes.Contains(toDocsJSON(t, toolCall.Result), []byte(endpoint.ID)) {
-		t.Fatalf("tools/call result = %s, want endpoint id", string(toDocsJSON(t, toolCall.Result)))
+	if !bytes.Contains(toDocsJSON(t, toolCall.Result), []byte(document.ID)) {
+		t.Fatalf("tools/call result = %s, want document id", string(toDocsJSON(t, toolCall.Result)))
 	}
+
 	t.Logf("documented curl sequence fixture passed: register/login, create project/document, upload draft, submit, approve, query endpoint, compare diff, create MCP token, MCP tools/list, MCP tools/call")
 }
 
