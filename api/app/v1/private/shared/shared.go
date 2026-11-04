@@ -9,6 +9,7 @@ import (
 	"vdoc/api/response"
 	app "vdoc/appstore"
 	domainai "vdoc/domain/ai"
+	domainmcp "vdoc/domain/mcp"
 	"vdoc/utils/contextkey"
 
 	"github.com/gin-gonic/gin"
@@ -600,6 +601,8 @@ type MCPTokenDTO struct {
 	Name       string     `json:"name"`
 	Token      string     `json:"token,omitempty"`
 	Scopes     []int      `json:"scopes"`
+	ScopeModel string     `json:"scope_model,omitempty"`
+	ScopeNames []string   `json:"scope_names,omitempty"`
 	Status     int        `json:"status"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
@@ -625,7 +628,8 @@ func mcpToken(v *app.MCPToken, includeToken bool) MCPTokenDTO {
 	if includeToken {
 		token = v.Token
 	}
-	return MCPTokenDTO{ID: v.ID, UserID: v.UserID, Name: v.Name, Token: token, Scopes: v.Scopes, Status: v.Status, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, ExpiresAt: v.ExpiresAt, RevokedAt: v.RevokedAt, RevokedBy: v.RevokedBy, LastUsedAt: v.LastUsedAt}
+	model, names := domainmcp.ScopeDescription(v.Scopes)
+	return MCPTokenDTO{ID: v.ID, UserID: v.UserID, Name: v.Name, Token: token, Scopes: v.Scopes, ScopeModel: model, ScopeNames: names, Status: v.Status, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, ExpiresAt: v.ExpiresAt, RevokedAt: v.RevokedAt, RevokedBy: v.RevokedBy, LastUsedAt: v.LastUsedAt}
 }
 
 func MCPTokens(values []*app.MCPToken) []MCPTokenDTO {

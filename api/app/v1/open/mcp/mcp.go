@@ -1669,7 +1669,7 @@ func appErrorData(status string, code int, err error) gin.H {
 }
 
 func hasScope(scopes []int, want int) bool {
-	return slices.Contains(scopes, want)
+	return app.HasMCPScope(scopes, want)
 }
 
 func hasAnyScope(scopes []int, wants ...int) bool {

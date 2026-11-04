@@ -71,11 +71,15 @@ func (r *Repository) LockMutationContext(ctx context.Context, guard domain.Mutat
 			return nil, err
 		}
 	}
-	if guard.TokenID != "" || guard.RevealTokenID != "" {
-		ids := []string{guard.TokenID, guard.RevealTokenID}
+	if guard.TokenID != "" || guard.RevealTokenID != "" || guard.OwnedTokenID != "" {
+		ids := []string{guard.TokenID, guard.RevealTokenID, guard.OwnedTokenID}
 		ids = slices.DeleteFunc(ids, func(id string) bool { return id == "" })
 		slices.Sort(ids)
-		if err := locked("SHARE", r.database.Where("id IN ?", slices.Compact(ids)).Order("id ASC")).loadTokens(ctx, state); err != nil {
+		strength := "SHARE"
+		if guard.OwnedTokenID != "" {
+			strength = "UPDATE"
+		}
+		if err := locked(strength, r.database.Where("id IN ?", slices.Compact(ids)).Order("id ASC")).loadTokens(ctx, state); err != nil {
 			return nil, err
 		}
 	}

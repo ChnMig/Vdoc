@@ -1077,7 +1077,7 @@ func TestPrivateMCPTokenCreateListGetAndRevokeRedaction(t *testing.T) {
 	}
 }
 
-func TestPrivateMCPTokenInvalidScopeAndSuperAdminArbitraryRevoke(t *testing.T) {
+func TestPrivateMCPTokenInvalidScopeAndSuperAdminCannotManageOthers(t *testing.T) {
 	router := setupPrivateRouter(t)
 	store := app.DefaultStore()
 	superUser, err := store.Register("revoke-super@example.com", "Super", privateTestPassword)
@@ -1101,23 +1101,21 @@ func TestPrivateMCPTokenInvalidScopeAndSuperAdminArbitraryRevoke(t *testing.T) {
 	if err := json.Unmarshal(createdEnvelope.Detail, &created); err != nil {
 		t.Fatalf("decode created token: %v", err)
 	}
-	userListEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/system/users/"+ownerUser.ID+"/mcp-tokens", superJWT, ""))
-	var userTokens []app.MCPToken
-	if err := json.Unmarshal(userListEnvelope.Detail, &userTokens); err != nil {
-		t.Fatalf("decode user tokens: %v", err)
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/private/system/users/" + ownerUser.ID + "/mcp-tokens"},
+		{http.MethodPost, "/api/v1/private/system/users/" + ownerUser.ID + "/mcp-tokens/" + created.ID + "/revoke"},
+		{http.MethodPost, "/api/v1/private/mcp-tokens/" + created.ID + "/revoke"},
+	} {
+		recorder := performPrivateJSON(router, route.method, route.path, superJWT, "")
+		envelope := decodePrivateEnvelope(t, recorder)
+		if envelope.Code != 403 || envelope.Status != "PERMISSION_DENIED" || strings.Contains(recorder.Body.String(), created.Token) {
+			t.Fatalf("cross-owner route %s = %s", route.path, recorder.Body.String())
+		}
 	}
-	if len(userTokens) != 1 || userTokens[0].ID != created.ID || userTokens[0].Token != "" {
-		t.Fatalf("super user-token list = %+v, want one redacted owner token", userTokens)
+	if _, _, err := store.AuthenticateMCPToken(created.Token); err != nil {
+		t.Fatalf("denied revocation changed owner's token: %v", err)
 	}
 
-	superRevokeEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodPost, "/api/v1/private/system/users/"+ownerUser.ID+"/mcp-tokens/"+created.ID+"/revoke", superJWT, ""))
-	var revoked app.MCPToken
-	if err := json.Unmarshal(superRevokeEnvelope.Detail, &revoked); err != nil {
-		t.Fatalf("decode revoked token: %v", err)
-	}
-	if revoked.Token != "" || revoked.UserID != ownerUser.ID || revoked.RevokedBy == nil || *revoked.RevokedBy != superUser.ID {
-		t.Fatalf("super revoked token = %+v, want owner token redacted with super revoked_by", revoked)
-	}
 }
 
 func TestPrivateMCPUsageIsOwnerScopedAndSanitized(t *testing.T) {
@@ -1187,7 +1185,7 @@ func TestPrivateMCPUsageIsOwnerScopedAndSanitized(t *testing.T) {
 		t.Fatalf("other owner usage response = code %d body %s", forbidden.Code, forbidden.Detail)
 	}
 	superEnvelope := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-usage?token_id="+ownerToken.ID, superJWT, ""))
-	if superEnvelope.Code != 200 || superEnvelope.Total == nil || *superEnvelope.Total != 1 {
+	if superEnvelope.Code != 403 || superEnvelope.Status != "PERMISSION_DENIED" {
 		t.Fatalf("super exact-token usage response = code %d total %v body %s", superEnvelope.Code, superEnvelope.Total, superEnvelope.Detail)
 	}
 	invalidLimit := decodePrivateEnvelope(t, performPrivateJSON(router, http.MethodGet, "/api/v1/private/mcp-usage?limit=0", ownerJWT, ""))

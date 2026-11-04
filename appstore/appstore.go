@@ -92,6 +92,8 @@ const (
 	ScopeAPIDraft = app.ScopeAPIDraft
 	ScopeDocRead  = app.ScopeDocRead
 	ScopeDocDraft = app.ScopeDocDraft
+	ScopeRead     = app.ScopeRead
+	ScopeWrite    = app.ScopeWrite
 
 	AuditActorUser      = app.AuditActorUser
 	AuditActorMCPToken  = app.AuditActorMCPToken
@@ -152,6 +154,8 @@ type PublicShareContent = app.PublicShareContent
 type PublicShareDownload = app.PublicShareDownload
 
 func Is(err, target error) bool { return app.Is(err, target) }
+
+func HasMCPScope(scopes []int, want int) bool { return app.HasMCPScope(scopes, want) }
 
 func DefaultStore() *Store { return app.DefaultStore() }
 

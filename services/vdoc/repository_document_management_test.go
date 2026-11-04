@@ -236,12 +236,13 @@ func TestRepositoryFolderMutationChecksAllAffectedDocumentTypesAtomically(t *tes
 			t.Fatal(err)
 		}
 	}
+	originalFolder := *s.folderByPathLocked("project-a", "Mixed")
 	name := "Renamed"
 	if _, err := s.UpdateDocumentFolderLocationWithTypes("admin", "project-a", "Mixed", &name, nil, []int{DocumentTypeMarkdown}); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("mixed folder type scope: %v", err)
 	}
 	catalog, err := s.RepositoryDocuments("reader", "project-a")
-	if err != nil || len(catalog) != 2 || catalog[0].RelativePath != "Mixed/a.md" || catalog[1].RelativePath != "Mixed/spec.json" || len(s.documentFolders) != 0 {
+	if err != nil || len(catalog) != 2 || catalog[0].RelativePath != "Mixed/a.md" || catalog[1].RelativePath != "Mixed/spec.json" || len(s.documentFolders) != 1 || *s.folderByPathLocked("project-a", "Mixed") != originalFolder {
 		t.Fatalf("rejected folder mutation partially persisted: %+v %v", catalog, err)
 	}
 	if _, err = s.UpdateDocumentFolderLocationWithTypes("admin", "project-a", "Mixed", &name, nil, []int{DocumentTypeMarkdown, DocumentTypeOpenAPI}); err != nil {

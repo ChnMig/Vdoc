@@ -102,6 +102,8 @@ const (
 	ScopeAPIDraft = commonvdoc.ScopeAPIDraft
 	ScopeDocRead  = commonvdoc.ScopeDocRead
 	ScopeDocDraft = commonvdoc.ScopeDocDraft
+	ScopeRead     = commonvdoc.ScopeRead
+	ScopeWrite    = commonvdoc.ScopeWrite
 
 	AuditActorUser      = commonvdoc.AuditActorUser
 	AuditActorMCPToken  = commonvdoc.AuditActorMCPToken

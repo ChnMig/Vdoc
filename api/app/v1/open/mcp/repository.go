@@ -286,19 +286,19 @@ func executeRepositoryTool(store *app.Store, actorID string, scopes []int, tool 
 		if err := requireNonEmpty(field("project_id", args.ProjectID), field("source_branch_id", args.SourceBranchID), field("target_branch_id", args.TargetBranchID)); err != nil {
 			return nil, err
 		}
-		source, err := repositoryFindBranch(store, actorID, args.ProjectID, args.SourceBranchID)
+		source, err := store.RepositoryWriteBranch(actorID, args.ProjectID, args.SourceBranchID)
 		if err != nil {
 			return nil, err
 		}
-		target, err := repositoryFindBranch(store, actorID, args.ProjectID, args.TargetBranchID)
+		target, err := store.RepositoryWriteBranch(actorID, args.ProjectID, args.TargetBranchID)
 		if err != nil {
 			return nil, err
 		}
-		from, err := store.RepositoryCommit(actorID, args.ProjectID, target.HeadCommitID)
+		from, err := store.RepositoryWriteCommit(actorID, args.ProjectID, target.HeadCommitID)
 		if err != nil {
 			return nil, err
 		}
-		to, err := store.RepositoryCommit(actorID, args.ProjectID, source.HeadCommitID)
+		to, err := store.RepositoryWriteCommit(actorID, args.ProjectID, source.HeadCommitID)
 		if err != nil {
 			return nil, err
 		}
@@ -415,7 +415,7 @@ func executeRepositorySave(store *app.Store, actorID string, scopes []int, raw j
 	if len(args.Changes) < 1 || len(args.Changes) > 500 {
 		return nil, invalidArgument("changes must contain between 1 and 500 operations")
 	}
-	baseline, err := store.RepositoryCommit(actorID, args.ProjectID, args.ExpectedHeadCommitID)
+	baseline, err := store.RepositoryWriteCommit(actorID, args.ProjectID, args.ExpectedHeadCommitID)
 	if err != nil {
 		return nil, err
 	}

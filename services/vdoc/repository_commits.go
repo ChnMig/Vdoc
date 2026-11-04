@@ -63,7 +63,16 @@ func (s *Store) RepositoryBranches(actor, project string) (out []repo.Branch, er
 
 // RepositoryBranch 读取明确引用，不依赖兼容入口的分支列表。
 func (s *Store) RepositoryBranch(actor, project, branchID string) (out *repo.Branch, err error) {
-	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
+	return s.repositoryBranchWithPermission(actor, project, branchID, MemberRoleReader)
+}
+
+// RepositoryWriteBranch 仅供写操作预检引用，不授予正文读取能力。
+func (s *Store) RepositoryWriteBranch(actor, project, branchID string) (*repo.Branch, error) {
+	return s.repositoryBranchWithPermission(actor, project, branchID, MemberRoleWriter)
+}
+
+func (s *Store) repositoryBranchWithPermission(actor, project, branchID string, permission int) (out *repo.Branch, err error) {
+	err = s.WithRepositoryWrite(actor, project, permission, func(storage repo.Storage) error {
 		out, err = repositoryLoad[repo.Branch](s.requestContext(), storage, project, "branch", branchID)
 		if err == nil && out.DocumentID != "" {
 			return s.repositoryRequireActiveDocument(storage, project, out.DocumentID)
@@ -118,7 +127,16 @@ func (s *Store) RepositoryCreateBranch(actor, project string, input repo.BranchI
 }
 
 func (s *Store) RepositoryCommit(actor, project, commitID string) (out *repo.Commit, err error) {
-	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
+	return s.repositoryCommitWithPermission(actor, project, commitID, MemberRoleReader)
+}
+
+// RepositoryWriteCommit 只为写入预检提供不可变文件元数据，仍复核写权限和令牌快照。
+func (s *Store) RepositoryWriteCommit(actor, project, commitID string) (*repo.Commit, error) {
+	return s.repositoryCommitWithPermission(actor, project, commitID, MemberRoleWriter)
+}
+
+func (s *Store) repositoryCommitWithPermission(actor, project, commitID string, permission int) (out *repo.Commit, err error) {
+	err = s.WithRepositoryWrite(actor, project, permission, func(storage repo.Storage) error {
 		out, err = repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", commitID)
 		if err == nil {
 			if out.DocumentID != "" {

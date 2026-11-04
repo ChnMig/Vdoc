@@ -84,6 +84,9 @@ const (
 	ScopeAPIDraft = 2
 	ScopeDocRead  = 3
 	ScopeDocDraft = 4
+	// 1–4 保留旧文档类型限制，不能重用其值或自动扩大存量令牌权限。
+	ScopeRead  = 5
+	ScopeWrite = 6
 
 	AuditActorUser      = 1
 	AuditActorMCPToken  = 2
@@ -213,6 +216,8 @@ var MCPScopeNames = map[int]string{
 	ScopeAPIDraft: "api:draft",
 	ScopeDocRead:  "doc:read",
 	ScopeDocDraft: "doc:draft",
+	ScopeRead:     "read",
+	ScopeWrite:    "write",
 }
 
 var AuditActorTypeNames = map[int]string{

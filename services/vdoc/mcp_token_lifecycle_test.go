@@ -129,61 +129,78 @@ func TestMCPTokenRevocationAndExpiryBlockAuthentication(t *testing.T) {
 	}
 }
 
-func TestMCPTokenSuperAdminCannotRevealOwnerTokenButCanRevokeUserToken(t *testing.T) {
+func TestMCPTokenPrivateManagementIsOwnerOnlyForEveryIdentity(t *testing.T) {
 	store := newMCPTokenTestStore()
-	token, err := store.CreateMCPToken("owner", "managed", []int{ScopeAPIRead}, nil)
-	if err != nil {
-		t.Fatalf("CreateMCPToken() error = %v", err)
+	owners := []string{"owner", "other", "super"}
+	tokens := map[string]*MCPToken{}
+	for _, owner := range owners {
+		token, err := store.CreateMCPToken(owner, "private-"+owner, []int{ScopeRead, ScopeWrite}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens[owner] = token
 	}
-
-	if fetched, err := store.MCPToken("super", token.ID); !Is(err, ErrPermissionDenied) {
-		t.Fatalf("MCPToken(super) = (%+v, %v), want permission denied", fetched, err)
-	}
-	for _, audit := range store.AuditLogsForTest() {
-		if audit.ActorUserID == "super" && audit.Action == "mcp_token.reveal" {
-			t.Fatalf("denied super reveal recorded audit = %+v, want no reveal success audit", audit)
+	for _, actor := range owners {
+		listed, err := store.ListMCPTokens(actor)
+		if err != nil || len(listed) != 1 || listed[0].ID != tokens[actor].ID || listed[0].Token != "" {
+			t.Fatalf("%s list = %+v, %v", actor, listed, err)
+		}
+		for _, owner := range owners {
+			if actor == owner {
+				continue
+			}
+			token := tokens[owner]
+			for name, call := range map[string]func() error{
+				"user list":   func() error { _, e := store.ListUserMCPTokens(actor, owner); return e },
+				"detail":      func() error { _, e := store.MCPToken(actor, token.ID); return e },
+				"revoke":      func() error { _, e := store.RevokeMCPToken(actor, token.ID); return e },
+				"user revoke": func() error { _, e := store.RevokeUserMCPToken(actor, owner, token.ID); return e },
+				"usage":       func() error { _, e := store.QueryMCPUsage(actor, MCPUsageQuery{TokenID: token.ID}); return e },
+			} {
+				if err := call(); !Is(err, ErrPermissionDenied) {
+					t.Fatalf("%s %s for %s: %v", actor, name, owner, err)
+				}
+			}
+			if stored := store.tokens[token.ID]; stored.Status != MCPTokenStatusActive || stored.RevokedAt != nil {
+				t.Fatal("cross-owner call changed a private token")
+			}
 		}
 	}
-
-	revoked, err := store.RevokeUserMCPToken("super", "owner", token.ID)
-	if err != nil {
-		t.Fatalf("RevokeUserMCPToken(super, owner) error = %v", err)
-	}
-	if revoked.Token != "" || revoked.UserID != "owner" || revoked.RevokedBy == nil || *revoked.RevokedBy != "super" {
-		t.Fatalf("super revoke response = %+v, want owner token redacted with revoked_by super", revoked)
+	for _, owner := range owners {
+		listed, err := store.ListUserMCPTokens(owner, owner)
+		if err != nil || len(listed) != 1 || listed[0].Token != "" {
+			t.Fatalf("own user list: %+v %v", listed, err)
+		}
+		fetched, err := store.MCPToken(owner, tokens[owner].ID)
+		if err != nil || fetched.Token != tokens[owner].Token {
+			t.Fatalf("own detail: %+v %v", fetched, err)
+		}
+		revoked, err := store.RevokeUserMCPToken(owner, owner, tokens[owner].ID)
+		if err != nil || revoked.Status != MCPTokenStatusRevoked || revoked.Token != "" || revoked.RevokedBy == nil || *revoked.RevokedBy != owner {
+			t.Fatalf("own revoke: %+v %v", revoked, err)
+		}
 	}
 }
 
-func TestMCPTokenSuperAdminUserScopedManagementRoutes(t *testing.T) {
+func TestMCPTokenListsDoNotExpireOtherUsersTokens(t *testing.T) {
 	store := newMCPTokenTestStore()
-	ownerToken, err := store.CreateMCPToken("owner", "owner", []int{ScopeAPIRead}, nil)
+	token, err := store.CreateMCPToken("owner", "unobserved", []int{ScopeRead}, nil)
 	if err != nil {
-		t.Fatalf("CreateMCPToken(owner) error = %v", err)
+		t.Fatal(err)
 	}
-	if _, err := store.CreateMCPToken("other", "other", []int{ScopeAPIRead}, nil); err != nil {
-		t.Fatalf("CreateMCPToken(other) error = %v", err)
+	past := time.Now().Add(-time.Hour)
+	store.tokens[token.ID].ExpiresAt = &past
+	if _, err = store.ListMCPTokens("super"); err != nil {
+		t.Fatal(err)
 	}
-
-	listed, err := store.ListUserMCPTokens("super", "owner")
-	if err != nil {
-		t.Fatalf("ListUserMCPTokens(super, owner) error = %v", err)
+	if _, err = store.ListUserMCPTokens("super", "super"); err != nil {
+		t.Fatal(err)
 	}
-	if len(listed) != 1 || listed[0].ID != ownerToken.ID || listed[0].Token != "" {
-		t.Fatalf("listed user tokens = %+v, want owner token redacted only", listed)
+	if store.tokens[token.ID].Status != MCPTokenStatusActive {
+		t.Fatal("listing another identity mutated owner token")
 	}
-	if _, err := store.ListUserMCPTokens("owner", "other"); !Is(err, ErrPermissionDenied) {
-		t.Fatalf("ListUserMCPTokens(non-super) error = %v, want permission denied", err)
-	}
-
-	revoked, err := store.RevokeUserMCPToken("super", "owner", ownerToken.ID)
-	if err != nil {
-		t.Fatalf("RevokeUserMCPToken(super, owner) error = %v", err)
-	}
-	if revoked.Token != "" || revoked.UserID != "owner" || revoked.Status != MCPTokenStatusRevoked || revoked.RevokedBy == nil || *revoked.RevokedBy != "super" {
-		t.Fatalf("revoked user token = %+v, want redacted owner token revoked by super", revoked)
-	}
-	if _, err := store.RevokeUserMCPToken("super", "other", ownerToken.ID); !Is(err, ErrNotFound) {
-		t.Fatalf("RevokeUserMCPToken(wrong owner) error = %v, want not found", err)
+	if listed, err := store.ListMCPTokens("owner"); err != nil || len(listed) != 1 || listed[0].Status != MCPTokenStatusExpired {
+		t.Fatalf("owner expiration: %+v %v", listed, err)
 	}
 }
 

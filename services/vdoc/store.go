@@ -517,7 +517,7 @@ func (s *Store) queryMCPUsageMemory(actorID string, query MCPUsageQuery) ([]*Aud
 		if token == nil {
 			return nil, ErrNotFound
 		}
-		if !actor.IsSuperAdmin && token.UserID != actorID {
+		if token.UserID != actorID {
 			return nil, ErrPermissionDenied
 		}
 		allowedTokenIDs[token.ID] = struct{}{}
@@ -2961,12 +2961,13 @@ func (s *Store) ListMCPTokens(actorID string) ([]*MCPToken, error) {
 	now := time.Now()
 	changed := false
 	for _, t := range s.tokens {
+		if t.UserID != actorID {
+			continue
+		}
 		if expireMCPTokenIfNeeded(t, now) {
 			changed = true
 		}
-		if actor.IsSuperAdmin || t.UserID == actorID {
-			out = append(out, cloneToken(t))
-		}
+		out = append(out, cloneToken(t))
 	}
 	if changed {
 		if err := s.persistLocked(); err != nil {
@@ -2987,7 +2988,7 @@ func (s *Store) ListUserMCPTokens(actorID, userID string) ([]*MCPToken, error) {
 	if !ok || actor.Status != UserStatusActive {
 		return nil, ErrUnauthenticated
 	}
-	if !actor.IsSuperAdmin {
+	if actorID != userID {
 		return nil, ErrPermissionDenied
 	}
 	if _, ok := s.users[userID]; !ok {
@@ -2997,6 +2998,9 @@ func (s *Store) ListUserMCPTokens(actorID, userID string) ([]*MCPToken, error) {
 	now := time.Now()
 	changed := false
 	for _, token := range s.tokens {
+		if token.UserID != actorID {
+			continue
+		}
 		if expireMCPTokenIfNeeded(token, now) {
 			changed = true
 		}
@@ -3032,6 +3036,7 @@ func (s *Store) MCPToken(actorID, tokenID string, auditCtx ...AuditContext) (*MC
 		return nil, ErrPermissionDenied
 	}
 	s = s.withMutationGuard(actorID, "", "", domainvdoc.MutationPermissionAuthenticated)
+	s.mutationGuard.OwnedTokenID = t.ID
 	expireMCPTokenIfNeeded(t, time.Now())
 	s.auditLocked(ctx, AuditActorUser, actorID, "mcp_token.reveal", "mcp_token", tokenID, "", "", auditMetadata("result", "success", "token_id", tokenID, "status", fmt.Sprint(t.Status)))
 	if t.Status != MCPTokenStatusActive {
@@ -3065,14 +3070,11 @@ func (s *Store) RevokeMCPToken(actorID, tokenID string, auditCtx ...AuditContext
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !actor.IsSuperAdmin && t.UserID != actorID {
+	if t.UserID != actorID {
 		return nil, ErrPermissionDenied
 	}
-	permission := domainvdoc.MutationPermissionAuthenticated
-	if t.UserID != actorID {
-		permission = domainvdoc.MutationPermissionSuperAdmin
-	}
-	s = s.withMutationGuard(actorID, "", "", permission)
+	s = s.withMutationGuard(actorID, "", "", domainvdoc.MutationPermissionAuthenticated)
+	s.mutationGuard.OwnedTokenID = t.ID
 	now := time.Now()
 	t.Status = MCPTokenStatusRevoked
 	t.RevokedAt = &now
@@ -3096,7 +3098,7 @@ func (s *Store) RevokeUserMCPToken(actorID, userID, tokenID string, auditCtx ...
 	if !ok || actor.Status != UserStatusActive {
 		return nil, ErrUnauthenticated
 	}
-	if !actor.IsSuperAdmin {
+	if actorID != userID {
 		return nil, ErrPermissionDenied
 	}
 	if _, ok := s.users[userID]; !ok {
@@ -3106,7 +3108,8 @@ func (s *Store) RevokeUserMCPToken(actorID, userID, tokenID string, auditCtx ...
 	if !ok || t.UserID != userID {
 		return nil, ErrNotFound
 	}
-	s = s.withMutationGuard(actorID, "", "", domainvdoc.MutationPermissionSuperAdmin)
+	s = s.withMutationGuard(actorID, "", "", domainvdoc.MutationPermissionAuthenticated)
+	s.mutationGuard.OwnedTokenID = t.ID
 	now := time.Now()
 	t.Status = MCPTokenStatusRevoked
 	t.RevokedAt = &now

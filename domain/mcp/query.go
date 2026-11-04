@@ -37,7 +37,7 @@ func NormalizeScopes(scopes []int) ([]int, error) {
 
 func ValidScope(scope int) bool {
 	switch scope {
-	case commonvdoc.ScopeAPIRead, commonvdoc.ScopeAPIDraft, commonvdoc.ScopeDocRead, commonvdoc.ScopeDocDraft:
+	case commonvdoc.ScopeAPIRead, commonvdoc.ScopeAPIDraft, commonvdoc.ScopeDocRead, commonvdoc.ScopeDocDraft, commonvdoc.ScopeRead, commonvdoc.ScopeWrite:
 		return true
 	default:
 		return false
@@ -45,7 +45,42 @@ func ValidScope(scope int) bool {
 }
 
 func HasScope(scopes []int, want int) bool {
-	return slices.Contains(scopes, want)
+	if !ValidScope(want) {
+		return false
+	}
+	if slices.Contains(scopes, want) {
+		return true
+	}
+	// 新能力可用于既有类型检查，反向转换会把单一旧类型权限扩大，因此禁止。
+	switch want {
+	case commonvdoc.ScopeAPIRead, commonvdoc.ScopeDocRead:
+		return slices.Contains(scopes, commonvdoc.ScopeRead)
+	case commonvdoc.ScopeAPIDraft, commonvdoc.ScopeDocDraft:
+		return slices.Contains(scopes, commonvdoc.ScopeWrite)
+	default:
+		return false
+	}
+}
+
+// ScopeDescription 只描述实际保存的授权，不把旧 scope 折叠为更宽的新能力。
+func ScopeDescription(scopes []int) (model string, names []string) {
+	legacy, capability := false, false
+	names = make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		if name, ok := commonvdoc.MCPScopeNames[scope]; ok {
+			names = append(names, name)
+		}
+		legacy = legacy || scope >= commonvdoc.ScopeAPIRead && scope <= commonvdoc.ScopeDocDraft
+		capability = capability || scope == commonvdoc.ScopeRead || scope == commonvdoc.ScopeWrite
+	}
+	switch {
+	case legacy && capability:
+		return "mixed", names
+	case capability:
+		return "capability", names
+	default:
+		return "legacy", names
+	}
 }
 
 func AllowsProjectAction(scopes []int, role int, superAdmin bool, action ProjectAction) bool {

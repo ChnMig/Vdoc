@@ -21,6 +21,7 @@ func TestHistoricalMigrationChecksumsAreFrozen(t *testing.T) {
 		t.Fatalf("load migrations: %v", err)
 	}
 	expected := map[string]string{
+		"026": "e2b4848a17b0bc8905312247be52d2c8a2a571e4a3061b8ea8318ddb42b80400",
 		"025": "e3c53eb57db1b90e9e0c153e1e9fb66e19b3d59c63ce492248369b8ad0a527ab",
 		"024": "abf7d29496498ab6d986283c8bbb00280ebdb04d8bb51aadf4665c2985b40217",
 		"023": "290a2e5545ef1096b211a01578b1ca2a44d25df6d946dcbc476a1f37d89f9d4d",
@@ -161,7 +162,11 @@ func TestEmbeddedMigrationsAllowAllCurrentMCPScopeCodes(t *testing.T) {
 	joined := strings.ToLower(strings.Join(migrationBodies(migrations), "\n"))
 	expected := fmt.Sprintf("array[%d,%d,%d,%d]::smallint[]", commonvdoc.ScopeAPIRead, commonvdoc.ScopeAPIDraft, commonvdoc.ScopeDocRead, commonvdoc.ScopeDocDraft)
 	if !strings.Contains(joined, expected) {
-		t.Fatalf("mcp token scope check must allow all current scopes with %s", expected)
+		t.Fatalf("historical mcp token scope check must retain %s", expected)
+	}
+	expected = fmt.Sprintf("array[%d,%d,%d,%d,%d,%d]::smallint[]", commonvdoc.ScopeAPIRead, commonvdoc.ScopeAPIDraft, commonvdoc.ScopeDocRead, commonvdoc.ScopeDocDraft, commonvdoc.ScopeRead, commonvdoc.ScopeWrite)
+	if !strings.Contains(joined, expected) {
+		t.Fatalf("mcp token scope check must allow capability scopes with %s", expected)
 	}
 	if strings.Contains(joined, "array[1,2]::smallint[]") {
 		t.Fatal("mcp token scope check only allows legacy API scopes")

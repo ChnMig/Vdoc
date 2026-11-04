@@ -93,6 +93,8 @@ const (
 	ScopeAPIDraft = domainvdoc.ScopeAPIDraft
 	ScopeDocRead  = domainvdoc.ScopeDocRead
 	ScopeDocDraft = domainvdoc.ScopeDocDraft
+	ScopeRead     = domainvdoc.ScopeRead
+	ScopeWrite    = domainvdoc.ScopeWrite
 
 	AuditActorUser      = domainvdoc.AuditActorUser
 	AuditActorMCPToken  = domainvdoc.AuditActorMCPToken

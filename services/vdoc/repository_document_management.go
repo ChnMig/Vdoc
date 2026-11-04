@@ -196,6 +196,10 @@ func (s *Store) RepositoryUpdateDocumentWithTypes(actor, project, documentID str
 			}
 		}
 		now := time.Now().UTC()
+		// 移走最后一个存量文档前固化原父链，原目录不随文档位置一起消失。
+		if _, err = s.ensureDocumentParentFoldersLocked(actor, project, fromPath, now); err != nil {
+			return err
+		}
 		folderID, err := s.ensureDocumentParentFoldersLocked(actor, project, document.RelativePath, now)
 		if err != nil {
 			return err
@@ -250,7 +254,12 @@ func (s *Store) RepositoryDeleteDocumentWithTypes(actor, project, documentID str
 		if document.Status != DocumentStatusActive {
 			return nil
 		}
-		document.Status, document.UpdatedAt = DocumentStatusArchived, time.Now().UTC()
+		now := time.Now().UTC()
+		// 兼容只由仓库路径推导出的旧目录，删除最后一篇文档也必须保留父链。
+		if _, err = s.ensureDocumentParentFoldersLocked(actor, project, document.RelativePath, now); err != nil {
+			return err
+		}
+		document.Status, document.UpdatedAt = DocumentStatusArchived, now
 		if legacy := s.apiServices[document.ID]; legacy != nil && legacy.ProjectID == project {
 			legacy.Status, legacy.UpdatedAt = document.Status, document.UpdatedAt
 		}

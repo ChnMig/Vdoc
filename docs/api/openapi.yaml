@@ -297,7 +297,8 @@ paths:
       - { $ref: "#/components/parameters/UserID" }
     get:
       tags: [System Users]
-      summary: List a user's MCP tokens.
+      summary: List the current user's MCP tokens through the compatibility route.
+      description: The path user_id must equal the authenticated user. SuperAdmins cannot list another user's private tokens. Responses are redacted and include raw scopes, scope_names, and scope_model.
       operationId: listSystemUserMCPTokens
       security: [{ JWTAuth: [] }]
       responses:
@@ -308,7 +309,8 @@ paths:
       - { $ref: "#/components/parameters/TokenID" }
     post:
       tags: [System Users]
-      summary: Revoke a user's MCP token.
+      summary: Revoke the current user's MCP token through the compatibility route.
+      description: The path user_id and token owner must equal the authenticated user, including for SuperAdmins.
       operationId: revokeSystemUserMCPToken
       security: [{ JWTAuth: [] }]
       responses:
@@ -1393,6 +1395,7 @@ paths:
     get:
       tags: [MCP Tokens]
       summary: List MCP tokens.
+      description: Returns only tokens owned by the authenticated user, including for SuperAdmins. Responses are redacted and include raw scopes, scope_names, and scope_model (capability, legacy, or mixed).
       operationId: listMCPTokens
       security: [{ JWTAuth: [] }]
       responses:
@@ -1400,7 +1403,7 @@ paths:
     post:
       tags: [MCP Tokens]
       summary: Create MCP token.
-      description: Returns a copyable token on create. At least one explicit scope is required, and expires_at must be in the future when supplied. The owner can reveal an active token again with the detail endpoint; list, revoked, and expired responses are redacted.
+      description: Returns a copyable token on create with raw scopes, scope_names, and scope_model. Scope 5 (read) reads all document formats; scope 6 (write) writes all formats and does not imply read. Existing 1-4 scopes retain their original type restrictions. Project roles still apply. At least one explicit scope is required, and expires_at must be in the future when supplied. The owner can reveal an active token again with the detail endpoint; list, revoked, and expired responses are redacted.
       operationId: createMCPToken
       security: [{ JWTAuth: [] }]
       requestBody:
@@ -1414,7 +1417,7 @@ paths:
     get:
       tags: [MCP Tokens]
       summary: List sanitized MCP tool activity.
-      description: Returns newest-first `mcp.tool_call` audit evidence for MCP tokens owned by the authenticated user. Supplying `token_id` selects one owned token; a SuperAdmin may use that parameter to inspect any user's token. Without `token_id`, even a SuperAdmin sees only activity for their own tokens. Results default to 100 and are capped at 200. Metadata is allowlisted to tool/adapter/result/reason plus referenced entity IDs and token ID. Entity IDs are retained only for successful tool calls, so caller-supplied IDs from failed requests cannot become entity evidence. IP address and User-Agent are removed, and raw token secrets, schemas, Markdown content, and request arguments are never returned.
+      description: Returns newest-first `mcp.tool_call` audit evidence for MCP tokens owned by the authenticated user. Supplying `token_id` selects one owned token; selecting another user's private token is denied, including for SuperAdmins. Without `token_id`, every identity sees only activity for their own tokens. Results default to 100 and are capped at 200. Metadata is allowlisted to tool/adapter/result/reason plus referenced entity IDs and token ID. Entity IDs are retained only for successful tool calls, so caller-supplied IDs from failed requests cannot become entity evidence. IP address and User-Agent are removed, and raw token secrets, schemas, Markdown content, and request arguments are never returned.
       operationId: listMCPUsage
       security: [{ JWTAuth: [] }]
       parameters:
@@ -1423,7 +1426,7 @@ paths:
             in: query,
             required: false,
             schema: { type: string },
-            description: MCP token ID. Non-SuperAdmins may select only a token they own.,
+            description: MCP token ID. Every identity may select only a token they own.,
           }
         - {
             name: limit,
@@ -1439,6 +1442,7 @@ paths:
     get:
       tags: [MCP Tokens]
       summary: Get MCP token.
+      description: Owner-only, including for SuperAdmins. Active tokens may reveal the owner's plaintext; inactive tokens remain redacted. Includes raw scopes, scope_names, and scope_model.
       operationId: getMCPToken
       security: [{ JWTAuth: [] }]
       responses:
@@ -1449,6 +1453,7 @@ paths:
     post:
       tags: [MCP Tokens]
       summary: Revoke MCP token.
+      description: Owner-only, including for SuperAdmins. Returns redacted token metadata.
       operationId: revokeMCPToken
       security: [{ JWTAuth: [] }]
       responses:
@@ -3778,7 +3783,8 @@ components:
           type: array
           minItems: 1
           uniqueItems: true
-          items: { type: integer, enum: [1, 2, 3, 4] }
+          description: Independent capabilities 5=read (all formats) and 6=write (all formats, does not imply read). Legacy 1=api read, 2=api write, 3=Markdown/TXT read, 4=Markdown/TXT write remain type-limited and are not upgraded. Response scope_names describes actual saved grants; scope_model is capability, legacy, or mixed.
+          items: { type: integer, enum: [1, 2, 3, 4, 5, 6] }
         expires_at:
           type: string
           format: date-time

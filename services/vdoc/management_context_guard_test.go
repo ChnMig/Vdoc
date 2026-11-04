@@ -10,7 +10,7 @@ import (
 )
 
 func TestMCPTokenManagementRechecksActorAtCommit(t *testing.T) {
-	for _, operation := range []string{"create", "reveal", "revoke_self", "revoke_other", "revoke_user"} {
+	for _, operation := range []string{"create", "reveal", "revoke_self", "revoke_user_self", "revoke_other", "revoke_user"} {
 		changes := []string{"disabled"}
 		if operation == "revoke_other" || operation == "revoke_user" {
 			changes = append(changes, "demoted")
@@ -46,12 +46,15 @@ func TestMCPTokenManagementRechecksActorAtCommit(t *testing.T) {
 					result, err = store.RevokeMCPToken(actorID, token.ID)
 				case "revoke_user":
 					result, err = store.RevokeUserMCPToken(actorID, "owner", token.ID)
+				case "revoke_user_self":
+					result, err = store.RevokeUserMCPToken(actorID, actorID, token.ID)
 				}
 				if result != nil || !Is(err, wantErr) {
 					t.Fatalf("stale %s result present=%t err=%v, want %v", operation, result != nil, err, wantErr)
 				}
-				if !repo.transactionChanged {
-					t.Fatal("operation did not reach the transaction boundary")
+				wantTransaction := operation != "revoke_other" && operation != "revoke_user"
+				if repo.transactionChanged != wantTransaction {
+					t.Fatalf("transaction reached=%t, want %t; cross-owner revocation must fail before mutation", repo.transactionChanged, wantTransaction)
 				}
 				if len(repo.state.Tokens) != 1 || repo.state.Tokens[token.ID].Status != MCPTokenStatusActive || len(repo.state.AuditLogs) != auditsBefore {
 					t.Fatalf("denied operation committed tokens=%d status=%d audits=%d, want one active token and %d audits", len(repo.state.Tokens), repo.state.Tokens[token.ID].Status, len(repo.state.AuditLogs), auditsBefore)
@@ -106,6 +109,39 @@ func TestSuperAdminCanRevokeOwnTokenAfterDemotion(t *testing.T) {
 	revoked, err := store.RevokeMCPToken("super", token.ID)
 	if err != nil || revoked == nil || revoked.Status != MCPTokenStatusRevoked || !repo.transactionChanged {
 		t.Fatalf("self revoke after demotion result present=%t err=%v", revoked != nil, err)
+	}
+}
+
+func TestMCPTokenManagementRechecksOwnershipAtCommit(t *testing.T) {
+	for _, operation := range []string{"reveal", "inactive_detail", "revoke", "revoke_user"} {
+		t.Run(operation, func(t *testing.T) {
+			store := newMCPTokenTestStore()
+			token, err := store.CreateMCPToken("owner", "ownership-race", []int{ScopeRead, ScopeWrite}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if operation == "inactive_detail" {
+				store.tokens[token.ID].Status = MCPTokenStatusRevoked
+			}
+			repo := newManagementContextRepository(store)
+			auditsBefore, statusBefore := len(repo.state.AuditLogs), repo.state.Tokens[token.ID].Status
+			repo.beforeTransaction = func(state *domainvdoc.State) { state.Tokens[token.ID].UserID = "other" }
+			var result *MCPToken
+			switch operation {
+			case "reveal", "inactive_detail":
+				result, err = store.MCPToken("owner", token.ID)
+			case "revoke":
+				result, err = store.RevokeMCPToken("owner", token.ID)
+			case "revoke_user":
+				result, err = store.RevokeUserMCPToken("owner", "owner", token.ID)
+			}
+			if result != nil || !Is(err, ErrPermissionDenied) || !repo.transactionChanged {
+				t.Fatalf("stale owner %s result=%+v err=%v transaction=%t", operation, result, err, repo.transactionChanged)
+			}
+			if repo.state.Tokens[token.ID].UserID != "other" || repo.state.Tokens[token.ID].Status != statusBefore || len(repo.state.AuditLogs) != auditsBefore {
+				t.Fatal("rejected stale owner changed persisted token or audits")
+			}
+		})
 	}
 }
 

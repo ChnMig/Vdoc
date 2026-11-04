@@ -178,6 +178,9 @@ func (s *Store) RepositoryCreateDocument(actor, project string, input repo.Docum
 			}
 		}
 		now := time.Now().UTC()
+		if _, e = s.ensureDocumentParentFoldersLocked(actor, project, f.RelativePath, now); e != nil {
+			return e
+		}
 		f, e = s.repositoryStoreFile(project, f, input.Content)
 		keys = append(keys, f.ObjectKey)
 		if e != nil {

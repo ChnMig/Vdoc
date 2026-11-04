@@ -207,7 +207,7 @@ func (s *Store) QueryMCPUsage(actorID string, query MCPUsageQuery) ([]*AuditLog,
 		if token == nil {
 			return nil, ErrNotFound
 		}
-		if !actor.IsSuperAdmin && token.UserID != actorID {
+		if token.UserID != actorID {
 			return nil, ErrPermissionDenied
 		}
 		tokenIDs = append(tokenIDs, token.ID)

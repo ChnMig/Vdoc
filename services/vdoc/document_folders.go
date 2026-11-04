@@ -136,6 +136,9 @@ func (s *Store) ensureDocumentParentFoldersLocked(actorID, projectID, relativePa
 			folderPath += "/" + name
 		}
 		if existing := s.folderByPathLocked(projectID, folderPath); existing != nil {
+			if existing.ParentID != parentID {
+				existing.ParentID, existing.UpdatedAt = parentID, now
+			}
 			parentID, folderPath = existing.ID, existing.Path
 			continue
 		}

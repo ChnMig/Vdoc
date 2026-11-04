@@ -188,13 +188,11 @@ func (s *Store) UpdateDocumentFolderLocationWithTypes(actorID, projectID, folder
 			}
 		}
 		now := time.Now().UTC()
-		if folder == nil {
-			folderID, e := s.ensureDocumentParentFoldersLocked(actorID, projectID, folderPath+"/__folder__.txt", now)
-			if e != nil {
-				return e
-			}
-			folder = s.documentFolders[folderID]
+		folderID, e := s.ensureDocumentParentFoldersLocked(actorID, projectID, folderPath+"/__folder__.txt", now)
+		if e != nil {
+			return e
 		}
+		folder = s.documentFolders[folderID]
 		if parentPath != nil {
 			folder.ParentID = ""
 			if parent != "" {

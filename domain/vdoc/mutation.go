@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"vdoc/domain/documentshare"
+	"vdoc/domain/mcp"
 	"vdoc/domain/project"
 )
 
@@ -28,6 +29,7 @@ type MutationGuard struct {
 	TokenScope                   int
 	TokenScopes                  []int
 	RevealTokenID                string
+	OwnedTokenID                 string
 	RevealShareID                string
 	DraftID                      string
 	ExpectedDraftRevision        string
@@ -119,13 +121,22 @@ func ValidateMutationContext(guard MutationGuard, state *State, now time.Time) e
 		if value == nil || value.UserID != guard.ActorID || value.Status != MCPTokenStatusActive || (value.ExpiresAt != nil && !now.Before(*value.ExpiresAt)) {
 			return ErrUnauthenticated
 		}
-		if guard.TokenScope == 0 || !slices.Contains(value.Scopes, guard.TokenScope) {
+		if guard.TokenScope == 0 || !mcp.HasScope(value.Scopes, guard.TokenScope) {
 			return ErrPermissionDenied
 		}
 		for _, scope := range guard.TokenScopes {
 			if !slices.Contains(value.Scopes, scope) {
 				return ErrPermissionDenied
 			}
+		}
+	}
+	if guard.OwnedTokenID != "" {
+		value := state.Tokens[guard.OwnedTokenID]
+		if value == nil {
+			return ErrNotFound
+		}
+		if value.UserID != guard.ActorID {
+			return ErrPermissionDenied
 		}
 	}
 	if guard.RevealTokenID != "" {
