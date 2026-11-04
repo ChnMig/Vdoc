@@ -261,6 +261,12 @@ func TestMCPJSONRPCToolsListUsesDocumentRepositoryTools(t *testing.T) {
 		"search_documents":       false,
 		"get_document_section":   false,
 		"apply_document_patch":   false,
+		"list_folders":           false,
+		"create_folder":          false,
+		"update_folder":          false,
+		"delete_folder":          false,
+		"update_document":        false,
+		"delete_document":        false,
 	}
 	for _, tool := range result.Tools {
 		if tool.Name == "list_"+"services" {
