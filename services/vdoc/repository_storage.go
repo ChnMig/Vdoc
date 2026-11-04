@@ -192,7 +192,16 @@ func (s *Store) withRepositoryWrite(actorID, projectID string, permission int, p
 		}
 		if persistState {
 			// 取得项目/仓库锁之后再读目录，避免另一实例的创建或改名被旧快照覆盖。
-			latest, err := database.LoadState(s.requestContext())
+			// 与普通 Store 刷新一致，只加载业务工作状态；审计历史和任务队列独立读取。
+			var latest *domain.State
+			var err error
+			if working, ok := database.(interface {
+				LoadWorkingStateWithRevision(context.Context) (*domain.State, string, error)
+			}); ok {
+				latest, _, err = working.LoadWorkingStateWithRevision(s.requestContext())
+			} else {
+				latest, err = database.LoadState(s.requestContext())
+			}
 			if err != nil {
 				return err
 			}
