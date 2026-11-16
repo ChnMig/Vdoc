@@ -126,8 +126,8 @@ func TestMCPRepositoryImmutableHistoryAndIdempotentRetry(t *testing.T) {
 		t.Fatalf("earlier snapshot mutated: %+v", old)
 	}
 	var comparison mcpRepositoryComparison
-	repositoryMCPCall(t, fixture, token, "compare_commits", gin.H{"project_id": fixture.projectID, "from_commit_id": first.ID, "to_commit_id": second.ID, "document_id": fixture.markdownDocumentID}, &comparison)
-	if len(comparison.Files) != 1 || comparison.Files[0].OldContent != old.Content || comparison.Files[0].NewContent != "second bytes\n" || comparison.Files[0].OldRelativePath != "guides/old.md" {
+	repositoryMCPCall(t, fixture, token, "compare_commits", gin.H{"project_id": fixture.projectID, "from_commit_id": first.ID, "to_commit_id": second.ID, "document_id": fixture.markdownDocumentID, "include_content": true}, &comparison)
+	if len(comparison.Files) != 1 || comparison.Files[0].OldContent == nil || *comparison.Files[0].OldContent != old.Content || comparison.Files[0].NewContent == nil || *comparison.Files[0].NewContent != "second bytes\n" || comparison.Files[0].OldRelativePath != "guides/old.md" || !comparison.ContentIncluded {
 		t.Fatalf("comparison: %+v", comparison)
 	}
 	branch.HeadCommitID, branch.Generation = second.ID, branch.Generation+1

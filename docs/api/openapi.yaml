@@ -97,7 +97,8 @@ paths:
     post:
       tags: [Open]
       summary: Call MCP tools through JSON-RPC 2.0.
-      description: Every authenticated `tools/list` and `tools/call` request records a sanitized `mcp.tool_call` audit event. Successful published-content tools are marked with `evidence_kind=published_content_read` and retain only the tool, adapter, result/reason, MCP token ID, and referenced project/document/branch/draft/version/endpoint/diff IDs. Raw MCP token secrets, request arguments, OpenAPI schemas, and Markdown content are never copied into audit metadata.
+      # MCP tool arguments are discovered through tools/list; REST comparison input is separate.
+      description: Every authenticated `tools/list` and `tools/call` request records a sanitized `mcp.tool_call` audit event. Successful published-content tools are marked with `evidence_kind=published_content_read` and retain only the tool, adapter, result/reason, MCP token ID, and referenced project/document/branch/draft/version/endpoint/diff IDs. Raw MCP token secrets, request arguments, OpenAPI schemas, and Markdown content are never copied into audit metadata. compare_commits defaults to bounded source hunks with line ranges and truncation flags plus OpenAPI semantic_summary; optional include_content is a strict boolean (default false) restoring complete old_content/new_content and semantic_diff. Compact source previews share a 64 KiB raw text budget and at most 20 hunks per file; content_omitted marks oversized hunks whose exact ranges can be read through get_document_section. analyze_changes waits for a separate configured AI provider; direct comparison never invokes AI.
       operationId: callMCP
       security:
         - MCPTokenAuth: []

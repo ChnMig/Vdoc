@@ -465,12 +465,13 @@ func executeRepositorySave(store *app.Store, actorID string, scopes []int, raw j
 
 func executeRepositoryComparison(store *app.Store, actorID string, scopes []int, tool string, raw json.RawMessage) (any, error) {
 	var args struct {
-		ProjectID    string `json:"project_id"`
-		FromCommitID string `json:"from_commit_id"`
-		ToCommitID   string `json:"to_commit_id"`
-		DocumentID   string `json:"document_id"`
-		Message      string `json:"message"`
-		Language     string `json:"language"`
+		ProjectID      string `json:"project_id"`
+		FromCommitID   string `json:"from_commit_id"`
+		ToCommitID     string `json:"to_commit_id"`
+		DocumentID     string `json:"document_id"`
+		Message        string `json:"message"`
+		Language       string `json:"language"`
+		IncludeContent bool   `json:"include_content"`
 	}
 	if err := decodeArguments(raw, &args); err != nil {
 		return nil, err
@@ -521,7 +522,8 @@ func executeRepositoryComparison(store *app.Store, actorID string, scopes []int,
 	if err != nil {
 		return nil, err
 	}
-	result := mcpRepositoryComparison{ID: comparison.ID, FromCommitID: comparison.FromCommitID, ToCommitID: comparison.ToCommitID, Files: make([]mcpRepositoryComparisonFile, 0, len(comparison.Files))}
+	result := mcpRepositoryComparison{ID: comparison.ID, FromCommitID: comparison.FromCommitID, ToCommitID: comparison.ToCommitID, Files: make([]mcpRepositoryComparisonFile, 0, len(comparison.Files)), ContentIncluded: args.IncludeContent}
+	remaining := documentrepo.SourceDiffByteLimit
 	for _, file := range comparison.Files {
 		allowed := repositoryReadScope(scopes, file.DocumentType)
 		// 类型改变时旧正文也要检查权限，不能只相信新类型。
@@ -539,13 +541,36 @@ func executeRepositoryComparison(store *app.Store, actorID string, scopes []int,
 			result.FilesFiltered = true
 			continue
 		}
-		var semantic *mcpDiffDTO
+		item := mcpRepositoryComparisonFile{DocumentID: file.DocumentID, RelativePath: file.RelativePath, OldRelativePath: file.OldRelativePath, ChangeType: file.ChangeType, DocumentType: file.DocumentType, SemanticStatus: file.SemanticStatus}
 		if diff, ok := file.SemanticDiff.(*app.Diff); ok {
-			semantic = mcpDiffPointer(diff)
+			summary := repositorySemanticSummary(diff)
+			item.SemanticSummary = &summary
+			if args.IncludeContent {
+				item.SemanticDiff = mcpDiffPointer(diff)
+			}
 		}
-		result.Files = append(result.Files, mcpRepositoryComparisonFile{DocumentID: file.DocumentID, RelativePath: file.RelativePath, OldRelativePath: file.OldRelativePath, ChangeType: file.ChangeType, OldContent: file.OldContent, NewContent: file.NewContent, DocumentType: file.DocumentType, SemanticStatus: file.SemanticStatus, SemanticDiff: semantic})
+		if args.IncludeContent {
+			item.OldContent, item.NewContent = &file.OldContent, &file.NewContent
+		} else {
+			preview, used := documentrepo.CompareSource(file.OldContent, file.NewContent, remaining)
+			remaining -= used
+			item.SourceDiff = repositorySourceDiffDTO(preview)
+		}
+		result.Files = append(result.Files, item)
 	}
 	return result, nil
+}
+
+func repositorySemanticSummary(diff *app.Diff) mcpDiffSummary {
+	return mcpDiffSummary{AddedEndpoints: diff.Summary.AddedEndpoints, RemovedEndpoints: diff.Summary.RemovedEndpoints, ModifiedEndpoints: diff.Summary.ModifiedEndpoints, BreakingChanges: diff.Summary.BreakingChanges, DocumentFormat: diff.Summary.DocumentFormat, AddedLines: diff.Summary.AddedLines, RemovedLines: diff.Summary.RemovedLines, ModifiedLines: diff.Summary.ModifiedLines, ModifiedBlocks: diff.Summary.ModifiedBlocks}
+}
+
+func repositorySourceDiffDTO(diff documentrepo.SourceDiff) *mcpRepositorySourceDiff {
+	out := &mcpRepositorySourceDiff{Hunks: []mcpRepositorySourceHunk{}, AddedLines: diff.AddedLines, RemovedLines: diff.RemovedLines, HunkCount: diff.HunkCount, Truncated: diff.Truncated}
+	for _, hunk := range diff.Hunks {
+		out.Hunks = append(out.Hunks, mcpRepositorySourceHunk{OldStartLine: hunk.OldStartLine, OldLineCount: hunk.OldLineCount, NewStartLine: hunk.NewStartLine, NewLineCount: hunk.NewLineCount, OldContent: hunk.OldContent, NewContent: hunk.NewContent, ContentOmitted: hunk.ContentOmitted})
+	}
+	return out
 }
 
 func repositoryBindDocument(store *app.Store, actor string, scopes []int, tool string, raw json.RawMessage) (*app.Store, json.RawMessage, error) {

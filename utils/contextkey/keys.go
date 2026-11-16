@@ -12,9 +12,13 @@ const (
 	// JWTData 是 Gin context 中存放 JWT 解密数据的 key。
 	JWTData = "jwtData"
 	// BoundParams 是 Gin context 中存放已绑定业务参数的 key。
-	BoundParams = "__bound_params__"
-	AppCode     = "app_code"
-	AppStatus   = "app_status"
+	BoundParams       = "__bound_params__"
+	AppCode           = "app_code"
+	AppStatus         = "app_status"
+	MCPTool           = "mcp_tool"
+	MCPAuthLatency    = "mcp_auth_latency"
+	MCPExecuteLatency = "mcp_execute_latency"
+	MCPAuditLatency   = "mcp_audit_latency"
 )
 
 type traceIDKey struct{}

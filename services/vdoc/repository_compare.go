@@ -2,6 +2,7 @@ package vdoc
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	repo "vdoc/domain/documentrepo"
@@ -14,29 +15,73 @@ func (s *Store) RepositoryCompare(actor, project string, input repo.CompareInput
 	if input.FromCommitID == "" || input.ToCommitID == "" {
 		return nil, ErrInvalidArgument
 	}
+	var from, to *repo.Commit
+	var snapshot *Store
 	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
-		from, e := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.FromCommitID)
+		var e error
+		from, e = repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.FromCommitID)
 		if e != nil {
 			return e
 		}
 		if e = s.repositoryRequireActiveFiles(storage, project, from.Files, input.DocumentID); e != nil {
 			return e
 		}
-		to, e := repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.ToCommitID)
+		to, e = repositoryLoad[repo.Commit](s.requestContext(), storage, project, "commit", input.ToCommitID)
 		if e != nil {
 			return e
 		}
 		if e = s.repositoryRequireActiveFiles(storage, project, to.Files, input.DocumentID); e != nil {
 			return e
 		}
-		out, e = s.repositoryCompare(from, to, input.DocumentID)
-		return e
+		files, e := repositoryChangedFiles(from, to, input.DocumentID)
+		if e != nil {
+			return e
+		}
+		// 只在锁内固定不可变引用及内存正文；对象存储读取和解析不占共享写锁或数据库事务。
+		snapshot = &Store{ctx: s.requestContext(), storeState: &storeState{objects: s.objects}}
+		if s.objects == nil && s.repoMemory != nil {
+			snapshot.repoMemory = newRepositoryMemory()
+			bytesRead := 0
+			for _, file := range files {
+				for _, source := range []repo.File{file.before, file.after} {
+					if body, ok := s.repoMemory.blobs[source.ObjectKey]; ok {
+						bytesRead += len(body)
+						if bytesRead > repositoryComparisonByteLimit {
+							return repositoryComparisonSizeError()
+						}
+						snapshot.repoMemory.blobs[source.ObjectKey] = slices.Clone(body)
+					}
+				}
+			}
+		}
+		return nil
 	})
-	return
+	if err != nil {
+		return nil, err
+	}
+	out, err = snapshot.repositoryCompare(from, to, input.DocumentID)
+	if err != nil {
+		return nil, err
+	}
+	// 锁外工作期间允许撤权和删除；返回正文前重新检查当前权限、token 和文档状态。
+	err = s.WithRepositoryRead(actor, project, func(storage repo.Storage) error {
+		if err := s.repositoryRequireActiveFiles(storage, project, from.Files, input.DocumentID); err != nil {
+			return err
+		}
+		return s.repositoryRequireActiveFiles(storage, project, to.Files, input.DocumentID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*repo.Comparison, error) {
-	out := &repo.Comparison{ID: repo.Hash([]byte(from.ProjectID + ":" + from.ID + ":" + to.ID + ":" + documentID + ":source-semantic-v1")), FromCommitID: from.ID, ToCommitID: to.ID, Files: []repo.FileChange{}}
+type repositoryComparisonFile struct {
+	before, after       repo.File
+	hasBefore, hasAfter bool
+}
+
+func repositoryChangedFiles(from, to *repo.Commit, documentID string) ([]repositoryComparisonFile, error) {
 	left, right := map[string]repo.File{}, map[string]repo.File{}
 	ids := map[string]bool{}
 	for _, f := range from.Files {
@@ -52,7 +97,7 @@ func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*re
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	changed := 0
+	files := []repositoryComparisonFile{}
 	for _, key := range keys {
 		if documentID != "" && key != documentID {
 			continue
@@ -60,27 +105,36 @@ func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*re
 		a, aok := left[key]
 		b, bok := right[key]
 		if aok != bok || !repo.EqualFile(a, b) {
-			changed++
+			files = append(files, repositoryComparisonFile{a, b, aok, bok})
 		}
 	}
-	if changed > repositoryComparisonFileLimit {
+	if len(files) > repositoryComparisonFileLimit {
 		return nil, fmt.Errorf("%w: COMPARISON_LIMIT: compare at most %d changed documents per request; select a document to narrow the comparison", ErrFailedPrecondition, repositoryComparisonFileLimit)
 	}
+	return files, nil
+}
+
+func repositoryComparisonSizeError() error {
+	return fmt.Errorf("%w: COMPARISON_LIMIT: comparison source exceeds %d bytes; compare fewer documents or read individual commit content", ErrFailedPrecondition, repositoryComparisonByteLimit)
+}
+
+func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*repo.Comparison, error) {
+	files, err := repositoryChangedFiles(from, to, documentID)
+	if err != nil {
+		return nil, err
+	}
+	out := &repo.Comparison{ID: repo.Hash([]byte(from.ProjectID + ":" + from.ID + ":" + to.ID + ":" + documentID + ":source-semantic-v1")), FromCommitID: from.ID, ToCommitID: to.ID, Files: []repo.FileChange{}}
 	bytesRead := 0
-	for _, key := range keys {
-		if documentID != "" && key != documentID {
-			continue
+	for _, file := range files {
+		if err := s.requestContext().Err(); err != nil {
+			return nil, err
 		}
-		a, aok := left[key]
-		b, bok := right[key]
-		if aok == bok && repo.EqualFile(a, b) {
-			continue
-		}
+		a, b, aok, bok := file.before, file.after, file.hasBefore, file.hasAfter
 		f := b
 		if !bok {
 			f = a
 		}
-		change := repo.FileChange{DocumentID: key, RelativePath: f.RelativePath, DocumentType: f.DocumentType, ChangeType: "modified", SemanticStatus: "not_applicable"}
+		change := repo.FileChange{DocumentID: f.DocumentID, RelativePath: f.RelativePath, DocumentType: f.DocumentType, ChangeType: "modified", SemanticStatus: "not_applicable"}
 		var err error
 		if aok {
 			change.OldContent, err = s.repositoryFileContent(a)
@@ -89,7 +143,7 @@ func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*re
 			}
 			bytesRead += len(change.OldContent)
 			if bytesRead > repositoryComparisonByteLimit {
-				return nil, fmt.Errorf("%w: COMPARISON_LIMIT: comparison source exceeds %d bytes; compare fewer documents or read individual commit content", ErrFailedPrecondition, repositoryComparisonByteLimit)
+				return nil, repositoryComparisonSizeError()
 			}
 		}
 		if bok {
@@ -99,7 +153,7 @@ func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*re
 			}
 			bytesRead += len(change.NewContent)
 			if bytesRead > repositoryComparisonByteLimit {
-				return nil, fmt.Errorf("%w: COMPARISON_LIMIT: comparison source exceeds %d bytes; compare fewer documents or read individual commit content", ErrFailedPrecondition, repositoryComparisonByteLimit)
+				return nil, repositoryComparisonSizeError()
 			}
 		}
 		if !aok {
@@ -135,12 +189,12 @@ func (s *Store) repositoryCompare(from, to *repo.Commit, documentID string) (*re
 			}
 			if valid {
 				change.SemanticStatus = "ready"
-				change.SemanticDiff = s.diffEndpointSetsLocked(key, from.ID, to.ID, format, before, after)
+				change.SemanticDiff = s.diffEndpointSetsLocked(f.DocumentID, from.ID, to.ID, format, before, after)
 			}
 		}
 		out.Files = append(out.Files, change)
 	}
-	return out, nil
+	return out, s.requestContext().Err()
 }
 
 func (s *Store) repositoryValidatePublished(c *repo.Commit) error {

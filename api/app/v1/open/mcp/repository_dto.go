@@ -58,23 +58,44 @@ type mcpRepositoryContent struct {
 }
 
 type mcpRepositoryComparisonFile struct {
-	DocumentID      string      `json:"document_id"`
-	RelativePath    string      `json:"relative_path"`
-	OldRelativePath string      `json:"old_relative_path,omitempty"`
-	ChangeType      string      `json:"change_type"`
-	OldContent      string      `json:"old_content"`
-	NewContent      string      `json:"new_content"`
-	DocumentType    int         `json:"document_type"`
-	SemanticStatus  string      `json:"semantic_status,omitempty"`
-	SemanticDiff    *mcpDiffDTO `json:"semantic_diff,omitempty"`
+	DocumentID      string                   `json:"document_id"`
+	RelativePath    string                   `json:"relative_path"`
+	OldRelativePath string                   `json:"old_relative_path,omitempty"`
+	ChangeType      string                   `json:"change_type"`
+	OldContent      *string                  `json:"old_content,omitempty"`
+	NewContent      *string                  `json:"new_content,omitempty"`
+	SourceDiff      *mcpRepositorySourceDiff `json:"source_diff,omitempty"`
+	DocumentType    int                      `json:"document_type"`
+	SemanticStatus  string                   `json:"semantic_status,omitempty"`
+	SemanticDiff    *mcpDiffDTO              `json:"semantic_diff,omitempty"`
+	SemanticSummary *mcpDiffSummary          `json:"semantic_summary,omitempty"`
+}
+
+type mcpRepositorySourceDiff struct {
+	Hunks        []mcpRepositorySourceHunk `json:"hunks"`
+	AddedLines   int                       `json:"added_lines"`
+	RemovedLines int                       `json:"removed_lines"`
+	HunkCount    int                       `json:"hunk_count"`
+	Truncated    bool                      `json:"truncated"`
+}
+
+type mcpRepositorySourceHunk struct {
+	OldStartLine   int    `json:"old_start_line"`
+	OldLineCount   int    `json:"old_line_count"`
+	NewStartLine   int    `json:"new_start_line"`
+	NewLineCount   int    `json:"new_line_count"`
+	OldContent     string `json:"old_content"`
+	NewContent     string `json:"new_content"`
+	ContentOmitted bool   `json:"content_omitted,omitempty"`
 }
 
 type mcpRepositoryComparison struct {
-	ID            string                        `json:"id"`
-	FromCommitID  string                        `json:"from_commit_id"`
-	ToCommitID    string                        `json:"to_commit_id"`
-	Files         []mcpRepositoryComparisonFile `json:"files"`
-	FilesFiltered bool                          `json:"files_filtered"`
+	ID              string                        `json:"id"`
+	FromCommitID    string                        `json:"from_commit_id"`
+	ToCommitID      string                        `json:"to_commit_id"`
+	Files           []mcpRepositoryComparisonFile `json:"files"`
+	FilesFiltered   bool                          `json:"files_filtered"`
+	ContentIncluded bool                          `json:"content_included"`
 }
 
 type mcpRepositoryRelease struct {

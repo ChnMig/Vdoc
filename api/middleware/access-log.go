@@ -29,11 +29,22 @@ func AccessLog() gin.HandlerFunc {
 				zap.String("app_status", appStatus),
 				zap.Strings("query_keys", httplog.QueryKeys(c.Request.URL.RawQuery)),
 				zap.Int("status", c.Writer.Status()),
+				zap.Int("response_bytes", max(0, c.Writer.Size())),
 				zap.Duration("latency", time.Since(start)),
 				zap.String("client_ip", c.ClientIP()),
 				zap.String("user_agent", c.Request.UserAgent()),
 				zap.String("trace_id", traceIDFromContext(c)),
 				zap.String("error", errText),
+			}
+			if tool := c.GetString(contextkey.MCPTool); tool != "" {
+				fields = append(fields, zap.String("mcp_tool", tool))
+			}
+			for _, key := range []string{contextkey.MCPAuthLatency, contextkey.MCPExecuteLatency, contextkey.MCPAuditLatency} {
+				if value, ok := c.Get(key); ok {
+					if duration, ok := value.(time.Duration); ok {
+						fields = append(fields, zap.Duration(key, duration))
+					}
+				}
 			}
 
 			httplog.GetGinLogger().Info("HTTP access", fields...)

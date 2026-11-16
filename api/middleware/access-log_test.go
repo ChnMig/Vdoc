@@ -8,9 +8,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"vdoc/api/response"
 	"vdoc/config"
+	"vdoc/utils/contextkey"
 	httplog "vdoc/utils/log"
 
 	"github.com/gin-gonic/gin"
@@ -63,6 +65,10 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 	router := gin.New()
 	router.Use(TraceID(), AccessLog(), Recovery())
 	router.POST("/ok", func(c *gin.Context) {
+		c.Set(contextkey.MCPTool, "compare_commits")
+		c.Set(contextkey.MCPAuthLatency, time.Millisecond)
+		c.Set(contextkey.MCPExecuteLatency, 2*time.Millisecond)
+		c.Set(contextkey.MCPAuditLatency, time.Millisecond)
 		response.ReturnSuccess(c)
 	})
 
@@ -103,6 +109,11 @@ func TestAccessLogWritesStructuredSummaryFields(t *testing.T) {
 		`"token"`,
 		`"status": 200`,
 		`"latency":`,
+		`"response_bytes":`,
+		`"mcp_tool": "compare_commits"`,
+		`"mcp_auth_latency":`,
+		`"mcp_execute_latency":`,
+		`"mcp_audit_latency":`,
 		`"client_ip":`,
 		`"user_agent": "access-log-test"`,
 		`"trace_id":`,
