@@ -170,6 +170,53 @@ paths:
       security: [{ DocumentShareAuth: [] }]
       responses:
         "200": { $ref: "#/components/responses/PublicDocumentDownloadResponse" }
+  /api/v1/open/document-shares/{share_id}/versions/{version_id}/images/{asset_id}:
+    parameters:
+      - { $ref: "#/components/parameters/ShareID" }
+      - { $ref: "#/components/parameters/VersionID" }
+      - { $ref: "#/components/parameters/DocumentImageAssetID" }
+    get:
+      tags: [Document Shares]
+      summary: Read a managed image referenced by the allowed published Markdown snapshot.
+      description: Requires the share capability and, for password-protected links, X-Vdoc-Share-Unlock. An image must be an actual Markdown image node in this exact version; code examples, ordinary links, unused uploads and images from another version are unavailable. Fixed shares accept only their pinned version. Parent lifecycle, expiry and revocation are rechecked. Images use an independent rate budget and private object storage is never exposed.
+      operationId: getPublicDocumentShareImage
+      security: [{ DocumentShareAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DocumentImageContentResponse" }
+  /api/v1/private/projects/{project_id}/documents/{document_id}/images:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { $ref: "#/components/parameters/DocumentID" }
+    post:
+      tags: [Documents]
+      summary: Upload a private managed image for a Markdown document.
+      description: Requires Writer membership and an active Markdown document. Decoded PNG, JPEG, GIF or static WebP bytes must not exceed 4 MiB or 40 million pixels; SVG, animated WebP and corrupt images are rejected. Returns a stable vdoc-asset SHA-256 reference for insertion into Markdown, never an object-storage URL. Identical content deduplicates within this document. Uploading alone does not publish an image. Unreferenced uploads are eligible for collection after 24 hours since the last upload; committed historical references are retained until document deletion.
+      operationId: uploadDocumentImage
+      security: [{ JWTAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadDocumentImageRequest" }
+      responses:
+        "200":
+          description: HTTP 200 envelope containing image metadata and a stable reference, or an error envelope.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentImageEnvelope" }
+  /api/v1/private/projects/{project_id}/documents/{document_id}/images/{asset_id}:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { $ref: "#/components/parameters/DocumentID" }
+      - { $ref: "#/components/parameters/DocumentImageAssetID" }
+    get:
+      tags: [Documents]
+      summary: Read a private managed image through current document authorization.
+      description: Requires Reader membership and an active Markdown document. Images belong to one project and document, even when identical bytes occur elsewhere. Responses disable caching and MIME sniffing and use inline Content-Disposition.
+      operationId: getDocumentImage
+      security: [{ JWTAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DocumentImageContentResponse" }
   /api/v1/private/identity/me:
     get:
       tags: [Identity]
@@ -3118,6 +3165,12 @@ components:
       required: true
       schema: { type: string }
       description: Document ID.
+    DocumentImageAssetID:
+      name: asset_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+      description: SHA-256 identity of the image bytes, scoped to the document.
     BranchID:
       name: branch_id
       in: path
@@ -3223,6 +3276,26 @@ components:
       schema: { type: string }
       description: Draft, version, Diff, or Document ID; document context requires context_id equal to document_id.
   responses:
+    DocumentImageContentResponse:
+      description: Authorized original image bytes with no-store, nosniff and inline filename headers. Failures retain HTTP 200 and return the standard JSON error envelope.
+      headers:
+        Cache-Control:
+          schema: { type: string, example: "no-store, max-age=0" }
+        X-Content-Type-Options:
+          schema: { type: string, example: nosniff }
+        Content-Disposition:
+          schema: { type: string }
+      content:
+        image/png:
+          schema: { type: string, format: binary }
+        image/jpeg:
+          schema: { type: string, format: binary }
+        image/gif:
+          schema: { type: string, format: binary }
+        image/webp:
+          schema: { type: string, format: binary }
+        application/json:
+          schema: { $ref: "#/components/schemas/VdocEnvelope" }
     AIChatMessageResponse:
       description: A JSON envelope or negotiated SSE chat response.
       content:
@@ -3267,6 +3340,35 @@ components:
         text/plain:
           schema: { type: string, format: binary }
   schemas:
+    DocumentImageEnvelope:
+      allOf:
+        - { $ref: "#/components/schemas/VdocEnvelope" }
+        - type: object
+          properties:
+            detail: { $ref: "#/components/schemas/DocumentImageAsset" }
+    UploadDocumentImageRequest:
+      type: object
+      required: [filename, content_base64]
+      properties:
+        filename:
+          type: string
+          description: Plain filename, at most 255 UTF-8 bytes, without path separators or control characters.
+        content_base64:
+          type: string
+          format: byte
+          maxLength: 5592408
+          description: Standard padded base64 of at most 4 MiB of validated PNG, JPEG, GIF or static WebP bytes; animated WebP is unsupported.
+    DocumentImageAsset:
+      type: object
+      required: [asset_id, reference, filename, content_type, byte_length, width, height]
+      properties:
+        asset_id: { type: string, pattern: "^[0-9a-f]{64}$" }
+        reference: { type: string, pattern: "^vdoc-asset:[0-9a-f]{64}$" }
+        filename: { type: string }
+        content_type: { type: string, enum: [image/png, image/jpeg, image/gif, image/webp] }
+        byte_length: { type: integer, minimum: 1, maximum: 4194304 }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
     RepositoryDocument:
       type: object
       required: [id, project_id, name, document_type, relative_path, file_name, description, default_branch_id, default_branch_name, status, created_by, created_at, updated_at]
@@ -4030,6 +4132,7 @@ components:
       type: string
       enum:
         - create_document
+        - upload_document_image
         - resolve_ref
         - list_branches
         - create_branch

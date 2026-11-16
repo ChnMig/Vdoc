@@ -105,7 +105,7 @@ func mergeMetadata(base, left, right repo.File) (repo.File, bool) {
 	return result, true
 }
 
-func (s *Store) repositoryMergeFiles(project string, base, left, right []repo.File, uploaded ...*[]string) ([]repo.File, []string, error) {
+func (s *Store) repositoryMergeFiles(storage repo.Storage, project string, base, left, right []repo.File, uploaded ...*[]string) ([]repo.File, []string, error) {
 	b, l, r := map[string]repo.File{}, map[string]repo.File{}, map[string]repo.File{}
 	ids := map[string]bool{}
 	for _, f := range base {
@@ -175,7 +175,7 @@ func (s *Store) repositoryMergeFiles(project string, base, left, right []repo.Fi
 			case bf.ContentHash:
 				merged.ObjectKey = bf.ObjectKey
 			default:
-				merged, e = s.repositoryStoreFile(project, merged, content)
+				merged, e = s.repositoryStoreFile(storage, project, merged, content)
 				for _, keys := range uploaded {
 					*keys = append(*keys, merged.ObjectKey)
 				}
@@ -273,7 +273,7 @@ func (s *Store) RepositoryCreateMerge(actor, project string, input repo.MergeInp
 		if e != nil {
 			return e
 		}
-		files, conflicts, e := s.repositoryMergeFiles(project, base.Files, left.Files, right.Files, &newKeys)
+		files, conflicts, e := s.repositoryMergeFiles(storage, project, base.Files, left.Files, right.Files, &newKeys)
 		if e != nil {
 			return e
 		}
@@ -450,7 +450,7 @@ func (s *Store) RepositoryRevert(actor, project, branchID string, input repo.Rev
 		if e != nil {
 			return e
 		}
-		files, conflicts, e := s.repositoryMergeFiles(project, reverted.Files, head.Files, parent.Files, &newKeys)
+		files, conflicts, e := s.repositoryMergeFiles(storage, project, reverted.Files, head.Files, parent.Files, &newKeys)
 		if e != nil {
 			return e
 		}

@@ -243,7 +243,7 @@ func (s *Store) RepositoryDeleteDocument(actor, project, documentID string, audi
 }
 
 func (s *Store) RepositoryDeleteDocumentWithTypes(actor, project, documentID string, allowedTypes []int, audit ...AuditContext) error {
-	return s.withRepositoryStateWrite(actor, project, MemberRoleAdmin, func(storage repo.Storage) error {
+	err := s.withRepositoryStateWrite(actor, project, MemberRoleAdmin, func(storage repo.Storage) error {
 		document, err := s.repositoryDocumentLocked(storage, project, documentID)
 		if err != nil {
 			return err
@@ -251,10 +251,13 @@ func (s *Store) RepositoryDeleteDocumentWithTypes(actor, project, documentID str
 		if allowedTypes != nil && !slices.Contains(allowedTypes, document.DocumentType) {
 			return ErrPermissionDenied
 		}
+		now := time.Now().UTC()
+		if err = s.repositoryMarkDocumentImagesDeleted(storage, project, documentID, now); err != nil {
+			return err
+		}
 		if document.Status != DocumentStatusActive {
 			return nil
 		}
-		now := time.Now().UTC()
 		// 兼容只由仓库路径推导出的旧目录，删除最后一篇文档也必须保留父链。
 		if _, err = s.ensureDocumentParentFoldersLocked(actor, project, document.RelativePath, now); err != nil {
 			return err
@@ -269,4 +272,8 @@ func (s *Store) RepositoryDeleteDocumentWithTypes(actor, project, documentID str
 		s.auditLocked(auditContext(audit), AuditActorUser, actor, "document.delete", "document", document.ID, project, "", auditMetadata("result", "success", "document_id", document.ID, "relative_path", document.RelativePath))
 		return nil
 	})
+	if err == nil {
+		s.repositoryCleanupDeletedDocumentImages(project)
+	}
+	return err
 }

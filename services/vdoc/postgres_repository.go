@@ -440,6 +440,9 @@ func sortedSetValues(values map[string]struct{}) []string {
 }
 
 func (p *postgresPersistence) saveDocumentWorkflowLocked(ctx context.Context, store *Store, repo documentMutationRepository) error {
+	if err := store.validateLegacyImageDrafts(ctx, repo); err != nil {
+		return err
+	}
 	var persistedDocuments map[string]*domainvdoc.APIService
 	var persistedBranches map[string]*domainvdoc.ContractBranch
 	var persistedDrafts map[string]*domainvdoc.ContractDraft

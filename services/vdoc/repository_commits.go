@@ -267,13 +267,18 @@ func (s *Store) RepositoryContent(actor, project, commitID, documentID string) (
 	return
 }
 
-func (s *Store) repositoryStoreFile(project string, file repo.File, content string) (repo.File, error) {
+func (s *Store) repositoryStoreFile(storage repo.Storage, project string, file repo.File, content string) (repo.File, error) {
 	file.ObjectKey = ""
 	if !utf8.ValidString(content) {
 		return file, fmt.Errorf("%w: content must be valid UTF-8", ErrInvalidArgument)
 	}
 	if err := validateStoredObjectWriteSize(len(content)); err != nil {
 		return file, err
+	}
+	if file.DocumentType == DocumentTypeMarkdown {
+		if err := s.validateDocumentImageReferences(storage, project, file.DocumentID, content); err != nil {
+			return file, err
+		}
 	}
 	file.ContentHash = repo.Hash([]byte(content))
 	file.ObjectKey = fmt.Sprintf("projects/%s/repository/%s/%s", project, id.GenerateID(), file.ContentHash)
@@ -438,7 +443,7 @@ func (s *Store) repositorySave(actor, project, branchID string, input repo.SaveI
 			if old, ok := files[change.DocumentID]; ok && old.ContentHash == f.ContentHash {
 				f.ObjectKey = old.ObjectKey
 			} else {
-				f, e = s.repositoryStoreFile(project, f, change.Content)
+				f, e = s.repositoryStoreFile(storage, project, f, change.Content)
 				newKeys = append(newKeys, f.ObjectKey)
 				if e != nil {
 					return e

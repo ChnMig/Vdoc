@@ -140,7 +140,7 @@ func (s *Store) RepositoryBootstrap(actor, project string) (out []repo.Branch, e
 			}
 			if key == "" {
 				var e error
-				f, e = s.repositoryStoreFile(project, f, content)
+				f, e = s.repositoryStoreFile(storage, project, f, content)
 				newKeys = append(newKeys, f.ObjectKey)
 				if e != nil {
 					return nil, e

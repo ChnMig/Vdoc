@@ -74,7 +74,7 @@ func (s *Store) RepositoryResolveMerge(actor, project, requestID string, input r
 				}
 			}
 			if files[i].ObjectKey == "" {
-				files[i], e = s.repositoryStoreFile(project, files[i], input.Files[i].Content)
+				files[i], e = s.repositoryStoreFile(storage, project, files[i], input.Files[i].Content)
 				newKeys = append(newKeys, files[i].ObjectKey)
 				if e != nil {
 					return e

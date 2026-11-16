@@ -225,6 +225,11 @@ func (s *Store) persistMarkdownObjectLocked(projectID, documentID, branchID, own
 	if err := validateStoredObjectWriteSize(len(content)); err != nil {
 		return "", domainvdoc.ObjectRef{}, err
 	}
+	if document := s.apiServices[documentID]; document != nil && document.DocumentType == DocumentTypeMarkdown {
+		if err := s.validateDocumentImageReferences(s.repositoryStorageLocked(), projectID, documentID, content); err != nil {
+			return "", domainvdoc.ObjectRef{}, err
+		}
+	}
 	ownerCollection := ownerType + "s"
 	extension, format, contentType := textObjectMetadata(s.apiServices[documentID])
 	key := newObjectWriteKey(projectID, documentID, branchID, ownerType, ownerID, kind, hash, extension)

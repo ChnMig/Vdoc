@@ -8,13 +8,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"go.yaml.in/yaml/v3"
 
 	"vdoc/api/app/v1/open"
@@ -221,12 +224,11 @@ func TestAPIDocsDescribeIndependentFileNamesAndFolders(t *testing.T) {
 
 func TestAPIDocsMarkdownLinks(t *testing.T) {
 	files := []string{"API.md", "../../README.md", "../../README.zh-CN.md"}
-	linkPattern := regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
 	for _, markdownPath := range files {
 		body := readDocsMarkdown(t, markdownPath)
 		baseDirectory := filepath.Dir(markdownPath)
-		for _, match := range linkPattern.FindAllStringSubmatch(body, -1) {
-			link := strings.TrimSpace(match[1])
+		for _, destination := range docsMarkdownLinkTargets(body) {
+			link := strings.TrimSpace(destination)
 			if skipDocsLink(link) {
 				continue
 			}
@@ -244,6 +246,34 @@ func TestAPIDocsMarkdownLinks(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestAPIDocsMarkdownLinkTargets(t *testing.T) {
+	body := "`![caption](vdoc-asset:<sha256>)`\n\n" +
+		"```md\n[example](ignored.md)\n```\n\n" +
+		"[local](missing.md)\n\n![image](missing.png)\n\n" +
+		"[reference][guide]\n\n[guide]: missing-guide.md\n"
+	want := []string{"missing.md", "missing.png", "missing-guide.md"}
+	if got := docsMarkdownLinkTargets(body); !slices.Equal(got, want) {
+		t.Fatalf("Markdown link targets = %v, want %v", got, want)
+	}
+}
+
+func docsMarkdownLinkTargets(body string) []string {
+	var links []string
+	document := goldmark.New().Parser().Parse(text.NewReader([]byte(body)))
+	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			switch link := node.(type) {
+			case *ast.Link:
+				links = append(links, string(link.Destination))
+			case *ast.Image:
+				links = append(links, string(link.Destination))
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return links
 }
 
 func TestAPIDocsExampleSmoke(t *testing.T) {

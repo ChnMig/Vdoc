@@ -59,6 +59,7 @@ type requestBodyContract struct {
 }
 
 var requestBodyContracts = map[string]requestBodyContract{
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/images":                                  {required: true, schemaRef: "#/components/schemas/UploadDocumentImageRequest"},
 	"PUT /api/v1/private/system/audit-retention":                                                                 {required: true, schemaRef: "#/components/schemas/AuditRetentionSettings"},
 	"POST /api/v1/open/auth/register":                                                                            {required: true, schemaRef: "#/components/schemas/AuthRequest"},
 	"POST /api/v1/open/auth/login":                                                                               {required: true, schemaRef: "#/components/schemas/AuthRequest"},
@@ -113,6 +114,7 @@ var requestBodyContracts = map[string]requestBodyContract{
 }
 
 var repositoryResponseSchemas = map[string]string{
+	"POST /api/v1/private/projects/{project_id}/documents/{document_id}/images":                                                    "#/components/schemas/DocumentImageEnvelope",
 	"GET /api/v1/private/projects/{project_id}/repository/ai/analyses":                                                             "#/components/schemas/RepositoryAnalysesEnvelope",
 	"GET /api/v1/private/projects/{project_id}/repository/ai/analyses/{analysis_id}":                                               "#/components/schemas/RepositoryAnalysisEnvelope",
 	"GET /api/v1/private/projects/{project_id}/repository/branches":                                                                "#/components/schemas/RepositoryBranchListEnvelope",
@@ -174,6 +176,7 @@ func init() {
 
 var requiredMCPTools = []string{
 	"create_document",
+	"upload_document_image",
 	"resolve_ref",
 	"list_branches",
 	"create_branch",
@@ -262,6 +265,30 @@ func TestOpenAPISpecMatchesRegisteredRoutes(t *testing.T) {
 		case "GET /api/v1/open/document-shares/{share_id}/versions/{version_id}/download":
 			if response != "#/components/responses/PublicDocumentDownloadResponse" {
 				t.Fatalf("%s response = %q", key, response)
+			}
+		case "GET /api/v1/private/projects/{project_id}/documents/{document_id}/images/{asset_id}", "GET /api/v1/open/document-shares/{share_id}/versions/{version_id}/images/{asset_id}":
+			if response != "#/components/responses/DocumentImageContentResponse" {
+				t.Fatalf("%s response = %q, want authorized image bytes or error envelope", key, response)
+			}
+			components := asMap(t, root["components"], "components")
+			responses := asMap(t, components["responses"], "responses")
+			image := asMap(t, responses["DocumentImageContentResponse"], "DocumentImageContentResponse")
+			content := asMap(t, image["content"], "image content")
+			for _, mime := range []string{"image/png", "image/jpeg", "image/gif", "image/webp"} {
+				media := asMap(t, content[mime], mime)
+				schema := asMap(t, media["schema"], mime+" schema")
+				if schema["type"] != "string" || schema["format"] != "binary" {
+					t.Fatalf("%s must describe raw image bytes", mime)
+				}
+			}
+			jsonContent := asMap(t, content["application/json"], "image JSON error")
+			jsonSchema := asMap(t, jsonContent["schema"], "image error schema")
+			if jsonSchema["$ref"] != "#/components/schemas/VdocEnvelope" {
+				t.Fatal("image errors must retain the Vdoc envelope")
+			}
+			headers := asMap(t, image["headers"], "image headers")
+			for _, header := range []string{"Cache-Control", "X-Content-Type-Options", "Content-Disposition"} {
+				asMap(t, headers[header], header)
 			}
 		case "POST /api/v1/open/mcp":
 			if response != "#/components/responses/MCPJSONRPCResponse" {
@@ -374,8 +401,8 @@ func assertMCPToolEnum(t *testing.T) {
 
 func assertRequestBodyContracts(t *testing.T, operations map[string]map[string]map[string]any) {
 	t.Helper()
-	if len(requestBodyContracts) != 62 {
-		t.Fatalf("request body route contract count = %d, want 62", len(requestBodyContracts))
+	if len(requestBodyContracts) != 63 {
+		t.Fatalf("request body route contract count = %d, want 63", len(requestBodyContracts))
 	}
 
 	found := make(map[string]struct{}, len(requestBodyContracts))

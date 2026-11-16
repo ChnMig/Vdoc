@@ -62,7 +62,7 @@ func (s *Store) repositoryImportLegacyDocument(storage repo.Storage, scoped docu
 		}
 		if f.ObjectKey == "" || s.persistence == nil && s.objects == nil {
 			var err error
-			f, err = s.repositoryStoreFile(project, f, snap.content)
+			f, err = s.repositoryStoreFile(storage, project, f, snap.content)
 			*uploads = append(*uploads, f.ObjectKey)
 			if err != nil {
 				return err

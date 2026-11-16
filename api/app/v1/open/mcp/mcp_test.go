@@ -240,6 +240,7 @@ func TestMCPJSONRPCToolsListUsesDocumentRepositoryTools(t *testing.T) {
 	}
 
 	required := map[string]bool{
+		"upload_document_image":  false,
 		"list_teams":             false,
 		"list_projects":          false,
 		"list_documents":         false,

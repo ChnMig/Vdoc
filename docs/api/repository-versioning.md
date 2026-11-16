@@ -16,6 +16,16 @@
 
 `GET /commits/:commit_id` 返回完整文件元数据；`GET /commits/:commit_id/documents/:document_id/content` 返回经过 SHA-256 校验的原始 UTF-8 内容。CRLF、末尾换行和空内容保持原样，不经过文档格式化器。存储对象键不出现在对外 DTO 中。
 
+## Markdown 图片
+
+先在项目中创建文档，再通过 `POST /api/v1/private/projects/:project_id/documents/:document_id/images` 上传 `{filename,content_base64}`，或通过 MCP 的 `upload_document_image` 上传。远端 MCP 只接收图片字节，stdio 适配器可以读取本地文件并转换。接口返回稳定引用 `vdoc-asset:<sha256>`，将 `![说明](vdoc-asset:…)` 插入正文后正常提交。上传本身不产生提交，也不公开图片。保存时在同一项目事务内校验图片属于当前文档且仍可用。
+
+支持经过实际解码验证的 PNG、JPEG、GIF、静态 WebP；暂不支持动态 WebP。单张最多 4 MiB、4,000 万像素；不接受 SVG 或损坏图片。需要 Markdown 文档写权限；同文档相同字节去重。预览始终经过 Vdoc 认证读取，正文不保存私有对象键或临时 URL。
+
+公开图片走 `/api/v1/open/document-shares/:share_id/versions/:version_id/images/:asset_id`，沿用分享密钥、口令、过期及撤销校验。只有固定公开版本中的真实图片节点才允许读取，代码示例和单纯上传的图片不能借分享访问；新提交的图片不会扩展旧分享。
+
+删除当前正文引用不会破坏不可变历史。后台保留所有提交、旧版草稿/正式版和合并候选仍引用的图片，每分钟清理最近一次上传已超过 24 小时且无引用的图片；重新上传会续期。归档保留图片。实际删除文档提交成功后，立即尝试物理删除其图片并持久化重试失败项；清理不会在事务回滚或提交结果未知时误删已保存图片。
+
 ## 对比、审核、合并和撤销
 
 `POST /comparisons` 接受两个固定提交与可选的 `document_id`，提供原文差异和 OpenAPI 语义差异。无效 OpenAPI 可以保存和查看原文，语义状态为 `invalid`，审核或发布会拒绝它。Beta 每次对比最多 100 个有变化的文件、累计 8 MiB 的旧/新原文；超过时明确返回 `COMPARISON_LIMIT`，不截断结果。

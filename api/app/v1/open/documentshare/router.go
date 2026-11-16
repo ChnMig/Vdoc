@@ -25,6 +25,7 @@ func RegisterOpenRoutes(open *gin.RouterGroup) {
 	g.GET("/versions", versions)
 	g.GET("/versions/:version_id/content", content)
 	g.GET("/versions/:version_id/download", download)
+	g.GET("/versions/:version_id/images/:asset_id", image)
 }
 
 func metadata(c *gin.Context) {
@@ -75,6 +76,17 @@ func publicShareRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 		shareID := c.Param("share_id")
+		if c.Param("asset_id") != "" {
+			// 图片读取使用独立配额，不消耗正文或密码解锁的限流预算。
+			if !middleware.AllowRateLimit(40, 120, "document-share-image-ip:"+clientIP) ||
+				!middleware.AllowRateLimit(20, 100, "document-share-image:"+shareID+":"+clientIP) {
+				returnUnavailable(c)
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
 		if !middleware.AllowRateLimit(10, 30, "document-share-public-ip:"+clientIP) ||
 			!middleware.AllowRateLimit(5, 15, "document-share-public:"+shareID+":"+clientIP) {
 			returnUnavailable(c)

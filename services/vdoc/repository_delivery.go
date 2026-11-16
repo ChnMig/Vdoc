@@ -232,12 +232,17 @@ func (s *Store) InitRepositoryAutomation() error {
 		defer close(runner.done)
 		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
+		nextImageSweep := time.Time{}
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				s.WithContext(ctx).repositoryDrainProjects()
+			case now := <-ticker.C:
+				sweepImages := !now.Before(nextImageSweep)
+				s.WithContext(ctx).repositoryDrainProjects(sweepImages)
+				if sweepImages {
+					nextImageSweep = now.Add(documentImageSweepInterval)
+				}
 			}
 		}
 	}()
@@ -252,7 +257,7 @@ func (s *Store) StopRepositoryAutomation() {
 	}
 }
 
-func (s *Store) repositoryDrainProjects() {
+func (s *Store) repositoryDrainProjects(sweepDocumentImages bool) {
 	s.mu.Lock()
 	if err := s.refreshLocked(); err != nil {
 		s.mu.Unlock()
@@ -278,6 +283,11 @@ func (s *Store) repositoryDrainProjects() {
 			return
 		}
 		_ = s.repositoryExpireAnalyses(projectID)
+		now := time.Now().UTC()
+		if sweepDocumentImages {
+			_ = s.repositorySweepDocumentImages(projectID, now)
+		}
+		_ = s.repositoryDrainDocumentImageGC(projectID, now)
 		if actorID := actors[projectID]; actorID != "" {
 			_ = s.RepositoryDrainDeliveries(actorID, projectID)
 		}

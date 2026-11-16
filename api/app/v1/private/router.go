@@ -7,6 +7,7 @@ import (
 	"vdoc/api/app/v1/private/diff"
 	"vdoc/api/app/v1/private/document"
 	"vdoc/api/app/v1/private/documentfolder"
+	"vdoc/api/app/v1/private/documentimage"
 	"vdoc/api/app/v1/private/documentshare"
 	"vdoc/api/app/v1/private/draft"
 	"vdoc/api/app/v1/private/endpoint"
@@ -43,6 +44,7 @@ func RegisterRoutes(private *gin.RouterGroup) {
 	member.RegisterRoutes(private)
 	document.RegisterRoutes(private)
 	documentfolder.RegisterRoutes(private)
+	documentimage.RegisterRoutes(private)
 	documentshare.RegisterRoutes(private)
 	branch.RegisterRoutes(private)
 	draft.RegisterRoutes(private)
