@@ -44,6 +44,8 @@ func TestPostgresParserHistoryAndTargetedAuthentication(t *testing.T) {
 	}
 	defer app.CloseDefaultStore()
 	store := app.DefaultStore()
+	// 隔离定时后台刷新，确保后面的全局加载计数只度量当前请求。
+	store.StopRepositoryAutomation()
 	user, err := store.Register("parser@example.test", "Parser", "Parser-test-password-2026!")
 	if err != nil {
 		t.Fatal(err)
